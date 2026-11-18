@@ -1,0 +1,53 @@
+# Nod configuration.
+# Location: Windows %APPDATA%\nod\config.toml, macOS ~/Library/Application Support/nod/config.toml,
+# Linux ~/.config/nod/config.toml. The app writes it for you (Settings). Hand edits work too; they take
+# effect the next time the app starts.
+#
+# Repository patterns used below: "owner/repo", "owner/*" (a whole user or organisation), "*/repo", "*",
+# and "@me" for your own GitHub login, e.g. "@me/*". Matching is case-insensitive.
+
+# Language of review comments and notifications: "zh-CN" or "en".
+language = "en"
+
+[review]
+claude = "claude"            # Claude Code executable
+claude_config_dir = ""       # CLAUDE_CONFIG_DIR for a non-default Claude Code profile
+model = ""                   # empty = Claude Code's default model
+timeout_min = 25
+max_attempts = 2
+ci_wait_max_min = 60         # a clean verdict waits this long for running CI before posting
+ci_none_grace_min = 10       # a repository with no checks at all is treated as passing after this long
+rereview_days = 14           # re-review PRs you already reviewed when new commits arrive, for this many days
+
+# Which pull requests get reviewed.
+[scope]
+repos = []                   # only these, e.g. ["my-org/*", "@me/*"]; empty = every repository you are asked in
+exclude_repos = []           # e.g. ["my-org/infra-secrets"]
+team_requests = false        # also review PRs that request a review from a team you belong to
+
+# When an approval may be posted. The quality rules always apply first (no high-severity issue, no medium issue
+# introduced by the PR, CI not failing, not a draft, not your own PR); these lists only narrow it further.
+# A PR outside them still gets a review with comments, never an approval.
+[approve]
+mode = "auto"                # "auto" or "never" (comment only)
+repos = []                   # approve only here, e.g. ["my-org/frontend", "@me/*"]; empty = every reviewed repo
+authors = []                 # approve only PRs by these logins, e.g. ["dependabot[bot]", "alice"]; empty = anyone
+exclude_repos = []
+exclude_authors = []
+
+[daemon]
+poll_seconds = 30
+refresh_seconds = 120
+
+[notify]
+channel = "none"             # "none", "system" (desktop notifications), "feishu" or "webhook"
+
+[notify.feishu]
+app_id = ""
+app_secret = ""              # or set NOD_FEISHU_APP_SECRET
+recipient = ""               # email:you@example.com | open_id:ou_xxx | union_id:on_xxx | user_id:xxx
+domain = "https://open.feishu.cn"   # Lark (international): https://open.larksuite.com
+
+[notify.webhook]
+url = ""
+secret = ""                  # or set NOD_WEBHOOK_SECRET; signs the body with HMAC-SHA256

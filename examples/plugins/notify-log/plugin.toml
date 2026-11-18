@@ -1,0 +1,16 @@
+# A minimal external notification channel: appends every notification to a JSON Lines file.
+# Copy this folder to <config dir>/plugins/notify-log, then enable "Log file" under Plugins → Notifications.
+name = "notify-log"
+kind = "notify"
+display_name = "Log file"
+description = "Appends each notification as one JSON line to a file. An example of the plugin protocol."
+version = "1.0.0"
+# On Windows the launcher is usually `python` or `py`; change the first word if needed.
+command = ["python3", "plugin.py"]
+
+[[settings]]
+key = "path"
+label = "文件路径"
+label_en = "File path"
+required = true
+placeholder = "~/nod-notifications.jsonl"

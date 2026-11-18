@@ -1,0 +1,71 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "nod",
+  "version": "0.1.0",
+  "identifier": "io.github.nod",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:1430",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Nod",
+        "width": 960,
+        "height": 680,
+        "minWidth": 720,
+        "minHeight": 520,
+        "visible": true,
+        "center": true,
+        "create": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "dmg",
+      "app",
+      "appimage",
+      "deb"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Your personal code-review agent",
+    "longDescription": "Reviews the GitHub pull requests you are asked to review on your own machine with Claude Code, approves only by your rules, and keeps you posted.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libayatana-appindicator3-1"
+        ]
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": "-"
+    }
+  }
+}

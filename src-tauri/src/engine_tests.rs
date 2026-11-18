@@ -1,0 +1,727 @@
+//! Review lifecycle and the daemon's concurrency, with GitHub, Claude and notifications replaced by fakes.
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use anyhow::{bail, Result};
+use serde_json::{json, Value};
+
+use crate::config::Config;
+use crate::daemon::Daemon;
+use crate::engine::{Engine, Entry, Store};
+use crate::forge::{DiffLines, Forge, Pr, PrStatus};
+use crate::notify::{ClickIds, Notifier};
+use crate::review::tests::{clean, finding};
+use crate::review::Verdict;
+use crate::reviewer::Reviewer;
+use crate::util;
+
+const HEAD: &str = "aaaaaaa1";
+
+#[derive(Default)]
+struct World {
+    posts: Vec<String>,
+    post_delay_ms: u64,
+    post_fail: bool,
+    checkout_delay_ms: u64,
+    claude_proc: bool,
+    verdict: Option<Verdict>,
+    pr_head: String,
+    pr_author: String,
+    pr_draft: bool,
+    ci: String,
+    requested: Vec<(String, u64)>,
+    reviews: Vec<(u64, String)>,
+    dismissed: Vec<u64>,
+    updates: Vec<(String, String)>,
+    claude_fail: bool,
+}
+
+#[derive(Clone)]
+struct Fake(Arc<Mutex<World>>);
+
+impl Fake {
+    fn w(&self) -> std::sync::MutexGuard<'_, World> {
+        self.0.lock().unwrap()
+    }
+    fn pr(&self) -> Pr {
+        let w = self.w();
+        Pr {
+            repo: "o/r".into(),
+            number: 1,
+            title: "t".into(),
+            author: w.pr_author.clone(),
+            url: "u".into(),
+            head: w.pr_head.clone(),
+            base: "main".into(),
+            draft: w.pr_draft,
+            state: "open".into(),
+            body: String::new(),
+        }
+    }
+}
+
+impl Forge for Fake {
+    fn remote(&self, _repo: &str) -> Result<crate::forge::Remote> {
+        Ok(crate::forge::Remote::Gh {
+            host: String::new(),
+        })
+    }
+
+    fn current_user(&self) -> Result<String> {
+        Ok("me".into())
+    }
+    fn fetch_pr(&self, _: &str, _: u64) -> Result<Pr> {
+        Ok(self.pr())
+    }
+    fn requested_prs(&self, _teams: bool) -> Result<Vec<(String, u64)>> {
+        Ok(self.w().requested.clone())
+    }
+    fn ci_state(&self, _: &Pr) -> Result<String> {
+        Ok(self.w().ci.clone())
+    }
+    fn pr_status(&self, _: &str, _: u64) -> Result<PrStatus> {
+        let p = self.pr();
+        Ok(PrStatus {
+            state: "open".into(),
+            head: p.head,
+            author: p.author,
+            title: "t".into(),
+            url: "u".into(),
+            ..Default::default()
+        })
+    }
+    fn discussion(&self, _: &Pr) -> Result<String> {
+        Ok(String::new())
+    }
+    fn diff_lines(&self, _: &Pr) -> Result<DiffLines> {
+        Ok(DiffLines::from([(
+            "a.py".to_string(),
+            std::collections::HashSet::from([1]),
+        )]))
+    }
+    fn post_review(&self, _: &Pr, review: &Value) -> Result<(String, u64)> {
+        let (delay, fail) = {
+            let w = self.w();
+            (w.post_delay_ms, w.post_fail)
+        };
+        thread::sleep(Duration::from_millis(delay));
+        if fail {
+            bail!("gh 502");
+        }
+        let mut w = self.w();
+        w.posts.push(review["event"].as_str().unwrap().to_string());
+        Ok((
+            "https://github.com/o/r/pull/1#r".into(),
+            w.posts.len() as u64,
+        ))
+    }
+    fn list_reviews(&self, _: &Pr) -> Result<Vec<(u64, String)>> {
+        Ok(self.w().reviews.clone())
+    }
+    fn dismiss_review(&self, _: &Pr, id: u64, _: &str) -> Result<()> {
+        self.w().dismissed.push(id);
+        Ok(())
+    }
+}
+
+impl Reviewer for Fake {
+    fn checkout(&self, _: &Pr) -> Result<(PathBuf, PathBuf)> {
+        let d = self.w().checkout_delay_ms;
+        thread::sleep(Duration::from_millis(d));
+        Ok(("wt".into(), "ctx".into()))
+    }
+    fn ask(&self, _: &Config, pr: &Pr, _: &Path, _: &Path, _: &str) -> Result<Verdict> {
+        let (proc_, fail) = {
+            let w = self.w();
+            (w.claude_proc, w.claude_fail)
+        };
+        if fail {
+            bail!("boom");
+        }
+        if proc_ {
+            // a real child process, so "Approve now" has something to kill
+            let sleeper: Vec<&str> = if cfg!(windows) {
+                vec!["powershell", "-NoProfile", "-Command", "Start-Sleep 20"]
+            } else {
+                vec!["sleep", "20"]
+            };
+            let key = pr.key();
+            util::run(
+                &sleeper,
+                util::RunOpts {
+                    track: Some(&key),
+                    timeout: Duration::from_secs(60),
+                    ..Default::default()
+                },
+            )?;
+        } else {
+            thread::sleep(Duration::from_millis(30));
+        }
+        Ok(self.w().verdict.clone().unwrap())
+    }
+    fn cleanup(&self, _: &Pr, _: &Path) {}
+}
+
+impl Notifier for Fake {
+    fn update(&self, _: &str, e: &mut Entry, _: Option<&PrStatus>) -> Result<bool> {
+        let kind = e.note.as_ref().map(|n| n.kind.clone()).unwrap_or_default();
+        self.w().updates.push((e.status.clone(), kind));
+        e.message_id = "om_1".into();
+        Ok(true)
+    }
+    fn supports_actions(&self) -> bool {
+        true
+    }
+    fn may_act(&self, ids: &ClickIds, _: &Entry) -> bool {
+        ids.open_id == "me-id"
+    }
+    fn render_for(&self, _: &str, e: &Entry, _: Option<&PrStatus>) -> Option<Value> {
+        Some(json!({"busy": e.direct_busy}))
+    }
+}
+
+fn bad() -> Verdict {
+    let mut v = clean();
+    v.summary = "bad".into();
+    v.approve_recommended = false;
+    v.findings = vec![finding("high", true, 1)];
+    v
+}
+
+fn setup() -> (Fake, Arc<Engine>, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let f = Fake(Arc::new(Mutex::new(World {
+        post_delay_ms: 50,
+        pr_head: HEAD.into(),
+        pr_author: "alice".into(),
+        ci: "success".into(),
+        verdict: Some(bad()),
+        ..Default::default()
+    })));
+    let engine = Engine {
+        cfg: Config::default(),
+        store: Arc::new(Store::open(Some(dir.path().join("state.json"))).unwrap()),
+        me: "me".into(),
+        forge: Arc::new(f.clone()),
+        reviewer: Arc::new(f.clone()),
+        notifier: Arc::new(f.clone()),
+    };
+    (f, Arc::new(engine), dir)
+}
+
+fn e(engine: &Engine) -> Entry {
+    engine.store.get("o/r#1").unwrap_or_default()
+}
+
+fn wait_for(cond: impl Fn() -> bool) {
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(10) && !cond() {
+        thread::sleep(Duration::from_millis(30));
+    }
+}
+
+#[test]
+fn issues_are_commented_not_approved() {
+    let (f, en, _d) = setup();
+    en.review_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
+    assert_eq!(e(&en).status, "posted");
+    assert_eq!(e(&en).reasons, vec!["high", "model_not_recommended"]);
+    assert_eq!(f.w().updates.last().unwrap().1, "comment");
+}
+
+#[test]
+fn clean_pr_is_approved_and_remembered() {
+    let (f, en, _d) = setup();
+    f.w().verdict = Some(clean());
+    en.review_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
+    assert_eq!(e(&en).approve_ids, vec![1]);
+}
+
+#[test]
+fn failure_retries_then_notifies() {
+    let (f, en, _d) = setup();
+    f.w().claude_fail = true;
+    en.review_one(&f.pr());
+    assert_eq!(e(&en).status, "retry");
+    en.review_one(&f.pr());
+    assert_eq!(e(&en).status, "failed");
+    assert_eq!(f.w().updates.last().unwrap().1, "manual");
+    assert!(f.w().posts.is_empty());
+}
+
+#[test]
+fn post_failure_keeps_verdict_then_gives_up() {
+    let (f, en, _d) = setup();
+    f.w().post_fail = true;
+    en.review_one(&f.pr());
+    assert_eq!(
+        (e(&en).status.as_str(), e(&en).post_attempts),
+        ("reviewed", 1)
+    );
+    en.finish_safe("o/r#1");
+    assert_eq!(e(&en).status, "failed");
+}
+
+#[test]
+fn clean_waits_for_ci() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        w.verdict = Some(clean());
+        w.ci = "pending".into();
+    }
+    en.review_one(&f.pr());
+    assert_eq!(e(&en).status, "awaiting_ci");
+    assert!(f.w().posts.is_empty());
+    f.w().ci = "success".into();
+    en.finish_safe("o/r#1");
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
+}
+
+#[test]
+fn new_commit_during_review_discards_verdict() {
+    let (f, en, _d) = setup();
+    let pr = f.pr();
+    f.w().pr_head = "bbbbbbb2".into();
+    en.review_one(&pr);
+    assert_eq!(e(&en).status, "stale");
+    assert!(f.w().posts.is_empty());
+}
+
+#[test]
+fn secret_in_review_is_blocked() {
+    let (f, en, _d) = setup();
+    let mut v = bad();
+    v.summary = format!("token gho_{}", "a".repeat(36));
+    f.w().verdict = Some(v);
+    en.review_one(&f.pr());
+    assert_eq!(e(&en).status, "failed");
+    assert!(f.w().posts.is_empty());
+}
+
+#[test]
+fn withdraws_only_own_earlier_approval() {
+    let (f, en, _d) = setup();
+    en.store.with("o/r#1", |e| e.approve_ids = vec![7]);
+    f.w().reviews = vec![(7, "APPROVED".into()), (8, "APPROVED".into())];
+    en.review_one(&f.pr());
+    assert_eq!(f.w().dismissed, vec![7]);
+    assert!(e(&en).approve_ids.is_empty());
+}
+
+#[test]
+fn collect_todo_and_rereview() {
+    let (f, en, _d) = setup();
+    f.w().requested = vec![("o/r".into(), 1)];
+    assert_eq!(en.collect_todo().unwrap().len(), 1);
+    en.review_one(&f.pr());
+    assert!(en.collect_todo().unwrap().is_empty()); // same commit: not again
+    {
+        let mut w = f.w();
+        w.pr_head = "ccccccc3".into();
+        w.requested.clear();
+    }
+    assert_eq!(en.collect_todo().unwrap()[0].head, "ccccccc3"); // new commit: again
+}
+
+#[test]
+fn draft_is_skipped_without_losing_state() {
+    let (f, en, _d) = setup();
+    en.review_one(&f.pr());
+    {
+        let mut w = f.w();
+        w.pr_head = "d2".into();
+        w.pr_draft = true;
+    }
+    assert!(en.collect_todo().unwrap().is_empty());
+    assert_eq!(e(&en).status, "posted");
+    f.w().pr_draft = false;
+    assert_eq!(en.collect_todo().unwrap()[0].head, "d2");
+}
+
+#[test]
+fn deny_list() {
+    let (f, en, _d) = setup();
+    f.w().requested = vec![("o/r".into(), 1)];
+    let mut cfg = en.cfg.clone();
+    cfg.scope.exclude_repos = vec!["O/*".into()];
+    let en2 = Engine {
+        cfg,
+        store: en.store.clone(),
+        me: "me".into(),
+        forge: en.forge.clone(),
+        reviewer: en.reviewer.clone(),
+        notifier: en.notifier.clone(),
+    };
+    assert!(en2.collect_todo().unwrap().is_empty());
+}
+
+// ---------------------------------------------------------------- daemon: "Approve now"
+
+fn daemon(en: &Arc<Engine>) -> Arc<Daemon> {
+    let en2 = Engine {
+        cfg: en.cfg.clone(),
+        store: en.store.clone(),
+        me: en.me.clone(),
+        forge: en.forge.clone(),
+        reviewer: en.reviewer.clone(),
+        notifier: en.notifier.clone(),
+    };
+    let d = Daemon::for_account("github", en2);
+    d.start_worker();
+    d
+}
+
+fn click(d: &Arc<Daemon>, who: &str) -> Result<Option<Value>> {
+    d.on_action(
+        json!({"action": "approve", "key": "o/r#1", "sha": HEAD}),
+        ClickIds {
+            open_id: who.into(),
+            ..Default::default()
+        },
+    )
+}
+
+#[test]
+fn click_during_checkout_stops_review() {
+    let (f, en, _d) = setup();
+    f.w().checkout_delay_ms = 1000;
+    let d = daemon(&en);
+    d.enqueue(f.pr());
+    wait_for(|| e(&en).status == "reviewing");
+    click(&d, "me-id").unwrap();
+    thread::sleep(Duration::from_millis(2000));
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
+    assert_eq!(e(&en).status, "direct_approved");
+}
+
+#[test]
+fn click_while_claude_runs_kills_it() {
+    let (f, en, _d) = setup();
+    f.w().claude_proc = true;
+    let d = daemon(&en);
+    d.enqueue(f.pr());
+    wait_for(|| util::abort_target_exists("o/r#1"));
+    assert!(util::abort_target_exists("o/r#1"));
+    let start = Instant::now();
+    click(&d, "me-id").unwrap();
+    wait_for(|| e(&en).status == "direct_approved" && !util::abort_target_exists("o/r#1"));
+    thread::sleep(Duration::from_millis(300));
+    assert!(
+        start.elapsed() < Duration::from_secs(10),
+        "the 20 s child was not killed"
+    );
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
+    assert!(e(&en).aborted_review);
+}
+
+#[test]
+fn double_click_approves_once() {
+    let (f, en, _d) = setup();
+    en.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.status = "posted".into();
+    });
+    let d = daemon(&en);
+    assert_eq!(click(&d, "me-id").unwrap(), Some(json!({"busy": true})));
+    click(&d, "me-id").unwrap();
+    thread::sleep(Duration::from_millis(500));
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
+}
+
+#[test]
+fn failed_approve_lets_review_continue() {
+    let (f, en, _d) = setup();
+    f.w().post_fail = true;
+    en.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.status = "queued".into();
+    });
+    let d = daemon(&en);
+    click(&d, "me-id").unwrap();
+    thread::sleep(Duration::from_millis(400));
+    assert!(!e(&en).aborted);
+    assert!(e(&en).action_msg.contains("失败"));
+    f.w().post_fail = false;
+    d.work_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
+}
+
+#[test]
+fn head_moved_or_own_pr_or_stranger_is_refused() {
+    let (f, en, _d) = setup();
+    en.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.status = "posted".into();
+    });
+    let d = daemon(&en);
+    assert!(click(&d, "someone-else").is_err());
+    f.w().pr_head = "zzzzzzz9".into();
+    click(&d, "me-id").unwrap();
+    thread::sleep(Duration::from_millis(400));
+    assert!(e(&en).action_msg.contains("zzzzzzz"));
+    f.w().pr_head = HEAD.into();
+    f.w().pr_author = "me".into();
+    click(&d, "me-id").unwrap();
+    thread::sleep(Duration::from_millis(400));
+    assert!(f.w().posts.is_empty());
+}
+
+#[test]
+fn awaiting_ci_and_click_do_not_interleave() {
+    let (f, en, _d) = setup();
+    en.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.status = "awaiting_ci".into();
+        e.verdict = Some(bad());
+        e.reviewed_at = util::now() - 30.0;
+    });
+    f.w().post_delay_ms = 300;
+    let d = daemon(&en);
+    let en2 = en.clone();
+    let t = thread::spawn(move || en2.finish_safe("o/r#1"));
+    thread::sleep(Duration::from_millis(50));
+    click(&d, "me-id").unwrap();
+    t.join().unwrap();
+    thread::sleep(Duration::from_millis(800));
+    assert_eq!(f.w().posts, vec!["COMMENT", "APPROVE"]);
+    assert_eq!(e(&en).status, "direct_approved");
+}
+
+#[test]
+fn restart_requeues_unfinished() {
+    let (f, en, _d) = setup();
+    en.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.status = "reviewing".into();
+    });
+    let d = daemon(&en);
+    d.requeue_unfinished();
+    wait_for(|| e(&en).status == "posted");
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
+}
+
+#[test]
+fn state_with_nulls_and_unknown_fields_loads() {
+    let s = crate::engine::parse_state(r#"{"prs":{"a/b#1":{"status":"posted","reasons":null,"event":null,"future_field":1,
+        "verdict":{"summary":"s","findings":[],"approve_recommended":true,"unable_reason":"","_meta":{"duration_s":3,"cost_usd":null}}}}}"#)
+        .unwrap();
+    let e = &s.prs["a/b#1"];
+    assert_eq!(e.status, "posted");
+    assert!(e.reasons.is_empty() && e.extra.contains_key("future_field"));
+}
+
+/// Regression (found in review): a commit pushed while an older one is being reviewed must not receive the old
+/// verdict. The old review's result is dropped and the new commit stays queued for its own review.
+#[test]
+fn new_commit_enqueued_during_review_is_not_approved_with_old_verdict() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        w.verdict = Some(clean());
+        w.checkout_delay_ms = 600;
+    }
+    let d = Daemon::for_account(
+        "github",
+        Engine {
+            cfg: en.cfg.clone(),
+            store: en.store.clone(),
+            me: en.me.clone(),
+            forge: en.forge.clone(),
+            reviewer: en.reviewer.clone(),
+            notifier: en.notifier.clone(),
+        },
+    );
+    let old = f.pr();
+    let en2 = en.clone();
+    let t = thread::spawn(move || en2.review_one(&old));
+    thread::sleep(Duration::from_millis(200));
+    f.w().pr_head = "bbbbbbb2".into(); // the poll thread sees a new commit while the old review runs
+    d.enqueue(f.pr());
+    t.join().unwrap();
+    assert!(
+        f.w().posts.is_empty(),
+        "old verdict was posted: {:?}",
+        f.w().posts
+    );
+    let st = e(&en);
+    assert_eq!(
+        (st.status.as_str(), st.sha.as_str()),
+        ("queued", "bbbbbbb2")
+    );
+    assert!(st.verdict.is_none());
+    // and the new commit, once reviewed, gets its own verdict
+    d.work_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
+    assert_eq!(e(&en).verdict_sha, "bbbbbbb2");
+}
+
+#[test]
+fn out_of_scope_verdict_is_not_posted() {
+    let (f, en, _d) = setup();
+    f.w().verdict = Some(clean());
+    en.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.verdict_sha = HEAD.into();
+        e.status = "awaiting_ci".into();
+        e.verdict = Some(clean());
+    });
+    let mut cfg = en.cfg.clone();
+    cfg.scope.exclude_repos = vec!["o/r".into()];
+    let en2 = Engine {
+        cfg,
+        store: en.store.clone(),
+        me: "me".into(),
+        forge: en.forge.clone(),
+        reviewer: en.reviewer.clone(),
+        notifier: en.notifier.clone(),
+    };
+    en2.finish_safe("o/r#1");
+    assert!(f.w().posts.is_empty());
+    assert_eq!(e(&en).status, "out_of_scope");
+}
+
+/// Regression: channels that keep their "already sent" mark in `extra` (desktop, robots, external plugins) must
+/// not announce the same outcome again on every refresh.
+#[test]
+fn robot_channels_announce_an_outcome_once_across_refreshes() {
+    use crate::forge::http::fake;
+    let srv = fake::serve(vec![("POST /hook", 200, "ok".into())]);
+    let (f, _en, dir) = setup();
+    let mut cfg = Config::default();
+    cfg.notify.slack.url = format!("{}/hook", srv.url);
+    let engine = Engine {
+        cfg: cfg.clone(),
+        store: Arc::new(Store::open(Some(dir.path().join("state2.json"))).unwrap()),
+        me: "me".into(),
+        forge: Arc::new(f.clone()),
+        reviewer: Arc::new(f.clone()),
+        notifier: Arc::new(crate::notify::robot::RobotNotifier::new(
+            &cfg,
+            crate::notify::robot::Kind::Slack,
+        )),
+    };
+    engine.store.with("o/r#1", |e| {
+        e.status = "posted".into();
+        e.event = Some("COMMENT".into());
+        e.sha = HEAD.into();
+        e.title = "t".into();
+    });
+    for _ in 0..3 {
+        engine.refresh("o/r#1", None, false);
+    }
+    assert_eq!(
+        srv.seen.lock().unwrap().len(),
+        1,
+        "sent once, not once per refresh"
+    );
+}
+
+/// Regression (code review): after a restart, an entry that could not be re-queued (draft, or the code host was
+/// unreachable) stayed "queued", which counts as handled for its commit, so the PR was never reviewed until a new push.
+#[test]
+fn restart_does_not_strand_entries_that_cannot_be_requeued() {
+    let (f, en, _d) = setup();
+    en.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.status = "queued".into();
+    });
+    f.w().pr_draft = true;
+    f.w().requested = vec![("o/r".into(), 1)];
+    let d = daemon(&en);
+    d.requeue_unfinished();
+    assert_ne!(e(&en).status, "queued");
+    // ready for review again: the next poll picks it up
+    f.w().pr_draft = false;
+    assert_eq!(en.collect_todo().unwrap().len(), 1);
+}
+
+/// Regression (code review): a dry run from the window checked out into the worker's worktree and deleted it.
+#[test]
+fn dry_runs_use_their_own_workspace() {
+    let (f, _en, _d) = setup();
+    let mut cfg = Config::default();
+    let real = crate::daemon::workspace(&cfg, "github", Arc::new(f.clone()));
+    cfg.dry_run = true;
+    let dry = crate::daemon::workspace(&cfg, "github", Arc::new(f.clone()));
+    assert_ne!(real.root, dry.root);
+}
+
+/// Regression (review of the fix): a PR reviewed before and waiting for its new commit, or one only tracked by hand,
+/// must also come back after a restart that could not re-queue it (code host unreachable at sign-in, or a draft).
+#[test]
+fn restart_keeps_reviewed_and_tracked_prs_coming_back() {
+    let (f, en, dir) = setup();
+    en.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.status = "queued".into();
+        e.posted_at = util::now(); // reviewed before: no longer "requested", found again as a recent review
+    });
+    f.w().pr_draft = true;
+    f.w().requested = vec![];
+    let d = daemon(&en);
+    d.requeue_unfinished();
+    f.w().pr_draft = false;
+    assert_eq!(en.collect_todo().unwrap().len(), 1, "recalled");
+
+    // tracked by hand only
+    en.store.with("o/r#1", |e| {
+        e.status = "queued".into();
+        e.posted_at = 0.0;
+    });
+    f.w().pr_draft = true;
+    let track = dir.path().join("track.txt");
+    std::fs::write(&track, "o/r#1\n").unwrap();
+    let en2 = Engine {
+        cfg: en.cfg.clone(),
+        store: en.store.clone(),
+        me: en.me.clone(),
+        forge: en.forge.clone(),
+        reviewer: en.reviewer.clone(),
+        notifier: en.notifier.clone(),
+    };
+    let d2 = Daemon::with_track("github", en2, track);
+    d2.requeue_unfinished();
+    f.w().pr_draft = false;
+    d2.poll_once().unwrap();
+    assert_eq!(e(&en).status, "queued", "tracked PR is queued again");
+}
+
+/// Regression (code review): the poll rewrote track.txt with the lines it had read, so a PR the window appended while
+/// the lookups ran was lost.
+#[test]
+fn tracking_a_pr_during_a_poll_is_not_lost() {
+    let (f, en, dir) = setup();
+    f.w().pr_head = "bbbbbbb2".into();
+    let track = dir.path().join("track.txt");
+    let en2 = Engine {
+        cfg: en.cfg.clone(),
+        store: en.store.clone(),
+        me: en.me.clone(),
+        forge: en.forge.clone(),
+        reviewer: en.reviewer.clone(),
+        notifier: en.notifier.clone(),
+    };
+    let d = Daemon::with_track("github", en2, track.clone());
+    // a poll was interrupted after taking the list aside; meanwhile the window tracked another PR
+    std::fs::write(
+        track.with_extension("polling"),
+        "o/r#1
+",
+    )
+    .unwrap();
+    std::fs::write(
+        &track, "o/r#2
+",
+    )
+    .unwrap();
+    d.poll_once().unwrap();
+    let text = std::fs::read_to_string(&track).unwrap();
+    assert!(text.contains("o/r#1") && text.contains("o/r#2"), "{text}");
+    assert!(!track.with_extension("polling").exists());
+}
