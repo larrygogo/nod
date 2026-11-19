@@ -16,9 +16,9 @@ export function clock(ts: number): string {
 
 export function statusLabel(r: Row): string {
   if (r.status === "retry" && r.wait_until > 0) return t("st.waiting");
-  const k = (r.status === "posted" || r.status === "closed") && r.event ? `st.posted.${r.event}`
+  const k = (r.status === "posted" || r.status === "closed") && r.earlier_approved ? "st.posted.APPROVE"
+    : (r.status === "posted" || r.status === "closed") && r.event ? `st.posted.${r.event}`
     : r.status === "closed" && r.commented ? "st.posted.COMMENT"
-    : r.status === "closed" && r.earlier_approved ? "st.posted.APPROVE"
     : r.status === "closed" && r.summary ? (r.pr_state === "merged" ? "st.merged_first" : "st.closed_first")
     : r.status === "closed" ? "st.not_posted" : `st.${r.status}`;
   return has(k) ? t(k) : r.status;
@@ -30,7 +30,7 @@ export function prState(r: Row): { text: string; tone: string } | null {
   return tone ? { text: t(`pr.${r.pr_state}` as Key), tone } : null;
 }
 export function tone(r: Row): string {
-  if (r.status === "direct_approved" || r.event === "APPROVE" || (r.status === "closed" && r.earlier_approved)) return "good";
+  if (r.status === "direct_approved" || r.event === "APPROVE" || ((r.status === "closed" || r.status === "posted") && r.earlier_approved)) return "good";
   if (r.status === "failed") return "bad";
   if (r.status === "retry" && r.wait_until > 0) return "warn";
   if (["queued", "reviewing", "awaiting_ci", "retry"].includes(r.status)) return "busy";
@@ -71,7 +71,7 @@ export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () 
 type Filter = "all" | "approved" | "commented" | "active" | "failed";
 const match: Record<Filter, (r: Row) => boolean> = {
   all: () => true,
-  approved: (r) => r.event === "APPROVE" || r.status === "direct_approved" || (r.status === "closed" && r.earlier_approved),
+  approved: (r) => r.event === "APPROVE" || r.status === "direct_approved" || ((r.status === "closed" || r.status === "posted") && r.earlier_approved),
   commented: (r) => r.event === "COMMENT" || (r.status === "closed" && r.commented),
   active: (r) => ["queued", "reviewing", "awaiting_ci", "retry"].includes(r.status),
   failed: (r) => r.status === "failed",
@@ -153,6 +153,7 @@ export function Detail({ r }: { r: Row }) {
             && <Button small icon="refresh" disabled={busy} onClick={again}>{t("rv.again")}</Button>}
         </div>
       </header>
+      {r.status === "posted" && r.event === "COMMENT" && r.earlier_approved && <Note>{t("rv.still_approved", { sha: r.sha })}</Note>}
       {r.status === "closed" && !r.event && r.summary && (
         <Note>{t(r.commented ? "rv.closed_commented" : r.earlier_approved ? "rv.not_posted_earlier" : "rv.not_posted", { sha: r.sha })}</Note>
       )}

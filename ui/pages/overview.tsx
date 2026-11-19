@@ -8,8 +8,9 @@ import { ReviewRow } from "./reviews";
 
 /** Why a review needs you, in words: Nod could not finish it (failed), or it only commented and the PR is still
  *  open, so whether to approve is your call. The first blocking reason says why it did not approve. */
-function needWhy(r: { status: string; reasons: string[] }): { text: string; hint: string } {
+function needWhy(r: { status: string; reasons: string[]; earlier_approved: boolean }): { text: string; hint: string } {
   if (r.status === "failed") return { text: t("ov.need_failed"), hint: t("ov.need_failed_hint") };
+  if (r.earlier_approved) return { text: t("ov.need_stale"), hint: t("ov.need_stale_hint") + " " + r.reasons.join("；") };
   return {
     text: r.reasons[0] ? t("ov.need_reason", { r: r.reasons[0] }) : t("ov.need_comment"),
     hint: r.reasons.length ? t("ov.need_comment_hint") + " " + r.reasons.join("；") : t("ov.need_comment_hint"),

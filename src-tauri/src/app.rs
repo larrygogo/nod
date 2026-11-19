@@ -137,8 +137,8 @@ struct Row {
     wait_until: f64,
     /// The commit this record is about (short).
     sha: String,
-    /// Nothing was posted for this commit, but Nod approved an earlier one and the code host still counts that
-    /// approval (the PR can be merged on it), unless it was dismissed.
+    /// This commit was not approved, but an earlier approval of yours (Nod's, or "Approve now") still counts on the
+    /// code host, so the PR can be merged on it.
     earlier_approved: bool,
     /// The comments for this commit are on GitHub (posted while the approval waited for CI).
     commented: bool,
@@ -191,8 +191,9 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
         error: e.error.clone(),
         wait_until: if e.waits > 0 && e.status == "retry" { e.retry_at } else { 0.0 },
         sha: e.sha.chars().take(7).collect(),
-        earlier_approved: e.event.is_none()
-            && !e.approve_ids.is_empty()
+        earlier_approved: e.event.as_deref() != Some("APPROVE")
+            && e.status != "direct_approved"
+            && (!e.approve_ids.is_empty() || e.direct_approve_id.is_some())
             // what the code host says now; without a decision (Gitea), Nod's own record
             && e.last_pr_status.as_ref().is_none_or(|s| s.decision.is_empty() || s.decision == "APPROVED"),
         commented: !e.sha.is_empty() && e.comment_sha == e.sha,
