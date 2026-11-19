@@ -3,6 +3,21 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Always approve (`approve.always_authors` / `always_repos`, Settings → Review): PRs on these lists are approved
+  whenever you are asked, whatever the review finds, without waiting for CI and even if the review fails; the
+  findings are still posted as comments. Your own PRs, drafts and closed PRs are still never approved.
+
+### Changed
+
+- An approval says why ("every approval rule passed" or "on the always-approve list"); the review signature no
+  longer lists the rules, which was incomplete. Settings spell out every approval rule.
+- Overview flags every open PR that was only commented on, with the reason it was not approved, not only those with a
+  high-severity issue.
+
 ## [0.1.0] - 2026-11-19
 
 First public release: a desktop app.

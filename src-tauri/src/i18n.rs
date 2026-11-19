@@ -29,6 +29,9 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("review.approve", "**结论：Approve。** {summary}", "**Verdict: Approve.** {summary}"),
     ("review.comment", "**结论：只评论，未 approve。** {summary}", "**Verdict: comments only, not approved.** {summary}"),
     ("review.blocked_by", "卡在：{reasons}", "Blocked by: {reasons}"),
+    ("review.rules_passed", "approve 的规则全部通过。", "Every approval rule passed."),
+    ("review.always", "按无条件 approve 名单 approve，审查意见仅供参考。", "Approved: on the always-approve list; the findings are for reference."),
+    ("review.always_failed", "**Approve。** 按无条件 approve 名单 approve；自动审查没有完成：{err}", "**Approve.** On the always-approve list; the automated review did not finish: {err}"),
     ("review.after_ci", "没有阻塞问题，CI 通过后会 approve。", "No blocking issues; Nod approves once CI passes."),
     ("review.approve_after_ci", "**CI 已通过，Approve。** 审查意见见上一条评审。", "**CI passed: Approve.** See the previous review for the findings."),
     ("review.no_approve_after_ci", "**未 approve。** 卡在：{reasons}", "**Not approved.** Blocked by: {reasons}"),
@@ -42,8 +45,8 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("review.outside_diff", "（`{loc}`，不在 diff 内）", " (`{loc}`, outside the diff)"),
     (
         "review.footer",
-        "<sub>由 Nod 用 {engine} 自动审查；approve 由固定规则决定：无高风险、无 PR 引入的中风险、CI 未失败、非草稿。</sub>",
-        "<sub>Automated review by Nod using {engine}. Approval is decided by fixed rules: no high-severity issues, no medium-severity issues introduced by the PR, CI not failing, not a draft.</sub>",
+        "<sub>由 Nod 用 {engine} 自动审查。</sub>",
+        "<sub>Automated review by Nod using {engine}.</sub>",
     ),
     (
         "review.direct",

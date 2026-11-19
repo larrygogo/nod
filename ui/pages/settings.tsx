@@ -110,6 +110,15 @@ export function SettingsPage() {
         </Card>
       </Section>}
 
+      {tab === "review" && <Section title={t("set.always")} help={t("set.always_help")}>
+        <Card>
+          <Row label={t("set.always.authors")} wide>
+            <TagInput kind="login" suggest={loginHints} value={draft.approve.always_authors ?? []} onChange={(v) => edit((c) => { c.approve.always_authors = v; })} placeholder="dependabot[bot]" /></Row>
+          <Row label={t("set.always.repos")} wide>
+            <TagInput kind="repo" suggest={repoHints} value={draft.approve.always_repos ?? []} onChange={(v) => edit((c) => { c.approve.always_repos = v; })} placeholder="my-org/docs" /></Row>
+        </Card>
+      </Section>}
+
       {tab === "review" && <Section title={t("set.review_run")}>
         <Card>
           <Row label={t("set.timeout")}>{num((c) => c.review.timeout_min, (c, v) => { c.review.timeout_min = v; })}</Row>

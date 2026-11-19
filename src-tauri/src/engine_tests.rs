@@ -275,6 +275,67 @@ fn only_requests_from_chosen_authors_are_reviewed() {
     assert_eq!(e(&en).status, "queued", "handed over by hand: reviewed");
 }
 
+fn with_cfg(en: &Engine, f: impl FnOnce(&mut Config)) -> Engine {
+    let mut cfg = en.cfg.clone();
+    f(&mut cfg);
+    Engine {
+        cfg,
+        store: en.store.clone(),
+        me: en.me.clone(),
+        forge: en.forge.clone(),
+        reviewer: en.reviewer.clone(),
+        notifier: en.notifier.clone(),
+    }
+}
+
+/// [approve] always_authors: approved whatever the review finds and without waiting for CI; the findings still go up.
+#[test]
+fn always_approve_list_approves_whatever_the_review_says() {
+    let (f, en, _d) = setup();
+    f.w().ci = "pending".into(); // bad() has a high-severity finding
+    let en = with_cfg(&en, |c| {
+        c.approve.always_authors = vec!["alice".into()];
+        c.approve.mode = "never".into(); // independent of the auto-approve switch
+    });
+    en.review_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
+    let b = f.w().bodies[0].clone();
+    assert!(
+        b["body"].as_str().unwrap().contains("无条件 approve 名单"),
+        "{b}"
+    );
+    assert!(
+        !b["comments"].as_array().unwrap().is_empty(),
+        "the findings are posted with it"
+    );
+}
+
+/// On the list, a review that fails for good still ends in an approval.
+#[test]
+fn always_approve_list_approves_when_the_review_fails() {
+    let (f, en, _d) = setup();
+    f.w().claude_fail = true;
+    let en = with_cfg(&en, |c| c.approve.always_repos = vec!["o/*".into()]);
+    en.review_one(&f.pr());
+    assert!(f.w().posts.is_empty(), "the first failure is retried");
+    en.review_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
+    assert_eq!(
+        (e(&en).status.as_str(), e(&en).event.as_deref()),
+        ("posted", Some("APPROVE"))
+    );
+}
+
+/// Your own PR cannot be approved, list or not.
+#[test]
+fn always_approve_list_still_skips_your_own_pr() {
+    let (f, en, _d) = setup();
+    f.w().pr_author = "me".into();
+    let en = with_cfg(&en, |c| c.approve.always_authors = vec!["*".into()]);
+    en.review_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
+}
+
 #[test]
 fn clean_pr_is_approved_and_remembered() {
     let (f, en, _d) = setup();
@@ -282,6 +343,13 @@ fn clean_pr_is_approved_and_remembered() {
     en.review_one(&f.pr());
     assert_eq!(f.w().posts, vec!["APPROVE"]);
     assert_eq!(e(&en).approve_ids, vec![1]);
+    assert!(
+        f.w().bodies[0]["body"]
+            .as_str()
+            .unwrap()
+            .contains("规则全部通过"),
+        "says why it approved"
+    );
 }
 
 #[test]

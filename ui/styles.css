@@ -502,6 +502,9 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   .status-widget { padding: 8px 0 0; flex-direction: column; gap: 6px; }
   .status-widget .btn span { display: none; }
   .status-widget .btn { margin: 0; }
+  /* the update notice shrinks to its button (the version is in its tooltip) */
+  .update-notice { padding: 0; background: none; align-items: center; }
+  .update-notice .grow, .update-notice .btn > span:last-child { display: none; }
   .savebar { left: 84px; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
   .metrics-title { grid-column: 1 / -1; border-right: none; border-bottom: 1px solid var(--border); padding: 8px 18px; }

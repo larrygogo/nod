@@ -180,6 +180,10 @@ pub struct Approve {
     pub authors: Vec<String>,
     pub exclude_repos: Vec<String>,
     pub exclude_authors: Vec<String>,
+    /// Approve whenever asked, whatever the review finds and whether or not CI passed: PRs by these authors / in
+    /// these repositories. The review still runs and its comments are posted. Independent of `mode`.
+    pub always_authors: Vec<String>,
+    pub always_repos: Vec<String>,
 }
 
 impl Default for Approve {
@@ -190,6 +194,8 @@ impl Default for Approve {
             authors: vec![],
             exclude_repos: vec![],
             exclude_authors: vec![],
+            always_authors: vec![],
+            always_repos: vec![],
         }
     }
 }
@@ -480,6 +486,7 @@ impl Config {
             ("scope.exclude_repos", &self.scope.exclude_repos),
             ("approve.repos", &self.approve.repos),
             ("approve.exclude_repos", &self.approve.exclude_repos),
+            ("approve.always_repos", &self.approve.always_repos),
         ] {
             for x in list {
                 if !is_repo_pattern(x) {
@@ -490,6 +497,7 @@ impl Config {
         for (name, list) in [
             ("approve.authors", &self.approve.authors),
             ("approve.exclude_authors", &self.approve.exclude_authors),
+            ("approve.always_authors", &self.approve.always_authors),
             ("scope.authors", &self.scope.authors),
             ("scope.exclude_authors", &self.scope.exclude_authors),
         ] {

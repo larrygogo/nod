@@ -583,6 +583,15 @@ impl Engine {
                     );
                     self.note(&key, "wait", &msg, None);
                 }
+                if failed && review::always_approve(&self.cfg, pr, &self.me) {
+                    // on the always-approve list: approve even though the review did not finish
+                    match self.approve_without_review(pr, &text) {
+                        Ok(()) => return,
+                        Err(e) => {
+                            warn!("{key}: approving from the always-approve list failed: {e:#}")
+                        }
+                    }
+                }
                 if failed {
                     let msg = tf(
                         self.lang(),
@@ -759,7 +768,7 @@ impl Engine {
             };
             serde_json::json!({"commit_id": pr.head, "event": event, "body": text})
         } else {
-            review::build_review(
+            let mut b = review::build_review(
                 self.lang(),
                 &pr,
                 &verdict,
@@ -767,7 +776,19 @@ impl Engine {
                 &reasons,
                 &self.forge.diff_lines(&pr)?,
                 footer.as_deref(),
-            )
+            );
+            if event == "APPROVE" {
+                // say why it was approved, right under the verdict
+                let why = if review::always_approve(&self.cfg, &pr, &self.me) {
+                    t(self.lang(), "review.always")
+                } else {
+                    t(self.lang(), "review.rules_passed")
+                };
+                let text = b["body"].as_str().unwrap_or_default().to_string();
+                let (first, rest) = text.split_once('\n').unwrap_or((&text, ""));
+                b["body"] = Value::String(format!("{first}\n{why}\n{rest}").trim_end().to_string());
+            }
+            b
         };
         if self.holds_secrets(key, &body) {
             return Ok(());
@@ -815,6 +836,36 @@ impl Engine {
             key,
             card_kind(event, &reasons),
             &(verdict.summary + &extra),
+            Some(&url),
+        );
+        Ok(())
+    }
+
+    /// A PR on the always-approve list whose review failed: approve it with a note that the review did not finish.
+    fn approve_without_review(&self, pr: &Pr, err: &str) -> Result<()> {
+        let key = pr.key();
+        let body = serde_json::json!({
+            "commit_id": pr.head, "event": "APPROVE",
+            "body": tf(self.lang(), "review.always_failed", &[("err", &truncate(err, 300))]),
+        });
+        if self.holds_secrets(&key, &body) {
+            anyhow::bail!("the error text looks like it holds credentials");
+        }
+        let (url, id) = self.forge.post_review(pr, &body)?;
+        self.store.with(&key, |e| {
+            e.status = "posted".into();
+            e.event = Some("APPROVE".into());
+            e.reasons.clear();
+            e.review_url = Some(url.clone());
+            e.posted_at = now();
+            e.approve_ids.push(id);
+        });
+        self.store.save();
+        info!("{key}: approved from the always-approve list without a review {url}");
+        self.note(
+            &key,
+            "approve",
+            &t(self.lang(), "review.always"),
             Some(&url),
         );
         Ok(())

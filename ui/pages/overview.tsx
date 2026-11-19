@@ -6,12 +6,14 @@ import { ago, t, type Key } from "../i18n";
 import { Button, Empty, Note } from "../ui";
 import { ReviewRow } from "./reviews";
 
-/** Why a review needs you, in words: Nod could not finish it (failed), or it found a high-risk issue and only
- *  commented, so the call is yours. */
-function needWhy(r: { status: string }): { text: string; hint: string } {
-  return r.status === "failed"
-    ? { text: t("ov.need_failed"), hint: t("ov.need_failed_hint") }
-    : { text: t("ov.need_high"), hint: t("ov.need_high_hint") };
+/** Why a review needs you, in words: Nod could not finish it (failed), or it only commented and the PR is still
+ *  open, so whether to approve is your call. The first blocking reason says why it did not approve. */
+function needWhy(r: { status: string; reasons: string[] }): { text: string; hint: string } {
+  if (r.status === "failed") return { text: t("ov.need_failed"), hint: t("ov.need_failed_hint") };
+  return {
+    text: r.reasons[0] ? t("ov.need_reason", { r: r.reasons[0] }) : t("ov.need_comment"),
+    hint: r.reasons.length ? t("ov.need_comment_hint") + " " + r.reasons.join("；") : t("ov.need_comment_hint"),
+  };
 }
 
 export function OverviewPage() {
@@ -21,8 +23,9 @@ export function OverviewPage() {
   const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
   const today = ov.rows.filter((r) => r.at * 1000 >= dayStart.getTime());
   const count = (f: (r: typeof today[0]) => boolean) => today.filter(f).length;
-  const needs = ov.rows.filter((r) => r.status === "failed"
-    || (r.event === "COMMENT" && r.findings.some((f) => f.severity === "high"))).slice(0, 5);
+  const open = (r: typeof ov.rows[0]) => r.pr_state !== "merged" && r.pr_state !== "closed";
+  const needs = ov.rows.filter((r) => open(r) && (r.status === "failed"
+    || (r.status === "posted" && r.event === "COMMENT"))).slice(0, 5);
   const needKeys = new Set(needs.map((r) => `${r.account}/${r.key}`));
   // One list, newest first: rows that need you are flagged in place instead of pinned above newer reviews.
   const latest = ov.rows.slice(0, 8);

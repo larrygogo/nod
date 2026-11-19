@@ -194,6 +194,20 @@ fn fill(tpl: &str, values: &[(&str, &str)]) -> String {
 
 // ---------------------------------------------------------------- the gate
 
+/// On the "always approve" list (`[approve] always_authors` / `always_repos`): approved whenever asked, whatever the
+/// review says. Only what GitHub itself forbids still stops it (your own PR, a closed PR or a draft).
+pub fn always_approve(cfg: &Config, pr: &Pr, me: &str) -> bool {
+    let a = &cfg.approve;
+    let listed = a
+        .always_authors
+        .iter()
+        .any(|p| config::author_matches(p, &pr.author, me))
+        || a.always_repos
+            .iter()
+            .any(|p| config::repo_matches(p, &pr.repo, me));
+    listed && !pr.author.eq_ignore_ascii_case(me) && !pr.draft && pr.state == "open"
+}
+
 /// Fixed rules, not the model, decide whether to approve. Returns (APPROVE|COMMENT, reason codes).
 pub fn decide(
     cfg: &Config,
@@ -202,6 +216,9 @@ pub fn decide(
     ci: &str,
     me: &str,
 ) -> (&'static str, Vec<String>) {
+    if always_approve(cfg, pr, me) {
+        return ("APPROVE", vec![]);
+    }
     let mut r: Vec<String> = vec![];
     if !v.unable_reason.is_empty() {
         r.push(format!("unable:{}", v.unable_reason));

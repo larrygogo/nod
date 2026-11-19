@@ -241,7 +241,7 @@ function UpdateNotice() {
         <div class="update-title">{t("up.available", { v: u.available })}</div>
         <div class="muted small">{t("up.restart_hint")}</div>
       </div>
-      <Button small kind="primary" icon="download" busy={u.installing} disabled={u.installing} onClick={go}>{t(u.installing ? "up.installing" : "up.install")}</Button>
+      <Button small kind="primary" icon="download" title={t("up.available", { v: u.available })} busy={u.installing} disabled={u.installing} onClick={go}>{t(u.installing ? "up.installing" : "up.install")}</Button>
     </div>
   );
 }
