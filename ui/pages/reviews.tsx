@@ -37,7 +37,7 @@ export function findingsText(r: Row): { text: string; tone: string } | null {
   return { text: (n === 1 ? t("rv.one_finding") : t("rv.n_findings", { n })) + (worst ? " · " + worst : ""), tone: high ? "bad" : medium ? "warn" : "" };
 }
 
-export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () => void; selected?: boolean; flag?: string }) {
+export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () => void; selected?: boolean; flag?: { text: string; hint: string } }) {
   const f = findingsText(r);
   // open is the usual case: only a merged, closed or draft PR is worth a word in the list
   const pr = r.pr_state !== "open" ? prState(r) : null;
@@ -46,7 +46,7 @@ export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () 
       <span class={`state-dot ${tone(r)}`} />
       <span class="grow">
         <span class="row-title ellipsis">{r.title || r.key}</span>
-        <span class="row-sub ellipsis">{flag && <span class="row-flag">{flag}</span>}{r.key} · {r.author} · {ago(r.at)}{pr && <> · <span class={`pr-state ${pr.tone}`}>{pr.text}</span></>}</span>
+        <span class="row-sub ellipsis">{flag && <span class="row-flag" title={flag.hint}>{flag.text}</span>}{r.key} · {r.author} · {ago(r.at)}{pr && <> · <span class={`pr-state ${pr.tone}`}>{pr.text}</span></>}</span>
       </span>
       <span class="row-right">
         <span class={`state-label ${tone(r)}`}>{statusLabel(r)}</span>

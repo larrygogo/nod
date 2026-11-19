@@ -6,6 +6,14 @@ import { ago, t, type Key } from "../i18n";
 import { Button, Empty, Note } from "../ui";
 import { ReviewRow } from "./reviews";
 
+/** Why a review needs you, in words: Nod could not finish it (failed), or it found a high-risk issue and only
+ *  commented, so the call is yours. */
+function needWhy(r: { status: string }): { text: string; hint: string } {
+  return r.status === "failed"
+    ? { text: t("ov.need_failed"), hint: t("ov.need_failed_hint") }
+    : { text: t("ov.need_high"), hint: t("ov.need_high_hint") };
+}
+
 export function OverviewPage() {
   const { ov, draft, catalog, go, refresh } = useStore();
   const s = ov.status;
@@ -74,7 +82,7 @@ export function OverviewPage() {
           {ov.rows.length > 0 && <button class="link small" onClick={() => go("reviews")}>{t("btn.all_reviews")} <Icon name="chevron" size={14} /></button>}
         </header>
         {ov.rows.length === 0 ? <div class="list-card"><Empty icon="list">{t("ov.empty")}</Empty></div>
-          : recent.length > 0 && <div class="list-card">{recent.map((r) => <ReviewRow r={r} flag={needKeys.has(`${r.account}/${r.key}`) ? t("ov.needs_you") : undefined} onClick={() => go("reviews", `${r.account}/${r.key}`)} />)}</div>}
+          : recent.length > 0 && <div class="list-card">{recent.map((r) => <ReviewRow r={r} flag={needKeys.has(`${r.account}/${r.key}`) ? needWhy(r) : undefined} onClick={() => go("reviews", `${r.account}/${r.key}`)} />)}</div>}
       </section>
     </div>
   );
