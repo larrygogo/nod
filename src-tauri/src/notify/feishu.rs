@@ -140,9 +140,12 @@ fn sev_color(s: &str) -> &'static str {
 
 pub fn headline(lang: &str, e: &Entry, st: Option<&PrStatus>) -> (String, &'static str) {
     let kind = e.note.as_ref().map(|n| n.kind.as_str()).unwrap_or("");
+    // The header says what Nod did; the PR's own state (merged, closed) has its own coloured tag below. Only a PR
+    // that went away before Nod said anything takes its state as the headline.
+    let posted = matches!(kind, "approve" | "ready" | "comment") || e.status == "direct_approved";
     match (st.map(|s| s.state.as_str()), e.status.as_str()) {
-        (Some("merged"), _) => (t(lang, "status.merged"), "violet"),
-        (Some("closed"), _) => (t(lang, "status.closed"), "grey"),
+        (Some("merged"), _) if !posted => (t(lang, "status.merged"), "violet"),
+        (Some("closed"), _) if !posted => (t(lang, "status.closed"), "grey"),
         (_, "direct_approved") => (t(lang, "status.direct"), "green"),
         (_, "queued" | "") => (t(lang, "status.queued"), "blue"),
         (_, "reviewing" | "reviewed" | "retry") => (t(lang, "status.reviewing"), "blue"),
@@ -194,8 +197,9 @@ pub fn render(
 
     if st.is_some() {
         let pr_state = match s.state.as_str() {
-            "merged" => tag(&t(lang, "status.merged"), "violet"),
-            "closed" => tag(&t(lang, "status.closed"), "neutral"),
+            // GitHub's colours: open green, merged purple, closed red, draft grey
+            "merged" => tag(&t(lang, "status.merged"), "purple"),
+            "closed" => tag(&t(lang, "status.closed"), "red"),
             _ if s.draft => tag(&t(lang, "card.draft"), "neutral"),
             _ => tag(&t(lang, "card.open"), "green"),
         };
@@ -673,6 +677,24 @@ mod tests {
         let c = render("en", "o/r#1", &entry("posted"), Some(&merged), "me", false);
         assert!(!buttons(&c).contains(&"Approve now".into()));
         assert_eq!(c["header"]["text_tag_list"][0]["text"]["content"], "Merged");
+    }
+
+    #[test]
+    fn header_keeps_the_review_result_after_merge() {
+        let mut e = entry("posted");
+        e.event = Some("APPROVE".into());
+        e.note = Some(Note {
+            kind: "approve".into(),
+            text: "s".into(),
+        });
+        let merged = PrStatus {
+            state: "merged".into(),
+            ..st()
+        };
+        assert_eq!(headline("en", &e, Some(&merged)).1, "green");
+        // a PR merged before Nod said anything takes its state as the headline
+        let quiet = entry("closed");
+        assert_eq!(headline("en", &quiet, Some(&merged)).1, "violet");
     }
 
     #[test]

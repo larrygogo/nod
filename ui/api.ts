@@ -12,7 +12,7 @@ export interface Status {
 export interface Finding { severity: string; title: string; path: string; line: number | null; introduced_by_pr: boolean }
 export interface Row {
   account: string; platform: string; engine: string;
-  key: string; title: string; url: string; author: string; status: string; event: string | null;
+  key: string; title: string; url: string; author: string; status: string; pr_state: string; event: string | null;
   summary: string | null; findings: Finding[]; reasons: string[]; review_url: string | null; error: string | null; at: number;
 }
 export interface Overview {

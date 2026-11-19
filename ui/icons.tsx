@@ -1,5 +1,6 @@
 // 16 px line icons (1.75 stroke, currentColor), drawn for Nod in the Lucide style.
 import type { JSX } from "preact";
+import { brandMarks } from "./brands";
 
 const paths: Record<string, JSX.Element> = {
   home: <><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V20h5v-6h4v6h5V9.5" /></>,
@@ -37,7 +38,27 @@ export function Icon({ name, size = 16 }: { name: keyof typeof paths | string; s
   );
 }
 
-/** Product tiles: the initial in the product's colour (no third-party logos are bundled). */
+/** Brands drawn in the text colour: their official mark is black (or too dark to read on the dark theme). */
+const inkBrands = new Set(["github", "openai", "slack"]);
+
+/** A service's official mark (see brands.ts). Small: the bare mark, centred on the text line like an icon.
+ *  Larger: the mark in its brand colour on a neutral tile, so every brand sits on the same surface. */
+function BrandMark({ icon, size }: { icon: string; size: number }) {
+  const m = brandMarks[icon];
+  const color = inkBrands.has(icon) ? "var(--text)" : m.color;
+  const glyph = (s: number) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill={color} aria-hidden="true"><path d={m.path} /></svg>
+  );
+  if (size < 24) return <span class="brand-mark" style={{ width: size, height: size }}>{glyph(Math.round(size * 0.9))}</span>;
+  return (
+    <span class="tile neutral" style={{ width: size, height: size, borderRadius: Math.round(size * 0.26) }}>
+      {glyph(Math.round(size * 0.56))}
+    </span>
+  );
+}
+
+/** Services without a published mark (Feishu, DingTalk, WeCom, …) and generic plugins: the initial in the product's
+ *  colour. */
 const brands: Record<string, [string, string]> = {
   github: ["#24292f", "GH"], gitee: ["#c71d23", "码"], gitea: ["#609926", "Gt"],
   claude: ["#d97757", "C"], openai: ["#10a37f", "Cx"], gemini: ["#4f7df3", "G"], api: ["#6366f1", "API"],
@@ -49,6 +70,7 @@ const brands: Record<string, [string, string]> = {
 const neutral = new Set(["github", "bell", "webhook", "plugin", "rules"]);
 
 export function Tile({ icon, size = 32 }: { icon: string; size?: number }) {
+  if (brandMarks[icon]) return <BrandMark icon={icon} size={size} />;
   const [c, txt] = brands[icon] ?? brands.plugin;
   // Below 24px a pale tile with same-hue ink drops under ~8px text and reads as a broken placeholder:
   // small tiles switch to a solid fill with white ink and a larger letter, like a favicon.

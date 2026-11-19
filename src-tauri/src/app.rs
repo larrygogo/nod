@@ -92,6 +92,8 @@ struct Row {
     url: String,
     author: String,
     status: String,
+    /// The pull request itself, apart from Nod's review: open | draft | merged | closed ("" = not known yet).
+    pr_state: String,
     event: Option<String>,
     summary: Option<String>,
     findings: Vec<Value>,
@@ -99,6 +101,16 @@ struct Row {
     review_url: Option<String>,
     error: Option<String>,
     at: f64,
+}
+
+/// The PR's own state from the last refresh; a review that stopped because the PR went away says "closed".
+fn pr_state(e: &Entry) -> String {
+    match e.last_pr_status.as_ref() {
+        Some(s) if s.state == "open" && s.draft => "draft".into(),
+        Some(s) if !s.state.is_empty() => s.state.clone(),
+        _ if e.status == "closed" => "closed".into(),
+        _ => String::new(),
+    }
 }
 
 fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
@@ -116,6 +128,7 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
         url: e.url.clone(),
         author: e.author.clone(),
         status: e.status.clone(),
+        pr_state: pr_state(e),
         event: e.event.clone(),
         summary: e.verdict.as_ref().map(|v| v.summary.clone()),
         findings: e

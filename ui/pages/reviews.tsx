@@ -6,9 +6,17 @@ import { Icon, Tile } from "../icons";
 import { ago, has, t, type Key } from "../i18n";
 import { Badge, Button, Dialog, Empty, Note, Segmented, TextInput, errText } from "../ui";
 
+/** Nod's review result. The PR's own state (merged, closed) is shown apart, by prState. */
 export function statusLabel(r: Row): string {
-  const k = r.status === "posted" && r.event ? `st.posted.${r.event}` : `st.${r.status}`;
+  const k = (r.status === "posted" || r.status === "closed") && r.event ? `st.posted.${r.event}`
+    : r.status === "closed" ? "st.not_posted" : `st.${r.status}`;
   return has(k) ? t(k) : r.status;
+}
+
+/** The PR itself, in GitHub's colours: open green, merged purple, closed red, draft grey. */
+export function prState(r: Row): { text: string; tone: string } | null {
+  const tone = { open: "good", merged: "merged", closed: "bad", draft: "muted" }[r.pr_state];
+  return tone ? { text: t(`pr.${r.pr_state}` as Key), tone } : null;
 }
 export function tone(r: Row): string {
   if (r.status === "direct_approved" || r.event === "APPROVE") return "good";
@@ -31,12 +39,14 @@ export function findingsText(r: Row): { text: string; tone: string } | null {
 
 export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () => void; selected?: boolean; flag?: string }) {
   const f = findingsText(r);
+  // open is the usual case: only a merged, closed or draft PR is worth a word in the list
+  const pr = r.pr_state !== "open" ? prState(r) : null;
   return (
     <button class={`review-row${selected ? " selected" : ""}${flag ? " flagged" : ""}`} onClick={onClick}>
       <span class={`state-dot ${tone(r)}`} />
       <span class="grow">
         <span class="row-title ellipsis">{r.title || r.key}</span>
-        <span class="row-sub ellipsis">{flag && <span class="row-flag">{flag}</span>}{r.key} · {r.author} · {ago(r.at)}</span>
+        <span class="row-sub ellipsis">{flag && <span class="row-flag">{flag}</span>}{r.key} · {r.author} · {ago(r.at)}{pr && <> · <span class={`pr-state ${pr.tone}`}>{pr.text}</span></>}</span>
       </span>
       <span class="row-right">
         <span class={`state-label ${tone(r)}`}>{statusLabel(r)}</span>
@@ -105,7 +115,10 @@ export function Detail({ r }: { r: Row }) {
   return (
     <article class="detail">
       <header>
-        <Badge tone={tone(r)}>{statusLabel(r)}</Badge>
+        <div class="badges">
+          <Badge tone={tone(r)}>{statusLabel(r)}</Badge>
+          {prState(r) && <Badge tone={prState(r)!.tone}>{prState(r)!.text}</Badge>}
+        </div>
         <h2>{r.title || r.key}</h2>
         <div class="muted small">{r.key} · {r.author} · {ago(r.at)}</div>
         <div class="detail-meta">
