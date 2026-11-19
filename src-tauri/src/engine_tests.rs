@@ -441,6 +441,36 @@ fn review_again_starts_over_whatever_happened() {
     assert_eq!(f.w().posts, vec!["COMMENT", "APPROVE"]);
 }
 
+/// Each review is kept as a round of its own, with what went up for it.
+#[test]
+fn every_review_is_a_round_of_its_own() {
+    let (f, en, _d) = setup();
+    f.w().ci = "pending".into();
+    f.w().verdict = Some(clean());
+    en.review_one(&f.pr()); // comments now, approval after CI
+    f.w().ci = "success".into();
+    en.finish_safe("o/r#1");
+    // a new commit with issues
+    f.w().pr_head = "bbbbbbb2".into();
+    f.w().verdict = Some(bad());
+    en.review_one(&f.pr());
+    let r = e(&en).rounds;
+    assert_eq!(r.len(), 2);
+    assert_eq!(
+        (
+            r[0].sha.as_str(),
+            r[0].event.as_deref(),
+            r[0].comment_url.is_some()
+        ),
+        (HEAD, Some("APPROVE"), true)
+    );
+    assert_eq!(
+        (r[1].sha.as_str(), r[1].event.as_deref()),
+        ("bbbbbbb2", Some("COMMENT"))
+    );
+    assert!(!r[1].findings.is_empty());
+}
+
 #[test]
 fn clean_pr_is_approved_and_remembered() {
     let (f, en, _d) = setup();

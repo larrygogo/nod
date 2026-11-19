@@ -387,7 +387,33 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .detail h2 { font-size: 17px; }
 .detail-meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--text-2); font-size: 12px; }
 .detail-meta span { display: inline-flex; align-items: center; gap: 6px; }
-.detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.detail-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* detail header: links under the title; platform and engine on the left, the main action and "⋯" on the right */
+.detail-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.detail-sub .link { display: inline-flex; align-items: center; gap: 3px; }
+.detail-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 4px; }
+.detail-bar .detail-meta { margin: 0; }
+.more { position: relative; }
+.btn.icon-only { padding: 0 7px; }
+.more-menu { position: absolute; right: 0; top: calc(100% + 4px); min-width: 160px; }
+.more-menu li { justify-content: flex-start; gap: 8px; }
+.more-menu li .icon { color: var(--text-3); }
+.more-menu li.danger, .more-menu li.danger .icon { color: var(--bad); }
+/* reviews of one PR: the latest in full, earlier ones one line each */
+.round h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.round-head { font-weight: normal; }
+.round .sub { margin-top: 14px; }
+.round .sub h4 { margin: 0 0 6px; font-size: 13px; font-weight: var(--w-medium); color: var(--text-2); }
+.rounds { margin-top: 8px; }
+details.round { border-top: 1px solid var(--border); }
+details.round > summary { display: flex; align-items: center; gap: 10px; padding: 10px 2px; cursor: pointer; list-style: none; font-size: 13px; }
+details.round > summary::-webkit-details-marker { display: none; }
+details.round > summary .icon { color: var(--text-3); transition: transform 150ms var(--ease); }
+details.round[open] > summary .icon { transform: rotate(90deg); }
+details.round > summary:hover { background: var(--surface-2); border-radius: var(--r-sm); }
+.round-body { padding: 0 2px 12px; }
+.round-links { display: flex; gap: 14px; margin-top: 6px; }
+.round-links .link { display: inline-flex; align-items: center; gap: 3px; }
 .detail section { margin: 18px 0; }
 .summary { font-size: 14px; line-height: 1.6; }
 .reasons { margin: 0; padding-left: 18px; color: var(--text-2); }

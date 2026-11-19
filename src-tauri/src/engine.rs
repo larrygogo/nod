@@ -30,6 +30,33 @@ pub struct Note {
     pub text: String,
 }
 
+/// One review of one commit, as the window lists them: what was found and what went up to the code host.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Round {
+    pub sha: String,
+    /// When the verdict came (or the approval, for one given without a review).
+    pub at: f64,
+    pub engine: String,
+    pub summary: String,
+    pub findings: Vec<review::Finding>,
+    /// The comments posted ahead of an approval that waited for CI.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment_url: Option<String>,
+    /// What was posted as the outcome (APPROVE / COMMENT), and where; none = nothing went up for this round.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// The approval was "Approve now" (you), not Nod's rules.
+    pub direct: bool,
+    /// The approval was withdrawn later.
+    pub withdrawn: bool,
+}
+
+/// Rounds kept per PR (the oldest go first).
+const ROUNDS_KEPT: usize = 20;
+
 /// One PR's record. Unknown fields are kept so older/newer versions can share a state file.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -101,6 +128,9 @@ pub struct Entry {
     pub webhook_sig: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dry_run_file: Option<String>,
+    /// Every review of this PR, oldest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rounds: Vec<Round>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
@@ -114,6 +144,35 @@ fn is_zero_f(n: &f64) -> bool {
 }
 
 impl Entry {
+    /// The latest round for `sha`, if there is one.
+    pub fn round_mut(&mut self, sha: &str) -> Option<&mut Round> {
+        self.rounds.iter_mut().rev().find(|r| r.sha == sha)
+    }
+
+    /// Start a round (a new verdict, or an approval without one).
+    pub fn push_round(&mut self, r: Round) {
+        self.rounds.push(r);
+        if self.rounds.len() > ROUNDS_KEPT {
+            let extra = self.rounds.len() - ROUNDS_KEPT;
+            self.rounds.drain(..extra);
+        }
+    }
+
+    /// The outcome posted for `sha`: into its round, or a round of its own when there was no verdict.
+    pub fn record_outcome(&mut self, sha: &str, event: &str, url: &str, direct: bool) {
+        if self.round_mut(sha).is_none() {
+            self.push_round(Round {
+                sha: sha.into(),
+                at: now(),
+                ..Default::default()
+            });
+        }
+        let r = self.round_mut(sha).expect("just made");
+        r.event = Some(event.into());
+        r.url = Some(url.into());
+        r.direct = direct;
+    }
+
     /// A retry that is still waiting (out of quota, or a pause after an error).
     pub fn waiting(&self) -> bool {
         self.status == "retry" && self.retry_at > now()
@@ -539,6 +598,14 @@ impl Engine {
                     if e.sha != pr.head {
                         return false; // a newer commit was queued while we reviewed this one
                     }
+                    e.push_round(Round {
+                        sha: pr.head.clone(),
+                        at: now(),
+                        engine: v.meta.engine.clone(),
+                        summary: v.summary.clone(),
+                        findings: v.findings.clone(),
+                        ..Default::default()
+                    });
                     e.verdict = Some(v);
                     e.verdict_sha = pr.head.clone();
                     e.waits = 0;
@@ -766,6 +833,9 @@ impl Engine {
                 self.store.with(key, |e| {
                     e.comment_sha = pr.head.clone();
                     e.review_url = Some(url.clone());
+                    if let Some(r) = e.round_mut(&pr.head) {
+                        r.comment_url = Some(url.clone());
+                    }
                 });
             }
             self.store.with(key, |e| {
@@ -847,6 +917,7 @@ impl Engine {
             if event == "APPROVE" {
                 e.approve_ids.push(id);
             }
+            e.record_outcome(&pr.head, event, &url, false);
         });
         info!("{key}: posted {event} {url}");
         let mut extra = String::new();
@@ -886,6 +957,7 @@ impl Engine {
             e.review_url = Some(url.clone());
             e.posted_at = now();
             e.approve_ids.push(id);
+            e.record_outcome(&pr.head, "APPROVE", &url, false);
         });
         self.store.save();
         info!("{key}: approved from the always-approve list without a review {url}");
@@ -1020,6 +1092,13 @@ impl Engine {
                 self.store.with(key, |e| {
                     e.approve_ids.clear();
                     e.direct_approve_id = None;
+                    for r in e
+                        .rounds
+                        .iter_mut()
+                        .filter(|r| r.event.as_deref() == Some("APPROVE"))
+                    {
+                        r.withdrawn = true;
+                    }
                     if e.event.as_deref() == Some("APPROVE") || e.status == "direct_approved" {
                         e.event = None;
                     }
@@ -1117,6 +1196,7 @@ impl Engine {
                     e.event = Some("APPROVE".into());
                     e.direct_approve_id = Some(id);
                     e.action_msg.clear();
+                    e.record_outcome(sha, "APPROVE", &url, true);
                 });
                 let killed = util::abort(key);
                 self.store

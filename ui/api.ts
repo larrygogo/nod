@@ -13,7 +13,8 @@ export interface Finding { severity: string; title: string; path: string; line: 
 export interface Row {
   account: string; platform: string; engine: string;
   key: string; title: string; url: string; author: string; status: string; pr_state: string; event: string | null;
-  summary: string | null; findings: Finding[]; reasons: string[]; review_url: string | null; error: string | null; wait_until: number; sha: string; head: string; action_msg: string; direct_busy: boolean; my_approvals: boolean; earlier_approved: boolean; commented: boolean; at: number;
+  summary: string | null; findings: Finding[]; reasons: string[]; review_url: string | null; error: string | null; wait_until: number; sha: string; head: string; action_msg: string; direct_busy: boolean; my_approvals: boolean;
+  rounds: { sha: string; at: number; engine: string; summary: string; findings: Finding[]; event: string | null; url: string | null; comment_url: string | null; direct: boolean; withdrawn: boolean }[]; earlier_approved: boolean; commented: boolean; at: number;
 }
 export interface Overview {
   version: string; configured: boolean; status: Status; rows: Row[]; legacy: string[]; old_install: boolean; autostart: boolean;

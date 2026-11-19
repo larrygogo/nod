@@ -1,5 +1,5 @@
 // Reviews: search and filter on the left, the selected review on the right; "review a PR by hand" as a dialog.
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { api, type Row } from "../api";
 import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
@@ -120,37 +120,98 @@ export function ReviewsPage() {
   );
 }
 
+/** The findings of one review, worst first. */
+function FindingList({ findings }: { findings: Row["findings"] }) {
+  if (findings.length === 0) return <p class="muted">{t("rv.no_findings")}</p>;
+  return (
+    <ul class="findings">
+      {[...findings].sort((a, b) => SEV.indexOf(a.severity) - SEV.indexOf(b.severity)).map((f) => (
+        <li>
+          <span class={`sev ${f.severity}`}>{t(`sev.${f.severity}` as Key)}</span>
+          <div class="grow">
+            <div>{f.title}</div>
+            <div class="mono small muted">{f.path}{f.line ? `:${f.line}` : ""} · {f.introduced_by_pr ? t("rv.introduced") : t("rv.old")}</div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+type Round = Row["rounds"][number];
+
+/** What went up to GitHub for one review. */
+function roundOutcome(x: Round): { text: string; tone: string } {
+  if (x.event === "APPROVE") {
+    return x.withdrawn ? { text: t("rd.withdrawn"), tone: "muted" } : { text: t(x.direct ? "rd.direct" : "rd.approved"), tone: "good" };
+  }
+  if (x.event === "COMMENT") return { text: t("rd.commented"), tone: "warn" };
+  if (x.comment_url) return { text: t("rd.commented_waiting"), tone: "warn" };
+  return { text: t("rd.not_posted"), tone: "muted" };
+}
+
+/** "⋯": the less common actions, out of the way. */
+function MoreMenu({ items }: { items: { label: string; icon: string; danger?: boolean; onClick: () => void }[] }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: Event) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", away, true);
+    return () => document.removeEventListener("mousedown", away, true);
+  }, [open]);
+  if (items.length === 0) return null;
+  return (
+    <div class="more" ref={wrap}>
+      <button class="btn ghost small icon-only" aria-label={t("btn.more")} title={t("btn.more")} aria-expanded={open}
+        onClick={() => setOpen(!open)} onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}><Icon name="more" /></button>
+      {open && (
+        <ul class="select-menu more-menu" role="menu">
+          {items.map((it) => (
+            <li role="menuitem" class={it.danger ? "danger" : ""} onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { setOpen(false); it.onClick(); }}><Icon name={it.icon} size={14} /><span>{it.label}</span></li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function Detail({ r }: { r: Row }) {
   const { catalog, toast, refresh } = useStore();
-  const [busy, setBusy] = useState(false);
   const waiting = r.status === "retry" && r.wait_until > 0;
-  const again = async () => {
-    setBusy(true);
-    try { await api.track(r.url || r.key, true); toast(t("rv.again_started")); [800, 3000].forEach((ms) => setTimeout(refresh, ms)); }
-    catch (e) { toast(errText(e), "bad"); }
-    finally { setBusy(false); }
-  };
-  // "Approve" as you, like the Feishu card's button: two clicks, since it posts to GitHub in your name
-  const [arming, setArming] = useState<"" | "approve" | "withdraw">("");
+  const [confirm, setConfirm] = useState<"" | "approve" | "withdraw">("");
   const [sent, setSent] = useState(false);
-  useEffect(() => { setArming(""); setSent(false); }, [r.key, r.head, r.status]);
-  useEffect(() => { if (!arming) return; const id = setTimeout(() => setArming(""), 5000); return () => clearTimeout(id); }, [arming]);
+  useEffect(() => { setConfirm(""); setSent(false); }, [r.key, r.head, r.status]);
+  const later = () => [800, 2500, 6000].forEach((ms) => setTimeout(refresh, ms));
   const open = r.pr_state !== "merged" && r.pr_state !== "closed";
   const canWithdraw = open && r.my_approvals;
-  const canApprove = !!r.head && r.pr_state !== "merged" && r.pr_state !== "closed" && r.pr_state !== "draft"
+  const canApprove = !!r.head && open && r.pr_state !== "draft"
     && r.status !== "direct_approved" && !(r.event === "APPROVE" && r.status === "posted");
+  const canAgain = open && r.pr_state !== "draft" && !["queued", "reviewing"].includes(r.status);
+  const again = async () => {
+    try { await api.track(r.url || r.key, true); toast(t("rv.again_started")); later(); }
+    catch (e) { toast(errText(e), "bad"); }
+  };
   const act = async (what: "approve" | "withdraw") => {
-    if (arming !== what) { setArming(what); return; }
-    setArming("");
+    setConfirm("");
     try {
       if (what === "approve") await api.approve(r.account, r.key, r.head); else await api.withdraw(r.account, r.key);
       setSent(true);
       toast(t(what === "approve" ? "rv.approve_sent" : "rv.withdraw_sent"));
-      [800, 2500, 6000].forEach((ms) => setTimeout(refresh, ms));
+      later();
     } catch (e) { toast(errText(e), "bad"); }
   };
   const pname = (id: string) => catalog.find((p) => p.id === id)?.name ?? id;
   const engineIcon = catalog.find((p) => p.id === r.engine)?.icon ?? "plugin";
+  // the latest review is shown in full; the ones before it one line each, opened on demand
+  const latest = r.rounds[0];
+  const earlier = r.rounds.slice(1);
+  // the main button: approve when that is possible, else review again; the rest go in "⋯"
+  const more = [
+    ...(canAgain && canApprove ? [{ label: t("rv.again"), icon: "refresh", onClick: again }] : []),
+    ...(canWithdraw ? [{ label: t("rv.withdraw"), icon: "x", danger: true, onClick: () => setConfirm("withdraw") }] : []),
+  ];
   return (
     <article class="detail">
       <header>
@@ -159,57 +220,89 @@ export function Detail({ r }: { r: Row }) {
           {prState(r) && <Badge tone={prState(r)!.tone}>{prState(r)!.text}</Badge>}
         </div>
         <h2>{r.title || r.key}</h2>
-        <div class="muted small">{r.key} · {r.author} · {ago(r.at)}</div>
-        <div class="detail-meta">
-          <span><Tile icon={catalog.find((p) => p.id === r.platform)?.icon ?? "plugin"} size={18} /> {pname(r.platform)} · {r.account}</span>
-          {r.engine && <span><Tile icon={engineIcon} size={18} /> {pname(r.engine)}</span>}
+        <div class="muted small detail-sub">
+          <span>{r.key} · {r.author} · {ago(r.at)}</span>
+          {r.url && <button class="link small" onClick={() => api.url(r.url)}>{t("btn.open_pr")} <Icon name="external" size={12} /></button>}
+          {r.review_url && <button class="link small" onClick={() => api.url(r.review_url!)}>
+            {t(r.status === "closed" && !r.event ? "btn.open_last_review" : "btn.open_review")} <Icon name="external" size={12} /></button>}
         </div>
-        <div class="detail-actions">
-          {r.url && <Button small icon="external" onClick={() => api.url(r.url)}>{t("btn.open_pr")}</Button>}
-          {r.review_url && <Button small icon="external" onClick={() => api.url(r.review_url!)}>
-            {t(r.status === "closed" && !r.event ? "btn.open_last_review" : "btn.open_review")}</Button>}
-          {canApprove && (
-            <Button small kind={arming === "approve" ? "primary" : "ghost"} icon="check" busy={r.direct_busy || (sent && !r.action_msg)} onClick={() => act("approve")}>
-              {arming === "approve" ? t("rv.approve_confirm", { sha: r.sha }) : t("rv.approve")}
-            </Button>
-          )}
-          {canWithdraw && (
-            <Button small kind={arming === "withdraw" ? "danger" : "ghost"} icon="x" busy={r.direct_busy} onClick={() => act("withdraw")}>
-              {arming === "withdraw" ? t("rv.withdraw_confirm") : t("rv.withdraw")}
-            </Button>
-          )}
-          {open && r.pr_state !== "draft" && !["queued", "reviewing"].includes(r.status)
-            && <Button small icon="refresh" disabled={busy} onClick={again}>{t("rv.again")}</Button>}
+        <div class="detail-bar">
+          <div class="detail-meta">
+            <span><Tile icon={catalog.find((p) => p.id === r.platform)?.icon ?? "plugin"} size={18} /> {pname(r.platform)} · {r.account}</span>
+            {r.engine && <span><Tile icon={engineIcon} size={18} /> {pname(r.engine)}</span>}
+          </div>
+          <div class="detail-actions">
+            {canApprove && (
+              <Button small kind="primary" icon="check" busy={r.direct_busy || (sent && !r.action_msg)} onClick={() => setConfirm("approve")}>{t("rv.approve")}</Button>
+            )}
+            {!canApprove && canAgain && <Button small icon="refresh" onClick={again}>{t("rv.again")}</Button>}
+            <MoreMenu items={more} />
+          </div>
         </div>
       </header>
+      {confirm && (
+        <Dialog title={t(confirm === "approve" ? "rv.approve_title" : "rv.withdraw_title")} onClose={() => setConfirm("")}
+          footer={<>
+            <Button kind="quiet" onClick={() => setConfirm("")}>{t("btn.cancel")}</Button>
+            <Button kind={confirm === "approve" ? "primary" : "danger"} onClick={() => act(confirm as "approve" | "withdraw")}>
+              {t(confirm === "approve" ? "rv.approve" : "rv.withdraw")}</Button>
+          </>}>
+          <p>{t(confirm === "approve" ? "rv.approve_body" : "rv.withdraw_body", { sha: r.sha, key: r.key })}</p>
+        </Dialog>
+      )}
       {r.status === "posted" && r.event === "COMMENT" && r.earlier_approved && <Note>{t("rv.still_approved", { sha: r.sha })}</Note>}
       {r.status === "closed" && !r.event && r.summary && (
         <Note>{t(r.commented ? "rv.closed_commented" : r.earlier_approved ? "rv.not_posted_earlier" : "rv.not_posted", { sha: r.sha })}</Note>
       )}
       {r.action_msg && !r.direct_busy && r.status !== "direct_approved" && <Note tone="warn">{r.action_msg}</Note>}
-      {r.summary && <p class="summary">{r.summary}</p>}
-      {!r.summary && !r.error && tone(r) === "busy" && <p class="muted">{t("rv.waiting")}</p>}
       {waiting && <Note tone="warn">{t("rv.quota_wait", { at: clock(r.wait_until) })}</Note>}
       {r.error && (waiting ? <p class="muted small" style={{ wordBreak: "break-word" }}>{r.error}</p> : <Note tone="bad">{r.error}</Note>)}
-      {r.reasons.length > 0 && !(r.status === "closed" && !r.event && r.summary) && (
-        <section><h3>{t(r.status === "closed" ? "rv.closed_note" : "rv.blocked")}</h3><ul class="reasons">{r.reasons.map((x) => <li>{x}</li>)}</ul></section>
-      )}
-      {(r.summary || r.findings.length > 0) && (
-        <section>
-          <h3>{t("rv.findings")} <span class="muted">{r.findings.length || ""}</span></h3>
-          {r.findings.length === 0 ? <p class="muted">{t("rv.no_findings")}</p> : (
-            <ul class="findings">
-              {[...r.findings].sort((a, b) => SEV.indexOf(a.severity) - SEV.indexOf(b.severity)).map((f) => (
-                <li>
-                  <span class={`sev ${f.severity}`}>{t(`sev.${f.severity}` as Key)}</span>
-                  <div class="grow">
-                    <div>{f.title}</div>
-                    <div class="mono small muted">{f.path}{f.line ? `:${f.line}` : ""} · {f.introduced_by_pr ? t("rv.introduced") : t("rv.old")}</div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+
+      {(r.summary || r.findings.length > 0 || tone(r) === "busy") && (
+        <section class="round current">
+          <h3>
+            {t("rd.latest")}
+            {latest && latest.sha === r.sha && <span class="muted small round-head">
+              <span class="mono">{latest.sha}</span> · {ago(latest.at)} · <span class={`state-label ${roundOutcome(latest).tone}`}>{roundOutcome(latest).text}</span>
+            </span>}
+          </h3>
+          {r.summary && <p class="summary">{r.summary}</p>}
+          {!r.summary && !r.error && tone(r) === "busy" && <p class="muted">{t("rv.waiting")}</p>}
+          {r.reasons.length > 0 && !(r.status === "closed" && !r.event && r.summary) && (
+            <div class="sub"><h4>{t(r.status === "closed" ? "rv.closed_note" : "rv.blocked")}</h4><ul class="reasons">{r.reasons.map((x) => <li>{x}</li>)}</ul></div>
           )}
+          {(r.summary || r.findings.length > 0) && (
+            <div class="sub"><h4>{t("rv.findings")} <span class="muted">{r.findings.length || ""}</span></h4><FindingList findings={r.findings} /></div>
+          )}
+        </section>
+      )}
+
+      {earlier.length > 0 && (
+        <section class="rounds">
+          <h3>{t("rd.earlier")} <span class="muted">{earlier.length}</span></h3>
+          {earlier.map((x) => {
+            const o = roundOutcome(x);
+            const n = x.findings.length;
+            return (
+              <details class="round">
+                <summary>
+                  <span class="mono">{x.sha}</span>
+                  <span class="muted">{ago(x.at)}</span>
+                  <span class={`state-label ${o.tone}`}>{o.text}</span>
+                  <span class="muted grow">{n ? t("rd.n_findings", { n }) : t("rd.no_findings")}</span>
+                  <Icon name="chevron" size={14} />
+                </summary>
+                <div class="round-body">
+                  {x.summary && <p class="summary">{x.summary}</p>}
+                  {(x.summary || n > 0) && <FindingList findings={x.findings} />}
+                  <div class="round-links">
+                    {x.comment_url && x.comment_url !== x.url && <button class="link small" onClick={() => api.url(x.comment_url!)}>{t("rd.open_comments")} <Icon name="external" size={12} /></button>}
+                    {x.url && <button class="link small" onClick={() => api.url(x.url!)}>{t("btn.open_review")} <Icon name="external" size={12} /></button>}
+                  </div>
+                </div>
+              </details>
+            );
+          })}
         </section>
       )}
     </article>

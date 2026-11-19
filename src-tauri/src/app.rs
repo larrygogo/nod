@@ -143,6 +143,8 @@ struct Row {
     direct_busy: bool,
     /// Approvals Nod gave on this PR (its own or "Approve now") that "Withdraw approval" can dismiss.
     my_approvals: bool,
+    /// Every review of this PR, newest first.
+    rounds: Vec<Value>,
     /// This commit was not approved, but an earlier approval of yours (Nod's, or "Approve now") still counts on the
     /// code host, so the PR can be merged on it.
     earlier_approved: bool,
@@ -201,6 +203,20 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
         action_msg: e.action_msg.clone(),
         direct_busy: e.direct_busy,
         my_approvals: !e.approve_ids.is_empty() || e.direct_approve_id.is_some(),
+        rounds: e
+            .rounds
+            .iter()
+            .rev()
+            .map(|r| {
+                json!({
+                    "sha": r.sha.chars().take(7).collect::<String>(), "at": r.at, "engine": r.engine,
+                    "summary": r.summary, "event": r.event, "url": r.url, "comment_url": r.comment_url,
+                    "direct": r.direct, "withdrawn": r.withdrawn,
+                    "findings": r.findings.iter().map(|f| json!({"severity": f.severity, "title": f.title,
+                        "path": f.path, "line": f.line, "introduced_by_pr": f.introduced_by_pr})).collect::<Vec<_>>(),
+                })
+            })
+            .collect(),
         earlier_approved: e.event.as_deref() != Some("APPROVE")
             && e.status != "direct_approved"
             && (!e.approve_ids.is_empty() || e.direct_approve_id.is_some())
