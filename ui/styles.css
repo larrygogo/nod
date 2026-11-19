@@ -288,8 +288,12 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .block-head { display: flex; align-items: baseline; justify-content: space-between; }
 .block-title { font-size: 13px; font-weight: var(--w-semibold); color: var(--text-2); }
 .list-card { background: var(--surface); border: none; border-radius: var(--r-md); padding: 4px; display: flex; flex-direction: column; box-shadow: var(--shadow-card); }
-.list-card .review-row + .review-row { box-shadow: 0 -1px 0 var(--border); border-radius: 0; }
-.list-card .review-row:hover + .review-row, .list-card .review-row + .review-row:hover { box-shadow: none; }
+/* dividers are a separate hairline, so every row keeps its rounded corners (a tinted or hovered row shows them) */
+.list-card .review-row { position: relative; }
+.list-card .review-row + .review-row::before { content: ""; position: absolute; top: 0; left: 12px; right: 12px; height: 1px; background: var(--border); }
+.list-card .review-row:hover + .review-row::before, .list-card .review-row + .review-row:hover::before,
+.list-card .review-row.flagged + .review-row::before, .list-card .review-row + .review-row.flagged::before,
+.list-card .review-row.selected + .review-row::before, .list-card .review-row + .review-row.selected::before { display: none; }
 
 /* ---------------------------------------------------------------- reviews */
 .list { display: flex; flex-direction: column; }
