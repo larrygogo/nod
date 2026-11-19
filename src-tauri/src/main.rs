@@ -25,6 +25,7 @@ mod reviewer;
 mod secrets;
 mod supervisor;
 mod tray;
+mod update;
 mod util;
 mod worker;
 

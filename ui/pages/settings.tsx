@@ -1,9 +1,34 @@
 // Settings: general, approval rules, review scope, reviewing, files, about. Plugin settings live under Plugins.
 import { useState } from "preact/hooks";
 import { api } from "../api";
-import { getTheme, setTheme, useStore, type Theme } from "../app";
-import { setLang, t } from "../i18n";
+import { getTheme, setTheme, useStore, useUpdate, type Theme } from "../app";
+import { ago, setLang, t } from "../i18n";
 import { Card, TagInput, Note, Row, Section, Segmented, Select, Switch, TextInput, Button } from "../ui";
+
+/** The update check: where it stands, a button to check now, and to install when there is something newer. */
+function UpdateRow() {
+  const { toast } = useStore();
+  const [u, setU] = useUpdate();
+  const [busy, setBusy] = useState(false);
+  const help = !u ? "" : u.available ? t("up.available", { v: u.available })
+    : u.error ? t("up.failed") : u.checked_at ? t("up.latest", { t: ago(u.checked_at) }) : t("up.not_checked");
+  const check = async () => {
+    setBusy(true);
+    try { const s = await api.checkUpdate(); setU(s); if (s.error) toast(t("up.failed"), "bad"); }
+    finally { setBusy(false); }
+  };
+  const install = async () => {
+    setBusy(true);
+    try { await api.installUpdate(); } catch (e) { toast(String(e), "bad"); } finally { setBusy(false); }
+  };
+  return (
+    <Row label={t("up.title")} help={help}>
+      {u?.available
+        ? <Button kind="primary" icon="download" busy={busy || u.installing} onClick={install}>{t("up.install")}</Button>
+        : <Button icon="refresh" busy={busy} onClick={check}>{t("up.check")}</Button>}
+    </Row>
+  );
+}
 
 export function SettingsPage() {
   const { draft, edit, ov, loaded, refresh, toast } = useStore();
@@ -120,9 +145,12 @@ export function SettingsPage() {
       </Section>
 
       <Section title={t("set.about")}>
-        <Card><Row label="nod" help={t("set.version", { v: ov.version })}>
-          <Button kind="quiet" icon="external" onClick={() => api.url("https://github.com/larrygogo/nod")}>GitHub</Button>
-        </Row></Card>
+        <Card>
+          <Row label="nod" help={t("set.version", { v: ov.version })}>
+            <Button kind="quiet" icon="external" onClick={() => api.url("https://github.com/larrygogo/nod")}>GitHub</Button>
+          </Row>
+          <UpdateRow />
+        </Card>
       </Section>
       </>}
     </div>

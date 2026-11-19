@@ -3,7 +3,7 @@ import { createContext } from "preact";
 import { useCallback, useContext, useEffect, useMemo, useState } from "preact/hooks";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, type Config, type LoadedConfig, type Overview, type Plugin, type Status } from "./api";
+import { api, type Config, type LoadedConfig, type Overview, type Plugin, type Status, type UpdateState } from "./api";
 import { Icon } from "./icons";
 import { ago, setLang, t, type Key } from "./i18n";
 import { Button, errText } from "./ui";
@@ -204,6 +204,7 @@ function Sidebar() {
           </button>
         ))}
       </nav>
+      <UpdateNotice />
       <StatusWidget />
     </aside>
   );
@@ -211,6 +212,38 @@ function Sidebar() {
 
 export function stateLabel(s: Status) {
   return s.state === "error" && s.title ? s.title : t(`state.${s.state}` as Key);
+}
+
+/** "Nod x.y.z is out": shown above the status while a newer release is available. Installing restarts Nod, so it
+ *  waits for a click; the running reviews are picked up again after the restart. */
+export function useUpdate() {
+  const [u, setU] = useState<UpdateState | null>(null);
+  useEffect(() => {
+    const load = () => api.updateStatus().then(setU).catch(() => {});
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return [u, setU] as const;
+}
+
+function UpdateNotice() {
+  const { toast } = useStore();
+  const [u, setU] = useUpdate();
+  if (!u?.available) return null;
+  const go = async () => {
+    setU({ ...u, installing: true });
+    try { await api.installUpdate(); } catch (e) { toast(errText(e), "bad"); setU({ ...u, installing: false }); }
+  };
+  return (
+    <div class="update-notice">
+      <div class="grow">
+        <div class="update-title">{t("up.available", { v: u.available })}</div>
+        <div class="muted small">{t("up.restart_hint")}</div>
+      </div>
+      <Button small kind="primary" icon="download" busy={u.installing} disabled={u.installing} onClick={go}>{t(u.installing ? "up.installing" : "up.install")}</Button>
+    </div>
+  );
 }
 
 function StatusWidget() {

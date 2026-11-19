@@ -50,6 +50,10 @@ pub struct Tray {
     pause: MenuItem<Wry>,
     open: MenuItem<Wry>,
     quit: MenuItem<Wry>,
+    menu: Menu<Wry>,
+    /// "Update to x.y.z", shown only while one is available.
+    update: MenuItem<Wry>,
+    update_shown: std::cell::Cell<bool>,
 }
 
 pub fn text(lang: &str, key: &str) -> &'static str {
@@ -165,6 +169,7 @@ pub fn build(app: &AppHandle, lang: &str) -> tauri::Result<Tray> {
     let none = MenuItem::with_id(app, "recent-none", text(lang, "none"), false, None::<&str>)?;
     let recent = Submenu::with_id_and_items(app, "recent", text(lang, "recent"), true, &[&none])?;
     let menu = Menu::with_items(app, &[&status, &sep, &open, &recent, &pause, &sep2, &quit])?;
+    let update = MenuItem::with_id(app, "update", "", true, None::<&str>)?;
     let (px, w, h) = icon_rgba("starting");
     let icon = TrayIconBuilder::with_id("main")
         .icon(Image::new_owned(px, w, h))
@@ -191,10 +196,35 @@ pub fn build(app: &AppHandle, lang: &str) -> tauri::Result<Tray> {
         pause,
         open,
         quit,
+        menu,
+        update,
+        update_shown: std::cell::Cell::new(false),
     })
 }
 
 impl Tray {
+    /// Show "Update to x.y.z" right under the status line while a newer version is available.
+    pub fn set_update(&self, lang: &str, version: Option<&str>) {
+        match version {
+            Some(v) => {
+                let label = if lang == "en" {
+                    format!("Update to {v} and restart")
+                } else {
+                    format!("更新到 {v} 并重启")
+                };
+                let _ = self.update.set_text(label);
+                if !self.update_shown.get() && self.menu.insert(&self.update, 1).is_ok() {
+                    self.update_shown.set(true);
+                }
+            }
+            None => {
+                if self.update_shown.get() && self.menu.remove(&self.update).is_ok() {
+                    self.update_shown.set(false);
+                }
+            }
+        }
+    }
+
     /// Latest reviews as (label, link); clicking one opens its review (or the PR).
     pub fn set_recent(&self, lang: &str, items: &[(String, String)]) {
         let _ = self.recent.set_text(text(lang, "recent"));

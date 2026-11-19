@@ -67,6 +67,13 @@ export const api = {
   githubLoginStart: (account: Account) => invoke<DeviceCode>("github_login_start", { account }),
   githubLoginPoll: (account: Account, deviceCode: string) => invoke<GithubPoll>("github_login_poll", { account, deviceCode }),
   githubLogout: (account: Account) => invoke<void>("github_logout", { account }),
+  updateStatus: () => invoke<UpdateState>("update_status"),
+  checkUpdate: () => invoke<UpdateState>("check_update"),
+  installUpdate: () => invoke<void>("install_update"),
+};
+
+export type UpdateState = {
+  current: string; available: string | null; notes: string | null; checked_at: number; error: string | null; installing: boolean;
 };
 
 /** The channels in effect (new list or the legacy single channel), like Notify::active in Rust. */

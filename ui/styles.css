@@ -262,6 +262,9 @@ textarea.input { height: auto; padding: 6px 10px; resize: vertical; line-height:
 .nav .count { margin-left: auto; font-size: 11px; font-weight: var(--w-semibold); background: var(--accent-bg); color: var(--accent-fg); border-radius: 999px; padding: 0 7px; font-variant-numeric: tabular-nums; }
 nav { display: flex; flex-direction: column; gap: 2px; }
 
+.update-notice { margin-top: auto; margin-bottom: 8px; padding: 10px; border-radius: var(--r-md); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); display: flex; flex-direction: column; gap: 8px; }
+.update-notice .update-title { font-weight: var(--w-medium); font-size: 13px; }
+.update-notice + .status-widget { margin-top: 0; }
 .status-widget { margin-top: auto; padding: 10px 6px 4px 10px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
 .status-widget .status-text-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .status-widget .status-line { font-size: 12.5px; }

@@ -75,9 +75,26 @@ fn quit(app: &AppHandle) {
     app.exit(0);
 }
 
+/// Stop the background worker (its running reviews are re-queued when it starts again).
+pub fn stop_worker(app: &AppHandle) {
+    app.state::<AppState>().sup.stop();
+}
+
+pub fn start_worker(app: &AppHandle) {
+    app.state::<AppState>().sup.start();
+}
+
 pub fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "open" => show_main(app),
+        "update" => {
+            let a = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = crate::update::install(&a).await {
+                    crate::osnotify::show("Nod", &e, "");
+                }
+            });
+        }
         "pause" => {
             let sup = app.state::<AppState>().sup.clone();
             let p = !supervisor::paused();
@@ -633,6 +650,21 @@ fn set_autostart(app: AppHandle, on: bool) -> Result<(), String> {
 /// Review a PR nobody asked you to review (a link handed over in chat): checked here so a mistake shows at once,
 /// then queued for the account's worker, which wakes up for it and applies the usual approval rules.
 #[tauri::command]
+fn update_status() -> crate::update::State {
+    crate::update::state()
+}
+
+#[tauri::command]
+async fn check_update(app: AppHandle) -> crate::update::State {
+    crate::update::check(&app).await
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    crate::update::install(&app).await
+}
+
+#[tauri::command]
 async fn track_pr(pr: String) -> Result<String, String> {
     let c = config::load_from(&paths::config_file(), false).map_err(|e| format!("{e:#}"))?;
     let (acc, r, n) = crate::forge::resolve(&c, &pr).map_err(|e| format!("{e:#}"))?;
@@ -831,6 +863,7 @@ fn status_loop(app: AppHandle, t: tray::Tray) {
         .spawn(move || {
             let mut last: Option<(Status, String)> = None;
             let mut last_recent: Option<(Vec<(String, String)>, String)> = None;
+            let mut last_update: Option<(Option<String>, String)> = None;
             loop {
                 let s = app.state::<AppState>().sup.status();
                 let l = lang();
@@ -839,6 +872,11 @@ fn status_loop(app: AppHandle, t: tray::Tray) {
                     t.update(&l, &s);
                     let _ = app.emit("status", &s);
                     last = Some(cur);
+                }
+                let up = crate::update::state().available;
+                if last_update.as_ref() != Some(&(up.clone(), l.clone())) {
+                    t.set_update(&l, up.as_deref());
+                    last_update = Some((up, l.clone()));
                 }
                 let recent = recent_items(&l);
                 if last_recent.as_ref() != Some(&(recent.clone(), l.clone())) {
@@ -870,7 +908,11 @@ pub fn run(hidden: bool) {
             Some(vec![ARG_HIDDEN]),
         ))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            update_status,
+            check_update,
+            install_update,
             overview,
             get_config,
             save_config,
@@ -915,6 +957,9 @@ pub fn run(hidden: bool) {
             let handle = app.handle().clone();
             let t = tray::build(&handle, &lang())?;
             status_loop(handle.clone(), t);
+            if !isolated() {
+                crate::update::start(handle.clone());
+            }
             // Remove the command-line edition's service (it holds the lock), then start reviewing.
             std::thread::spawn(move || {
                 match legacy::remove_service() {

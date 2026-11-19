@@ -35,6 +35,8 @@ First public release: a desktop app.
 
 ### More in this release
 
+- Updates: Nod checks GitHub for a newer release at start and every 6 hours and offers it in the window and the tray
+  menu; one click downloads it, checks its signature and restarts into it. The deb package is updated by hand.
 - Comments go up as soon as the review is done; the approval follows as a review of its own once CI passes (before,
   both waited for CI together). If CI fails, a short review says why it was not approved. *Approve directly* posts
   the findings with the approval when they are not on GitHub yet, instead of dropping them.

@@ -67,5 +67,16 @@
       "minimumSystemVersion": "12.0",
       "signingIdentity": "-"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFEQUNGNkI4OURFRDI2MDYKUldRR0p1MmR1UGFzclJBRVdFR3hYVzRHcFBDdFpQWmRDVFZQcXA0QU53MmU4M2dCODRQZStyK1IK",
+      "endpoints": [
+        "https://github.com/larrygogo/nod/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

@@ -1,6 +1,7 @@
 name: release
 
-# Push a tag like v0.1.0 to build the installers for every platform and attach them to a GitHub release.
+# Push a tag like v0.1.0 to build the installers for every platform and attach them to a GitHub release, with the
+# signed update packages and latest.json that installed copies of Nod check for updates.
 on:
   push:
     tags: ["v*"]
@@ -14,11 +15,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, args: "--bundles nsis" }
-          - { os: macos-latest, args: "--bundles app,dmg --target aarch64-apple-darwin", target: aarch64-apple-darwin }
-          - { os: macos-latest, args: "--bundles app,dmg --target x86_64-apple-darwin", target: x86_64-apple-darwin }
-          - { os: ubuntu-22.04, args: "--bundles appimage,deb" }
-          - { os: ubuntu-22.04-arm, args: "--bundles appimage,deb" }
+          # platform: the key in latest.json for this build
+          - { os: windows-latest, args: "--bundles nsis", platform: windows-x86_64 }
+          - { os: macos-latest, args: "--bundles app,dmg --target aarch64-apple-darwin", target: aarch64-apple-darwin, platform: darwin-aarch64 }
+          - { os: macos-latest, args: "--bundles app,dmg --target x86_64-apple-darwin", target: x86_64-apple-darwin, platform: darwin-x86_64 }
+          - { os: ubuntu-22.04, args: "--bundles appimage,deb", platform: linux-x86_64 }
+          - { os: ubuntu-22.04-arm, args: "--bundles appimage,deb", platform: linux-aarch64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -33,13 +35,35 @@ jobs:
       - run: cargo test
         if: matrix.target != 'x86_64-apple-darwin'
         working-directory: src-tauri
-      - run: bunx tauri build ${{ matrix.args }}
+      # Update packages are signed with the release key; the app checks them against the public key in
+      # tauri.conf.json. Only releases make them: ordinary builds have no key.
+      - run: bunx tauri build ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
       - name: collect
         shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           mkdir -p out
           find src-tauri/target -path '*/bundle/*' \( -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) \
             -exec cp {} out/ \;
+          # The package the updater installs: the installer on Windows, the AppImage on Linux, the .app archive on
+          # macOS (renamed per architecture: both Macs build the same file name).
+          case "$PLATFORM" in
+            windows-*) src=$(find src-tauri/target -path '*/bundle/nsis/*' -name '*-setup.exe' | head -1); name=$(basename "$src") ;;
+            linux-*)   src=$(find src-tauri/target -path '*/bundle/appimage/*' -name '*.AppImage' | head -1); name=$(basename "$src") ;;
+            darwin-*)  src=$(find src-tauri/target -path '*/bundle/macos/*' -name '*.app.tar.gz' | head -1); name="nod_${PLATFORM}.app.tar.gz" ;;
+          esac
+          test -f "$src" && test -f "$src.sig"
+          cp "$src" "out/$name"
+          # one platform's entry of latest.json; the publish job joins them
+          jq -n --arg p "$PLATFORM" --arg sig "$(cat "$src.sig")" \
+            --arg url "https://github.com/$REPO/releases/download/$GITHUB_REF_NAME/$name" \
+            '{($p): {signature: $sig, url: $url}}' > "out/update-$PLATFORM.json"
           ls -l out
       - uses: actions/upload-artifact@v4
         with:
@@ -56,12 +80,19 @@ jobs:
         with:
           path: assets
           merge-multiple: true
-      - run: (cd assets && sha256sum * > SHA256SUMS)
       - name: release notes from CHANGELOG
         # the section from "## [x.y.z]" (or "## x.y.z") up to the next "## "; stops the release if it is missing
         run: |
           awk -v v="${GITHUB_REF_NAME#v}" 'index($0, "## [" v "]") == 1 || index($0, "## " v) == 1 {f=1; next} /^## / && f {exit} f' CHANGELOG.md > notes.md
           test -s notes.md
+      - name: latest.json (what installed copies check for updates)
+        run: |
+          set -euo pipefail
+          jq -s --arg v "${GITHUB_REF_NAME#v}" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --rawfile n notes.md \
+            '{version: $v, notes: $n, pub_date: $d, platforms: add}' assets/update-*.json > assets/latest.json
+          rm assets/update-*.json
+          jq '.platforms | keys' assets/latest.json
+      - run: (cd assets && sha256sum * > SHA256SUMS)
       - run: gh release create "$GITHUB_REF_NAME" assets/* --title "$GITHUB_REF_NAME" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
