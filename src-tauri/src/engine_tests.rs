@@ -244,6 +244,37 @@ fn issues_are_commented_not_approved() {
     assert_eq!(f.w().updates.last().unwrap().1, "comment");
 }
 
+/// [scope] authors decides whose requests start a review; a PR handed over by hand is reviewed anyway.
+#[test]
+fn only_requests_from_chosen_authors_are_reviewed() {
+    let (f, en, dir) = setup();
+    f.w().requested = vec![("o/r".into(), 1)];
+    let mut cfg = en.cfg.clone();
+    cfg.scope.authors = vec!["bob".into()];
+    let en2 = Engine {
+        cfg,
+        store: en.store.clone(),
+        me: en.me.clone(),
+        forge: en.forge.clone(),
+        reviewer: en.reviewer.clone(),
+        notifier: en.notifier.clone(),
+    };
+    assert_eq!(
+        en2.collect_todo().unwrap().len(),
+        0,
+        "alice is not on the list"
+    );
+    let track = dir.path().join("track.txt");
+    std::fs::write(
+        &track, "o/r#1!
+",
+    )
+    .unwrap();
+    let d = Daemon::with_track("github", en2, track);
+    d.poll_once().unwrap();
+    assert_eq!(e(&en).status, "queued", "handed over by hand: reviewed");
+}
+
 #[test]
 fn clean_pr_is_approved_and_remembered() {
     let (f, en, _d) = setup();

@@ -159,6 +159,10 @@ pub struct Scope {
     /// Only these repositories (empty = every repository you are asked to review in).
     pub repos: Vec<String>,
     pub exclude_repos: Vec<String>,
+    /// Only PRs by these authors are reviewed when they ask you (logins, as in [approve]; empty = anyone). A PR you
+    /// hand to Nod yourself ("Review" in the window) is reviewed whoever wrote it.
+    pub authors: Vec<String>,
+    pub exclude_authors: Vec<String>,
     /// Also review PRs that request a review from a team you are in, not only from you personally.
     pub team_requests: bool,
 }
@@ -486,6 +490,8 @@ impl Config {
         for (name, list) in [
             ("approve.authors", &self.approve.authors),
             ("approve.exclude_authors", &self.approve.exclude_authors),
+            ("scope.authors", &self.scope.authors),
+            ("scope.exclude_authors", &self.scope.exclude_authors),
         ] {
             for x in list {
                 if !is_login_pattern(x) {

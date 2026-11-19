@@ -662,8 +662,8 @@ async fn track_pr(pr: String) -> Result<String, String> {
                 ))
             } else if !in_scope {
                 Some(msg(
-                "这个仓库不在设置里的审查范围内，先在「设置 → 范围」里加上它",
-                "This repository is outside the review scope; add it under Settings → Scope first",
+                "这个仓库不在审查范围内，先在「设置 → 审查」里加上它",
+                "This repository is outside the review scope; add it under Settings → Review first",
             ))
             } else {
                 None

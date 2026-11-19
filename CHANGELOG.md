@@ -12,7 +12,9 @@ project uses [Semantic Versioning](https://semver.org/).
   the findings with the approval when they are not on GitHub yet, instead of dropping them.
 - No CI: the wait for checks to appear counts from when Nod first saw the commit, and is skipped in repositories
   whose earlier PRs never had CI. The card says until when it waits.
-- Settings: *Auto-approve* moved into the *Review* tab, with the CI waits.
+- Settings: one *Review* tab with two rule sets: *which PRs to review* (repositories, and now authors:
+  `scope.authors` / `scope.exclude_authors`) and *auto-approve*, an on/off on top of the comments with its own
+  repository and author lists and the CI waits.
 
 - GitHub signs in with an OAuth device-flow login from the GitHub plugin page (the way the GitHub CLI does); `gh`
   is no longer needed or used. A personal access token can be entered instead of signing in. GitHub Enterprise

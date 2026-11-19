@@ -26,6 +26,8 @@ footer = ""                   # the signature (Markdown); empty = Nod's own; {en
 [scope]
 repos = []                   # only these, e.g. ["my-org/*", "@me/*"]; empty = every repository you are asked in
 exclude_repos = []           # e.g. ["my-org/infra-secrets"]
+authors = []                 # only requests on PRs by these logins; empty = anyone (Review in the window ignores it)
+exclude_authors = []         # e.g. ["renovate[bot]"]
 team_requests = false        # also review PRs that request a review from a team you belong to
 
 # When an approval may be posted. The quality rules always apply first (no high-severity issue, no medium issue

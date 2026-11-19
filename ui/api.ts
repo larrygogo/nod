@@ -36,7 +36,7 @@ export interface Config {
   forges?: Account[];
   plugins?: Record<string, Record<string, unknown>>;
   review: Record<string, any> & { engine: string; per_repo: { repo: string; engine: string }[] };
-  scope: { repos: string[]; exclude_repos: string[]; team_requests: boolean };
+  scope: { repos: string[]; exclude_repos: string[]; authors?: string[]; exclude_authors?: string[]; team_requests: boolean };
   approve: { mode: string; repos: string[]; authors: string[]; exclude_repos: string[]; exclude_authors: string[] };
   daemon: { poll_seconds: number; refresh_seconds: number };
   notify: Record<string, any> & { channels: string[]; channel: string };

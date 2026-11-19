@@ -378,6 +378,14 @@ impl Engine {
         })
     }
 
+    /// Whether a request from `author` starts a review (`[scope] authors` / `exclude_authors`).
+    pub fn author_allowed(&self, author: &str) -> bool {
+        let s = &self.cfg.scope;
+        crate::config::selected(&s.authors, &s.exclude_authors, |p| {
+            crate::config::author_matches(p, author, &self.me)
+        })
+    }
+
     /// PRs that need a review: you were asked to review them, or you reviewed them and new commits arrived.
     pub fn collect_todo(&self) -> Result<Vec<Pr>> {
         let mut cands: Vec<(String, (String, u64))> = vec![];
@@ -417,6 +425,9 @@ impl Engine {
                     self.store.with(&key, |e| e.mark_closed());
                 }
                 continue;
+            }
+            if !self.author_allowed(&pr.author) {
+                continue; // [scope] authors: not reviewed automatically (a PR handed over by hand still is)
             }
             if pr.draft {
                 if e.draft_sha != pr.head {

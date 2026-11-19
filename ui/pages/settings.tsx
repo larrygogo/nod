@@ -20,7 +20,7 @@ export function SettingsPage() {
     <div class="page narrow tabbed">
       <header class="page-head"><h1>{t("set.title")}</h1></header>
       <Segmented value={tab} onChange={setTab} options={[
-        ["general", t("set.general")], ["scope", t("set.scope")],
+        ["general", t("set.general")],
         ["review", t("set.review")], ["about", t("set.about")],
       ]} />
       {loaded.error && (
@@ -47,15 +47,30 @@ export function SettingsPage() {
         </Card>
       </Section>}
 
-      {/* Reviewing and approving share a tab: what Nod does with a PR, start to finish. The approval waits for CI,
-          so the CI waits live with it. */}
+      {/* What happens to a PR, in order: whether it is reviewed (AI review and comments), then whether an approval
+          is added on top. Two rule sets, one page. */}
+      {tab === "review" && <Section title={t("set.scope")} help={t("set.scope_help")}>
+        <Card>
+          <Row label={t("set.scope.repos")} help={t("set.list_help")} wide>
+            <TagInput kind="repo" suggest={repoHints} value={draft.scope.repos} onChange={(v) => edit((c) => { c.scope.repos = v; })} placeholder="my-org/*" /></Row>
+          <Row label={t("set.scope.exclude")} wide>
+            <TagInput kind="repo" suggest={repoHints} value={draft.scope.exclude_repos} onChange={(v) => edit((c) => { c.scope.exclude_repos = v; })} /></Row>
+          <Row label={t("set.scope.authors")} wide>
+            <TagInput kind="login" suggest={loginHints} value={draft.scope.authors ?? []} onChange={(v) => edit((c) => { c.scope.authors = v; })} placeholder="alice" /></Row>
+          <Row label={t("set.scope.exclude_authors")} wide>
+            <TagInput kind="login" suggest={loginHints} value={draft.scope.exclude_authors ?? []} onChange={(v) => edit((c) => { c.scope.exclude_authors = v; })} placeholder="renovate[bot]" /></Row>
+          <Row label={t("set.scope.team")} help={t("set.scope.team_help")}>
+            <Switch on={draft.scope.team_requests} label={t("set.scope.team")} onChange={(v) => edit((c) => { c.scope.team_requests = v; })} /></Row>
+        </Card>
+      </Section>}
+
       {tab === "review" && <Section title={t("set.approve")} help={t("set.approve_help")}>
         <Card>
-          <Row label={t("set.approve.mode")}>
-            <Segmented value={draft.approve.mode} onChange={(v) => edit((c) => { c.approve.mode = v; })}
-              options={[["auto", t("set.approve.auto")], ["never", t("set.approve.never")]]} />
+          <Row label={t("set.approve.on")} help={t("set.approve.on_help")}>
+            <Switch on={draft.approve.mode !== "never"} label={t("set.approve.on")}
+              onChange={(v) => edit((c) => { c.approve.mode = v ? "auto" : "never"; })} />
           </Row>
-          {draft.approve.mode === "auto" && <>
+          {draft.approve.mode !== "never" && <>
             <Row label={t("set.approve.repos")} help={t("set.list_help")} wide>
               <TagInput kind="repo" suggest={repoHints} value={draft.approve.repos} onChange={(v) => edit((c) => { c.approve.repos = v; })} placeholder="my-org/*" /></Row>
             <Row label={t("set.approve.authors")} wide>
@@ -67,17 +82,6 @@ export function SettingsPage() {
             <Row label={t("set.ci_wait")}>{num((c) => c.review.ci_wait_max_min, (c, v) => { c.review.ci_wait_max_min = v; })}</Row>
             <Row label={t("set.ci_grace")} help={t("set.ci_grace_help")}>{num((c) => c.review.ci_none_grace_min, (c, v) => { c.review.ci_none_grace_min = v; })}</Row>
           </>}
-        </Card>
-      </Section>}
-
-      {tab === "scope" && <Section title={t("set.scope")}>
-        <Card>
-          <Row label={t("set.scope.repos")} help={t("set.list_help")} wide>
-            <TagInput kind="repo" suggest={repoHints} value={draft.scope.repos} onChange={(v) => edit((c) => { c.scope.repos = v; })} placeholder="my-org/*" /></Row>
-          <Row label={t("set.scope.exclude")} wide>
-            <TagInput kind="repo" suggest={repoHints} value={draft.scope.exclude_repos} onChange={(v) => edit((c) => { c.scope.exclude_repos = v; })} /></Row>
-          <Row label={t("set.scope.team")} help={t("set.scope.team_help")}>
-            <Switch on={draft.scope.team_requests} label={t("set.scope.team")} onChange={(v) => edit((c) => { c.scope.team_requests = v; })} /></Row>
         </Card>
       </Section>}
 
