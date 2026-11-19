@@ -376,8 +376,28 @@ impl Daemon {
                     self.engine.alert(&format!("{e:#}"));
                 }
             }
-            thread::sleep(every);
+            wait_for_work(&self.track, every);
         }
+    }
+}
+
+/// The flag the window drops next to the track file when it hands over a PR. The track file itself keeps every
+/// PR still open, so it cannot be the signal.
+pub fn wake_file(track: &std::path::Path) -> std::path::PathBuf {
+    track.with_extension("wake")
+}
+
+/// Sleep until the next poll, but start at once when the window hands over a PR to review: someone who pastes a
+/// link should not wait for the next round.
+pub fn wait_for_work(track: &std::path::Path, every: Duration) {
+    let wake = wake_file(track);
+    let until = std::time::Instant::now() + every;
+    let tick = Duration::from_millis(500).min(every);
+    while std::time::Instant::now() < until {
+        if fs::remove_file(&wake).is_ok() {
+            return;
+        }
+        thread::sleep(tick);
     }
 }
 
@@ -586,5 +606,25 @@ pub fn run(cfg: Config) -> Result<()> {
     }
     loop {
         thread::sleep(Duration::from_secs(3600));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_handed_over_pr_wakes_the_poll_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let track = dir.path().join("track.txt");
+        fs::write(&track, "o/r#1\n").unwrap(); // a PR that is still tracked must not keep waking the loop
+        let t = std::time::Instant::now();
+        wait_for_work(&track, Duration::from_millis(300));
+        assert!(t.elapsed() >= Duration::from_millis(300));
+        fs::write(wake_file(&track), "").unwrap();
+        let t = std::time::Instant::now();
+        wait_for_work(&track, Duration::from_secs(30));
+        assert!(t.elapsed() < Duration::from_secs(2));
+        assert!(!wake_file(&track).exists());
     }
 }

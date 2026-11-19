@@ -340,9 +340,8 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .dialog > header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .dialog-body { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .dialog > footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
-.hand-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.hand-actions p { margin-top: 6px; }
-.hand-result { border-top: 1px solid var(--border); padding-top: 12px; }
+.hand-main { display: flex; gap: 8px; }
+.hand-key { color: var(--good); font-weight: var(--w-medium); margin: 0; }
 
 /* ---------------------------------------------------------------- plugins */
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px 16px; }

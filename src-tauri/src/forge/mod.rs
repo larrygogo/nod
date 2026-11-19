@@ -105,24 +105,61 @@ pub fn split_key(key: &str) -> Result<(String, u64)> {
     Ok((repo.to_string(), n))
 }
 
-/// A pull request link on any host: `(host, repo path, number)`.
-/// GitHub `…/owner/repo/pull/12`, Gitee and Gitea `…/owner/repo/pulls/12`.
-pub fn parse_url(s: &str) -> Option<(String, String, u64)> {
-    let s = s.trim().trim_end_matches('/');
-    let rest = s
-        .strip_prefix("https://")
-        .or_else(|| s.strip_prefix("http://"))?;
-    let (host, path) = rest.split_once('/')?;
-    let parts: Vec<&str> = path.split('/').collect();
-    let n: u64 = parts.last()?.parse().ok()?;
-    let kind_at = parts.len().checked_sub(2)?;
-    if !matches!(parts[kind_at], "pull" | "pulls") {
-        return None;
+/// Pasted text cut down to the PR reference in it: surrounding spaces, quotes, brackets and punctuation go; a link
+/// inside a sentence ("please look at https://… thanks") is picked out; `github.com/o/r/pull/1` gets its scheme.
+pub fn clean_ref(text: &str) -> String {
+    let trim = |s: &str| {
+        s.trim_matches(|c: char| {
+            c.is_whitespace()
+                || "\"'`<>()[]{}“”‘’「」『』（）【】《》,，.。;；:：!！?？、".contains(c)
+        })
+        .to_string()
+    };
+    let t = text.trim();
+    // ASCII lowercasing keeps byte offsets, so the index found in `low` is valid in `t`
+    let low = t.to_ascii_lowercase();
+    if let Some(i) = low.find("https://").or_else(|| low.find("http://")) {
+        let url: String = t[i..]
+            .chars()
+            .take_while(|c| {
+                !c.is_whitespace() && !"\"'`<>“”‘’「」（）【】《》，。；！？、".contains(*c)
+            })
+            .collect();
+        return trim(&url);
     }
-    let repo = parts[..kind_at].join("/");
-    (repo.split('/').count() >= 2).then(|| (host.to_string(), repo, n))
+    let t = trim(t);
+    // a link without its scheme: host/owner/repo/pull/12
+    let first = t.split('/').next().unwrap_or("");
+    if first.contains('.') && t.split('/').count() >= 5 {
+        return format!("https://{t}");
+    }
+    // owner/repo#12 with stray spaces ("owner/repo #12")
+    t.split_whitespace().collect()
 }
 
+/// A pull request link on any host: `(host, repo path, number)`. GitHub `…/owner/repo/pull/12`, Gitee and Gitea
+/// `…/owner/repo/pulls/12`; anything after the number (`/files`, `/changes`, `/commits/<sha>`), a query or a
+/// fragment is ignored.
+pub fn parse_url(s: &str) -> Option<(String, String, u64)> {
+    let s = clean_ref(s);
+    let rest = s
+        .split_once("://")
+        .map(|(scheme, r)| (scheme.to_ascii_lowercase(), r));
+    let rest = match rest {
+        Some((sc, r)) if sc == "https" || sc == "http" => r,
+        _ => return None,
+    };
+    let rest = rest.split(['?', '#']).next()?.trim_end_matches('/');
+    let (host, path) = rest.split_once('/')?;
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    // the last "pull"/"pulls" segment followed by a number; owner/repo (or a GitLab-style group path) before it
+    let at = (0..parts.len().saturating_sub(1))
+        .rev()
+        .find(|&i| matches!(parts[i], "pull" | "pulls") && parts[i + 1].parse::<u64>().is_ok())?;
+    let n: u64 = parts[at + 1].parse().ok()?;
+    let repo = parts[..at].join("/");
+    (repo.split('/').count() >= 2).then(|| (host.to_lowercase(), repo, n))
+}
 #[cfg(test)]
 pub fn parse_key(s: &str) -> Result<(String, u64)> {
     let s = s.trim().trim_end_matches('/');
@@ -210,7 +247,8 @@ pub fn resolve(
             .ok_or_else(|| anyhow!("no enabled code host account for {host}"))?;
         return Ok((acc.clone(), repo, n));
     }
-    let (repo, n) = split_key(text.trim()).map_err(|_| {
+    let key = clean_ref(text);
+    let (repo, n) = split_key(&key).map_err(|_| {
         anyhow!(
             "expected owner/repo#123 or a pull request link, got {:?}",
             text.trim()
@@ -274,6 +312,31 @@ mod tests {
             Some(("git.example.com".into(), "o/r".into(), 3))
         );
         assert_eq!(parse_url("https://x.com/o/r/issues/3"), None);
+        // pasted the way people actually paste them
+        let want = Some((
+            "github.com".to_string(),
+            "ReverseGame/reqgenie".to_string(),
+            253,
+        ));
+        for s in [
+            "  https://github.com/ReverseGame/reqgenie/pull/253/changes  ",
+            "https://github.com/ReverseGame/reqgenie/pull/253/files#diff-abc",
+            "https://github.com/ReverseGame/reqgenie/pull/253/commits/0a1b2c",
+            "https://github.com/ReverseGame/reqgenie/pull/253?notification_referrer_id=x",
+            "https://github.com/ReverseGame/reqgenie/pull/253#issuecomment-1",
+            "<https://github.com/ReverseGame/reqgenie/pull/253>",
+            "帮忙看下这个 https://github.com/ReverseGame/reqgenie/pull/253 ，谢谢",
+            "github.com/ReverseGame/reqgenie/pull/253",
+            "HTTPS://GitHub.com/ReverseGame/reqgenie/pull/253",
+        ] {
+            assert_eq!(parse_url(s), want, "{s}");
+        }
+        assert_eq!(parse_url("https://github.com/o/r/pull/new"), None);
+        assert_eq!(
+            clean_ref("  ReverseGame/reqgenie #253 "),
+            "ReverseGame/reqgenie#253"
+        );
+        assert_eq!(clean_ref("`o/r#7`"), "o/r#7");
         assert_eq!(split_key("a/b/c#1").unwrap(), ("a/b/c".into(), 1));
         assert!(split_key("a#1").is_err());
     }

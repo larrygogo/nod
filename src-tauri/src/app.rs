@@ -585,19 +585,60 @@ fn set_autostart(app: AppHandle, on: bool) -> Result<(), String> {
     if on { a.enable() } else { a.disable() }.map_err(|e| e.to_string())
 }
 
+/// Review a PR nobody asked you to review (a link handed over in chat): checked here so a mistake shows at once,
+/// then queued for the account's worker, which wakes up for it and applies the usual approval rules.
 #[tauri::command]
-fn track_pr(pr: String) -> Result<String, String> {
+async fn track_pr(pr: String) -> Result<String, String> {
     let c = config::load_from(&paths::config_file(), false).map_err(|e| format!("{e:#}"))?;
     let (acc, r, n) = crate::forge::resolve(&c, &pr).map_err(|e| format!("{e:#}"))?;
     let key = format!("{r}#{n}");
+    let (cc, acc2, r2) = (c.clone(), acc.clone(), r.clone());
+    let zh = c.language != "en";
+    let msg = move |z: &str, e: &str| if zh { z.to_string() } else { e.to_string() };
+    let problem =
+        tauri::async_runtime::spawn_blocking(move || -> Result<Option<String>, String> {
+            let forge = crate::forge::make(&acc2, &cc).map_err(|e| format!("{e:#}"))?;
+            let p = forge.fetch_pr(&r2, n).map_err(|e| format!("{e:#}"))?;
+            let me = forge.current_user().unwrap_or_default();
+            let s = &cc.scope;
+            let in_scope = crate::config::selected(&s.repos, &s.exclude_repos, |pat| {
+                crate::config::repo_matches(pat, &r2, &me)
+            });
+            Ok(if p.state != "open" {
+                Some(if p.state == "merged" {
+                    msg("这个 PR 已经合并了", "This PR is already merged")
+                } else {
+                    msg("这个 PR 已经关闭了", "This PR is closed")
+                })
+            } else if p.draft {
+                Some(msg(
+                    "这个 PR 还是草稿，转为正式 PR 后再审查",
+                    "This PR is a draft; review it once it is ready for review",
+                ))
+            } else if !in_scope {
+                Some(msg(
+                "这个仓库不在设置里的审查范围内，先在「设置 → 范围」里加上它",
+                "This repository is outside the review scope; add it under Settings → Scope first",
+            ))
+            } else {
+                None
+            })
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+    if let Some(p) = problem {
+        return Err(p);
+    }
     let p = crate::daemon::track_file(&acc.id);
     let _ = std::fs::create_dir_all(paths::data_dir());
     let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(p)
+        .open(&p)
         .map_err(|e| e.to_string())?;
     writeln!(f, "{key}").map_err(|e| e.to_string())?;
+    // wake the account's worker now instead of at its next poll
+    let _ = std::fs::write(crate::daemon::wake_file(&p), "");
     Ok(key)
 }
 

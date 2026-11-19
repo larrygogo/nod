@@ -145,29 +145,48 @@ export function Detail({ r }: { r: Row }) {
   );
 }
 
+/** What the backend will make of pasted text (src-tauri/src/forge/mod.rs clean_ref + parse_url), shown while
+ *  typing so a wrong paste is obvious before anything runs. The backend stays the authority. */
+export function recognizePr(text: string): string | null {
+  const t = text.trim();
+  const m = t.match(/https?:\/\/[^\s"'`<>“”‘’「」（）【】《》，。；！？、]+/i) ?? (/^[\w.-]+\.\w+\//.test(t) ? [`https://${t}`] : null);
+  if (m) {
+    const rest = m[0].replace(/^https?:\/\//i, "").split(/[?#]/)[0];
+    const parts = rest.split("/").filter(Boolean).slice(1);
+    for (let i = parts.length - 2; i >= 0; i--) {
+      if ((parts[i] === "pull" || parts[i] === "pulls") && /^\d+$/.test(parts[i + 1]) && i >= 2) return `${parts.slice(0, i).join("/")}#${parts[i + 1]}`;
+    }
+    return null;
+  }
+  const k = t.replace(/^[`"'<(\[]+|[`"'>)\].,，。]+$/g, "").replace(/\s+/g, "");
+  return /^[^/#\s]+(\/[^/#\s]+)+#\d+$/.test(k) ? k : null;
+}
+
 function HandDialog({ onClose }: { onClose: () => void }) {
   const [pr, setPr] = useState("");
   const [msg, setMsg] = useState<{ tone: "info" | "good" | "bad"; text: string } | null>(null);
-  const [result, setResult] = useState<Row | null>(null);
   const [running, setRunning] = useState(false);
+  const [started, setStarted] = useState(false);
+  const key = recognizePr(pr);
+  const review = async () => {
+    if (!key || running || started) return;
+    setRunning(true); setMsg(null);
+    try { setMsg({ tone: "good", text: t("hand.started", { k: await api.track(pr) }) }); setStarted(true); }
+    catch (e) { setMsg({ tone: "bad", text: errText(e) }); }
+    finally { setRunning(false); }
+  };
   return (
     <Dialog title={t("hand.title")} onClose={onClose}>
       <p class="muted">{t("hand.intro")}</p>
-      <TextInput value={pr} onInput={setPr} placeholder="https://github.com/owner/repo/pull/123" mono autoFocus />
-      <div class="hand-actions">
-        <div><Button kind="primary" icon="play" busy={running} disabled={!pr.trim()} onClick={async () => {
-          setRunning(true); setResult(null); setMsg({ tone: "info", text: t("hand.running") });
-          try { setResult(await api.dryRun(pr)); setMsg(null); }
-          catch (e) { setMsg({ tone: "bad", text: errText(e) }); }
-          finally { setRunning(false); }
-        }}>{t("hand.dry")}</Button><p class="muted small">{t("hand.dry_help")}</p></div>
-        <div><Button icon="plus" disabled={!pr.trim() || running} onClick={async () => {
-          try { setMsg({ tone: "good", text: t("hand.tracked", { k: await api.track(pr) }) }); }
-          catch (e) { setMsg({ tone: "bad", text: errText(e) }); }
-        }}>{t("hand.track")}</Button><p class="muted small">{t("hand.track_help")}</p></div>
+      <div onKeyDown={(e) => { if (e.key === "Enter") review(); }}>
+        <TextInput value={pr} onInput={(v) => { setPr(v); setStarted(false); setMsg(null); }} placeholder="https://github.com/owner/repo/pull/123" mono autoFocus />
+      </div>
+      <p class={`small ${key ? "hand-key" : "muted"}`}>{pr.trim() ? (key ? t("hand.recognized", { k: key }) : t("hand.unrecognized")) : t("hand.formats")}</p>
+      <div class="hand-main">
+        {started ? <Button kind="primary" onClick={onClose}>{t("hand.see_records")}</Button>
+          : <Button kind="primary" icon="play" busy={running} disabled={!key} onClick={review}>{t("hand.review")}</Button>}
       </div>
       {msg && <Note tone={msg.tone}>{msg.text}</Note>}
-      {result && <div class="hand-result"><Detail r={result} /></div>}
     </Dialog>
   );
 }

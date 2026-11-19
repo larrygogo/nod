@@ -60,7 +60,6 @@ export const api = {
   restart: () => invoke<void>("restart_worker"),
   autostart: (on: boolean) => invoke<void>("set_autostart", { on }),
   track: (pr: string) => invoke<string>("track_pr", { pr }),
-  dryRun: (pr: string) => invoke<Row>("dry_run", { pr }),
   importOld: () => invoke<string[]>("import_old"),
   open: (which: "config" | "data" | "log" | "plugins") => invoke<void>("open_location", { which }),
   url: (url: string) => invoke<void>("open_url", { url }).catch(() => {}),
