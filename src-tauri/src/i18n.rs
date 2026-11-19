@@ -30,7 +30,7 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("review.comment", "**结论：只评论，未 approve。** {summary}", "**Verdict: comments only, not approved.** {summary}"),
     ("review.blocked_by", "卡在：{reasons}", "Blocked by: {reasons}"),
     ("review.rules_passed", "approve 的规则全部通过。", "Every approval rule passed."),
-    ("review.always", "按无条件 approve 名单 approve（只有高风险问题会拦下），审查意见供参考。", "Approved: on the always-approve list (only a high-severity issue would stop it); the findings are for reference."),
+    ("review.always", "按无条件 approve 名单 approve，审查意见仅供参考。", "Approved: on the always-approve list; the findings are for reference."),
     ("review.always_failed", "**Approve。** 按无条件 approve 名单 approve；自动审查没有完成：{err}", "**Approve.** On the always-approve list; the automated review did not finish: {err}"),
     ("review.after_ci", "没有阻塞问题，CI 通过后会 approve。", "No blocking issues; Nod approves once CI passes."),
     ("review.approve_after_ci", "**CI 已通过，Approve。** 审查意见见上一条评审。", "**CI passed: Approve.** See the previous review for the findings."),

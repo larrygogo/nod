@@ -194,9 +194,8 @@ fn fill(tpl: &str, values: &[(&str, &str)]) -> String {
 
 // ---------------------------------------------------------------- the gate
 
-/// On the "always approve" list (`[approve] always_authors` / `always_repos`): approved whenever asked, without the
-/// other rules or waiting for CI. A high-severity finding still blocks it (see `decide`), and so does what GitHub
-/// itself forbids (your own PR, a closed PR or a draft).
+/// On the "always approve" list (`[approve] always_authors` / `always_repos`): approved whenever asked, whatever the
+/// review says. Only what GitHub itself forbids still stops it (your own PR, a closed PR or a draft).
 pub fn always_approve(cfg: &Config, pr: &Pr, me: &str) -> bool {
     let a = &cfg.approve;
     let listed = a
@@ -218,12 +217,7 @@ pub fn decide(
     me: &str,
 ) -> (&'static str, Vec<String>) {
     if always_approve(cfg, pr, me) {
-        // the list skips every rule but one: a high-severity finding is still for you to look at
-        return if v.findings.iter().any(|f| f.severity == "high") {
-            ("COMMENT", vec!["high".into()])
-        } else {
-            ("APPROVE", vec![])
-        };
+        return ("APPROVE", vec![]);
     }
     let mut r: Vec<String> = vec![];
     if !v.unable_reason.is_empty() {

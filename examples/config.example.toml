@@ -39,7 +39,7 @@ repos = []                   # approve only here, e.g. ["my-org/frontend", "@me/
 authors = []                 # approve only PRs by these logins, e.g. ["dependabot[bot]", "alice"]; empty = anyone
 exclude_repos = []
 exclude_authors = []
-always_authors = []          # approve these logins' PRs whenever asked; only a high-severity finding stops it
+always_authors = []          # approve these logins' PRs whenever asked, whatever the review finds (comments still posted)
 always_repos = []            # the same for whole repositories
 
 [daemon]
