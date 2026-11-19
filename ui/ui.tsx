@@ -77,11 +77,104 @@ export function TextInput(p: {
   );
 }
 
-export function Lines({ value, onChange, placeholder }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
+/** A repository pattern as the backend accepts it (config.rs is_repo_pattern): owner/repo, owner/*, any-owner/repo, a lone star,
+ *  @me/*. A pasted link becomes owner/repo. Returns null when it is not one. */
+export function cleanRepo(raw: string): string | null {
+  let s = raw.trim().replace(/\.git$/, "");
+  const url = s.match(/^(?:https?:\/\/)?[^/\s]+\.[a-z]{2,}\/([^/\s]+)\/([^/\s#?]+)/i);
+  if (url) s = `${url[1]}/${url[2]}`;
+  s = s.replace(/#\d+$/, "");
+  if (s === "*") return s;
+  const parts = s.split("/");
+  const ok = (p: string) => p === "*" || p === "@me" || /^[\p{L}\p{N}_.-]+$/u.test(p);
+  return parts.length >= 2 && parts.every((p) => p && ok(p)) ? s : null;
+}
+
+/** A login pattern (config.rs is_login_pattern): @me, a login with * wildcards, optionally ending in [bot]. A
+ *  leading @ and a pasted profile link are dropped. */
+export function cleanLogin(raw: string): string | null {
+  let s = raw.trim();
+  const url = s.match(/^(?:https?:\/\/)?[^/\s]+\.[a-z]{2,}\/([^/\s?#]+)\/?$/i);
+  if (url) s = url[1];
+  if (s.toLowerCase() === "@me") return "@me";
+  s = s.replace(/^@/, "");
+  const core = s.endsWith("[bot]") ? s.slice(0, -5) : s;
+  return core && /^[A-Za-z0-9*-]+$/.test(core) ? s : null;
+}
+
+/** A list edited as chips: type and press Enter (or comma, space, Tab), paste several at once, Backspace removes the
+ *  last one. Each entry is checked as it is added, so a typo cannot reach the config; `suggest` offers the names
+ *  Nod has already seen. */
+export function TagInput({ value, onChange, kind, placeholder, suggest = [] }: {
+  value: string[]; onChange: (v: string[]) => void; kind: "repo" | "login"; placeholder?: string; suggest?: string[];
+}) {
+  const [text, setText] = useState("");
+  const [err, setErr] = useState("");
+  const [focus, setFocus] = useState(false);
+  const [hi, setHi] = useState(-1);
+  const input = useRef<HTMLInputElement>(null);
+  const clean = kind === "repo" ? cleanRepo : cleanLogin;
+  const has = (x: string) => value.some((v) => v.toLowerCase() === x.toLowerCase());
+  const q = text.trim().toLowerCase();
+  const focused = focus || (typeof document !== "undefined" && document.activeElement === input.current);
+  const options = focused ? suggest.filter((x) => !has(x) && (!q || x.toLowerCase().includes(q))).slice(0, 6) : [];
+
+  const add = (raw: string) => {
+    const items = raw.split(/[\s,，;；]+/).filter(Boolean);
+    const next = [...value];
+    const bad: string[] = [];
+    for (const it of items) {
+      const c = clean(it);
+      if (!c) bad.push(it);
+      else if (!next.some((v) => v.toLowerCase() === c.toLowerCase())) next.push(c);
+    }
+    if (next.length !== value.length) onChange(next);
+    setErr(bad.length ? t(kind === "repo" ? "tag.bad_repo" : "tag.bad_login", { x: bad.join(" ") }) : "");
+    setText(bad.join(" "));
+    setHi(-1);
+  };
+  const remove = (i: number) => { onChange(value.filter((_, j) => j !== i)); input.current?.focus(); };
+
+  const key = (e: KeyboardEvent) => {
+    if (e.key === "ArrowDown" && options.length) { e.preventDefault(); setHi((i) => Math.min(i + 1, options.length - 1)); return; }
+    if (e.key === "ArrowUp" && options.length) { e.preventDefault(); setHi((i) => Math.max(i - 1, -1)); return; }
+    if (e.key === "Escape") { setHi(-1); setFocus(false); return; }
+    if (e.key === "Enter" || ((e.key === "," || e.key === " " || e.key === "Tab") && text.trim())) {
+      if (e.key === "Enter" && hi >= 0 && options[hi]) { e.preventDefault(); add(options[hi]); return; }
+      if (!text.trim()) return;
+      e.preventDefault();
+      add(text);
+      return;
+    }
+    if (e.key === "Backspace" && !text && value.length) { e.preventDefault(); remove(value.length - 1); }
+  };
+
   return (
-    <textarea class="input mono" rows={Math.max(2, value.length + 1)} placeholder={placeholder} spellcheck={false}
-      value={value.join("\n")}
-      onInput={(e) => onChange((e.target as HTMLTextAreaElement).value.split(/[\n,]/).map((s) => s.trim()).filter(Boolean))} />
+    <div class="tags-wrap">
+      <div class={`input tags${err ? " invalid" : ""}`} onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); input.current?.focus(); } }}>
+        {value.map((v, i) => (
+          <span class="tag" key={v}>
+            <span class="mono">{v}</span>
+            <button type="button" aria-label={t("btn.remove")} onClick={() => remove(i)}><Icon name="x" size={12} /></button>
+          </span>
+        ))}
+        <input ref={input} class="mono" value={text} spellcheck={false} placeholder={value.length ? "" : placeholder}
+          onInput={(e) => { setText((e.target as HTMLInputElement).value); setErr(""); setHi(-1); }}
+          onKeyDown={key}
+          onPaste={(e) => { const d = e.clipboardData?.getData("text") ?? ""; if (/[\s,，;；]/.test(d.trim())) { e.preventDefault(); add(text + d); } }}
+          onFocus={() => setFocus(true)}
+          onBlur={() => { setFocus(false); if (text.trim()) add(text); }} />
+      </div>
+      {options.length > 0 && (
+        <ul class="select-menu tags-menu" role="listbox">
+          {options.map((o, i) => (
+            <li role="option" aria-selected={false} class={i === hi ? "hi" : ""} onMouseEnter={() => setHi(i)}
+              onMouseDown={(e) => { e.preventDefault(); add(o); }}><span class="mono ellipsis">{o}</span></li>
+          ))}
+        </ul>
+      )}
+      {err && <div class="field-err">{err}</div>}
+    </div>
   );
 }
 

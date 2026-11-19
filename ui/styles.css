@@ -164,6 +164,20 @@ textarea.input { height: auto; padding: 6px 10px; resize: vertical; line-height:
 .select-menu li[aria-selected="true"] { color: var(--accent-fg); font-weight: var(--w-medium); }
 .select-menu li .icon { flex: none; color: var(--accent-fg); }
 .input::placeholder { color: var(--text-3); }
+/* TagInput (ui.tsx): chips inside an input-looking box; the box takes the focus ring of its inner input */
+.tags-wrap { position: relative; min-width: 0; flex: auto; width: 100%; }
+.row-control .tags-wrap .input.tags { width: 100%; }
+.input.tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; height: auto; min-height: 30px; padding: 3px 4px; cursor: text; }
+.input.tags:focus-within { box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent); }
+.input.tags.invalid { box-shadow: 0 0 0 1px var(--bad); }
+.input.tags input { flex: 1; min-width: 120px; height: 22px; border: 0; padding: 0 6px; background: transparent; color: var(--text); font: inherit; font-size: 12.5px; outline: none; }
+.input.tags input::placeholder { color: var(--text-3); }
+.tag { display: inline-flex; align-items: center; gap: 2px; height: 22px; padding: 0 2px 0 8px; border-radius: 5px; background: var(--surface-2); color: var(--text); font-size: 12.5px; max-width: 100%; }
+.tag .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag button { display: grid; place-items: center; width: 18px; height: 18px; border: 0; border-radius: 4px; background: transparent; color: var(--text-3); cursor: pointer; padding: 0; }
+.tag button:hover { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
+.tags-menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); }
+.field-err { margin-top: 4px; color: var(--bad); font-size: 12px; }
 .input:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-strong), var(--text-3) 30%), 0 1px 2px rgba(29, 33, 41, 0.04); }
 .input:focus { outline: none; box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent); }
 

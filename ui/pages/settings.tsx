@@ -3,13 +3,17 @@ import { useState } from "preact/hooks";
 import { api } from "../api";
 import { getTheme, setTheme, useStore, type Theme } from "../app";
 import { setLang, t } from "../i18n";
-import { Card, Lines, Note, Row, Section, Segmented, Select, Switch, TextInput, Button } from "../ui";
+import { Card, TagInput, Note, Row, Section, Segmented, Select, Switch, TextInput, Button } from "../ui";
 
 export function SettingsPage() {
   const { draft, edit, ov, loaded, refresh, toast } = useStore();
   const [theme, setThemeState] = useState<Theme>(getTheme());
   // one group at a time: the page stays short and each group is one click away
   const [tab, setTab] = useState("general");
+  // names Nod has seen in its reviews, offered while typing
+  const seenRepos = [...new Set(ov.rows.map((r) => r.key.split("#")[0]))];
+  const repoHints = [...new Set([...seenRepos.map((r) => `${r.split("/")[0]}/*`), ...seenRepos, "@me/*"])];
+  const loginHints = [...new Set([...ov.rows.map((r) => r.author).filter(Boolean), "@me", "dependabot[bot]", "renovate[bot]"])];
   const num = (path: (c: typeof draft) => number, set: (c: typeof draft, v: number) => void) =>
     <TextInput type="number" value={path(draft)} onInput={(v) => edit((c) => set(c, Number(v)))} />;
   return (
@@ -51,13 +55,13 @@ export function SettingsPage() {
           </Row>
           {draft.approve.mode === "auto" && <>
             <Row label={t("set.approve.repos")} help={t("set.list_help")} wide>
-              <Lines value={draft.approve.repos} onChange={(v) => edit((c) => { c.approve.repos = v; })} placeholder="my-org/*" /></Row>
+              <TagInput kind="repo" suggest={repoHints} value={draft.approve.repos} onChange={(v) => edit((c) => { c.approve.repos = v; })} placeholder="my-org/*" /></Row>
             <Row label={t("set.approve.authors")} wide>
-              <Lines value={draft.approve.authors} onChange={(v) => edit((c) => { c.approve.authors = v; })} placeholder="dependabot[bot]" /></Row>
+              <TagInput kind="login" suggest={loginHints} value={draft.approve.authors} onChange={(v) => edit((c) => { c.approve.authors = v; })} placeholder="dependabot[bot]" /></Row>
             <Row label={t("set.approve.exclude_repos")} wide>
-              <Lines value={draft.approve.exclude_repos} onChange={(v) => edit((c) => { c.approve.exclude_repos = v; })} /></Row>
+              <TagInput kind="repo" suggest={repoHints} value={draft.approve.exclude_repos} onChange={(v) => edit((c) => { c.approve.exclude_repos = v; })} /></Row>
             <Row label={t("set.approve.exclude_authors")} wide>
-              <Lines value={draft.approve.exclude_authors} onChange={(v) => edit((c) => { c.approve.exclude_authors = v; })} /></Row>
+              <TagInput kind="login" suggest={loginHints} value={draft.approve.exclude_authors} onChange={(v) => edit((c) => { c.approve.exclude_authors = v; })} /></Row>
           </>}
         </Card>
       </Section>}
@@ -65,9 +69,9 @@ export function SettingsPage() {
       {tab === "scope" && <Section title={t("set.scope")}>
         <Card>
           <Row label={t("set.scope.repos")} help={t("set.list_help")} wide>
-            <Lines value={draft.scope.repos} onChange={(v) => edit((c) => { c.scope.repos = v; })} placeholder="my-org/*" /></Row>
+            <TagInput kind="repo" suggest={repoHints} value={draft.scope.repos} onChange={(v) => edit((c) => { c.scope.repos = v; })} placeholder="my-org/*" /></Row>
           <Row label={t("set.scope.exclude")} wide>
-            <Lines value={draft.scope.exclude_repos} onChange={(v) => edit((c) => { c.scope.exclude_repos = v; })} /></Row>
+            <TagInput kind="repo" suggest={repoHints} value={draft.scope.exclude_repos} onChange={(v) => edit((c) => { c.scope.exclude_repos = v; })} /></Row>
           <Row label={t("set.scope.team")} help={t("set.scope.team_help")}>
             <Switch on={draft.scope.team_requests} label={t("set.scope.team")} onChange={(v) => edit((c) => { c.scope.team_requests = v; })} /></Row>
         </Card>
