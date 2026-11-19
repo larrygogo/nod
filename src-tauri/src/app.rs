@@ -135,6 +135,13 @@ struct Row {
     error: Option<String>,
     /// A retry waits for the engine's quota until this time (unix seconds); 0 = not waiting for quota.
     wait_until: f64,
+    /// The commit this record is about (short).
+    sha: String,
+    /// Nothing was posted for this commit, but Nod approved an earlier one of this PR (that approval is what GitHub
+    /// shows).
+    earlier_approved: bool,
+    /// The comments for this commit are on GitHub (posted while the approval waited for CI).
+    commented: bool,
     at: f64,
 }
 
@@ -183,6 +190,9 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
         review_url: e.review_url.clone(),
         error: e.error.clone(),
         wait_until: if e.waits > 0 && e.status == "retry" { e.retry_at } else { 0.0 },
+        sha: e.sha.chars().take(7).collect(),
+        earlier_approved: e.event.is_none() && !e.approve_ids.is_empty(),
+        commented: !e.sha.is_empty() && e.comment_sha == e.sha,
         at: e.posted_at.max(e.queued_at).max(e.direct_at),
     }
 }
