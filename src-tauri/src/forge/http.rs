@@ -182,13 +182,33 @@ pub mod fake {
         pub seen: Arc<Mutex<Vec<Seen>>>,
     }
 
-    /// routes: "GET /api/v4/user" → (status, body, extra headers)
+    /// routes: "GET /api/v4/user" → (status, body)
     pub fn serve(routes: Vec<(&str, u16, String)>) -> Fake {
+        serve_with(
+            routes
+                .into_iter()
+                .map(|(k, s, b)| (k, s, b, vec![]))
+                .collect(),
+        )
+    }
+
+    /// (route, status, body, extra response headers)
+    pub type Route<'a> = (&'a str, u16, String, Vec<(&'a str, &'a str)>);
+
+    /// Like `serve`, with extra response headers per route (e.g. `Link` for pagination). In a header value,
+    /// `{base}` is replaced by the server's own address.
+    pub fn serve_with(routes: Vec<Route>) -> Fake {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let routes: HashMap<String, (u16, String)> = routes
+        let routes: HashMap<String, (u16, String, String)> = routes
             .into_iter()
-            .map(|(k, s, b)| (k.to_string(), (s, b)))
+            .map(|(k, s, b, h)| {
+                let extra: String = h
+                    .iter()
+                    .map(|(n, v)| format!("{n}: {}\r\n", v.replace("{base}", &url)))
+                    .collect();
+                (k.to_string(), (s, b, extra))
+            })
             .collect();
         let seen = Arc::new(Mutex::new(vec![]));
         let rec = seen.clone();
@@ -225,14 +245,14 @@ pub mod fake {
                     body: String::from_utf8_lossy(&body).into(),
                 });
                 let path = full.split('?').next().unwrap_or("");
-                let (status, resp) = routes
+                let (status, resp, extra) = routes
                     .get(&format!("{method} {full}"))
                     .or_else(|| routes.get(&format!("{method} {path}")))
                     .cloned()
-                    .unwrap_or((404, "{\"message\":\"not found\"}".into()));
+                    .unwrap_or((404, "{\"message\":\"not found\"}".into(), String::new()));
                 let _ = write!(
                     stream,
-                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{resp}",
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{resp}",
                     resp.len()
                 );
             }

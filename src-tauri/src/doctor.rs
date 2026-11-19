@@ -11,9 +11,7 @@ use crate::util::{run_raw, which, RunOpts};
 
 /// What the "fix" button does. The window maps these to actions (open a terminal running a login, open a page…).
 pub const FIX_INSTALL_GIT: &str = "install_git";
-pub const FIX_INSTALL_GH: &str = "install_gh";
-pub const FIX_GH_LOGIN: &str = "gh_login";
-pub const FIX_GH_SCOPE: &str = "gh_scope";
+pub const FIX_GITHUB_INSTALL: &str = "github_install";
 pub const FIX_INSTALL_CLAUDE: &str = "install_claude";
 pub const FIX_CLAUDE_LOGIN: &str = "claude_login";
 pub const FIX_SETTINGS: &str = "settings";
@@ -107,27 +105,6 @@ impl Ctx<'_> {
     }
 }
 
-/// The line of `gh auth status` that says what is wrong (not its closing hint about `gh auth logout`).
-pub fn auth_problem(text: &str) -> String {
-    let lines: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
-    lines
-        .iter()
-        .find(|l| {
-            let x = l.to_lowercase();
-            l.starts_with('X')
-                || x.contains("failed")
-                || x.contains("error")
-                || x.contains("not logged")
-        })
-        .or(lines.first())
-        .map(|l| l.trim_start_matches(['X', '-', ' ']).to_string())
-        .unwrap_or_else(|| "not logged in".into())
-}
-
 /// The GitHub and Claude Code part of the check (needs no configuration).
 fn git_check(c: &mut Ctx) {
     let lang = c.lang;
@@ -146,96 +123,115 @@ fn git_check(c: &mut Ctx) {
     }
 }
 
-fn github_check(c: &mut Ctx) {
+/// A GitHub account: signed in through Nod's GitHub App, the sign-in still accepted, and the App installed somewhere
+/// (without an installation the token sees no repository at all).
+fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
     let lang = c.lang;
-    if which("gh").is_none() {
+    let name = ("GitHub 登录", "GitHub sign-in");
+    let gh = crate::forge::github::Gh::new(acc);
+    if gh.session.client_id.trim().is_empty() {
         c.push(
-            "gh",
-            ("GitHub CLI", "GitHub CLI"),
+            "github",
+            name,
             false,
-            l(lang, "没有找到 gh", "gh not found"),
+            l(
+                lang,
+                "没有配置 GitHub App 的 Client ID",
+                "no GitHub App client ID is configured",
+            ),
             Some((
                 (
-                    "安装 GitHub CLI，装好后回来重新检查",
-                    "Install the GitHub CLI, then check again",
+                    "在插件页的 GitHub 里填写 Client ID",
+                    "Fill in the Client ID on the GitHub plugin page",
                 ),
-                FIX_INSTALL_GH,
+                FIX_PLUGINS,
             )),
-        );
-    } else {
-        let (ok, text) = out(&["gh", "auth", "status", "--active"], 30);
-        if !ok && crate::supervisor::is_network(&text) {
-            // gh checks the token online; a network failure is not a sign-in problem
-            c.push(
-                "gh",
-                ("GitHub 连接", "GitHub connection"),
-                false,
-                auth_problem(&text),
-                Some((
+        )
+        .detail_account(&acc.id);
+        return;
+    }
+    if crate::forge::github_auth::load(&acc.id).is_none() {
+        c.push(
+            "github",
+            name,
+            false,
+            l(lang, "还没有登录", "not signed in"),
+            Some((
+                (
+                    "在插件页的 GitHub 里点「登录 GitHub」",
+                    "Click \"Sign in to GitHub\" on the GitHub plugin page",
+                ),
+                FIX_PLUGINS,
+            )),
+        )
+        .detail_account(&acc.id);
+        return;
+    }
+    let me = match crate::forge::Forge::current_user(&gh) {
+        Ok(me) => me,
+        Err(e) => {
+            let msg = format!("{e:#}");
+            let (detail, fix) = if crate::supervisor::is_network(&msg) {
+                (
+                    crate::util::truncate(&msg, 200),
                     (
                         "连不上 GitHub，检查网络或代理后点「重新检查」",
                         "Cannot reach GitHub; check the network or proxy, then check again",
                     ),
-                    FIX_GH_LOGIN,
-                )),
-            )
-            .action = None;
-        } else if !ok {
-            c.push(
-                "gh",
-                ("GitHub 登录", "GitHub sign-in"),
-                false,
-                auth_problem(&text),
+                )
+            } else if msg.contains(crate::forge::github_auth::SIGNIN_REQUIRED) {
+                (
+                    l(lang, "登录已失效", "the sign-in is no longer valid"),
+                    (
+                        "在插件页的 GitHub 里重新登录",
+                        "Sign in again on the GitHub plugin page",
+                    ),
+                )
+            } else {
+                (
+                    crate::util::truncate(&msg, 200),
+                    (
+                        "在插件页的 GitHub 里重新登录",
+                        "Sign in again on the GitHub plugin page",
+                    ),
+                )
+            };
+            c.push("github", name, false, detail, Some((fix, FIX_PLUGINS)))
+                .detail_account(&acc.id);
+            return;
+        }
+    };
+    let signed_in = l(lang, "已登录：", "signed in as ") + &me;
+    match gh.installations() {
+        Ok(v) if v.is_empty() => {
+            let ch = c.push(
+                "github",
+                name,
+                true,
+                signed_in,
                 Some((
                     (
-                        "在终端里登录 GitHub（会打开一个终端窗口）",
-                        "Sign in to GitHub in a terminal (opens one for you)",
+                        "Nod 的 GitHub App 还没有安装到任何账号或组织，所以看不到任何仓库。去安装它",
+                        "Nod's GitHub App is not installed on any account or organization yet, so no repository is visible. Install it",
                     ),
-                    FIX_GH_LOGIN,
+                    FIX_GITHUB_INSTALL,
                 )),
             );
-        } else {
-            let (api_ok, login) = out(&["gh", "api", "user", "--jq", ".login"], 30);
-            if !api_ok {
-                c.push(
-                    "gh",
-                    ("GitHub 连接", "GitHub connection"),
-                    false,
-                    crate::util::truncate(login.trim(), 200),
-                    Some((
-                        ("gh 已登录但连不上 api.github.com，检查网络或代理后重试", "gh is signed in but cannot reach api.github.com; check the network or proxy and retry"),
-                        FIX_GH_LOGIN,
-                    )),
-                );
-                // nothing to sign in to: the network is the problem; "check again" is the way forward
-                if let Some(ch) = c.v.last_mut() {
-                    ch.action = None;
-                }
-            } else {
-                let scopes = text
-                    .lines()
-                    .find(|l| l.to_lowercase().contains("scopes"))
-                    .unwrap_or("")
-                    .trim()
-                    .trim_start_matches("- ")
-                    .to_string();
-                let scope_ok = scopes.contains("repo") || !text.contains("Token scopes");
-                let detail = l(lang, "已登录：", "signed in as ") + login.trim();
-                let ch = c.push("gh", ("GitHub 登录", "GitHub sign-in"), true, detail, None);
-                if !scope_ok {
-                    ch.warn = true;
-                    ch.fix = l(
-                        lang,
-                        "缺少 repo 权限，审查私有仓库需要它",
-                        "the repo scope is missing; private repositories need it",
-                    );
-                    ch.action = Some(FIX_GH_SCOPE);
-                }
-            }
+            ch.warn = true;
+            ch.detail_account(&acc.id);
+        }
+        Ok(v) => {
+            let on = l(lang, " · App 已安装到 ", " · App installed on ") + &v.join(", ");
+            c.push("github", name, true, signed_in + &on, None)
+                .detail_account(&acc.id);
+        }
+        // the list is a convenience; failing to read it is not a failure of the sign-in
+        Err(_) => {
+            c.push("github", name, true, signed_in, None)
+                .detail_account(&acc.id);
         }
     }
 }
-
 fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
     let lang = c.lang;
     match which(claude) {
@@ -287,12 +283,11 @@ fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
     }
 }
 
-/// The GitHub and Claude Code part of the check (the original single-account setup).
+/// The git and Claude Code part of the check.
 #[cfg(test)]
 pub fn tools(lang: &str, claude: &str, cfg: &Config, live_claude: bool) -> Vec<Check> {
     let mut c = Ctx { lang, v: vec![] };
     git_check(&mut c);
-    github_check(&mut c);
     claude_check(&mut c, claude, cfg, live_claude);
     c.v
 }
@@ -321,8 +316,8 @@ pub fn all(cfg: &Config, live: bool) -> Vec<Check> {
 
 /// One code-host account.
 pub fn forge_check(c: &mut Ctx, acc: &ForgeAccount, cfg: &Config) {
-    if acc.kind == "github" && acc.url.trim().is_empty() {
-        github_check(c);
+    if acc.kind == "github" {
+        github_check(c, acc);
         return;
     }
     let lang = c.lang;
@@ -637,16 +632,30 @@ mod tests {
         assert!(c.detail.contains("not found"));
     }
 
+    /// An older configuration (the implicit `github` account, used with `gh` before) shows "not signed in" with a
+    /// way forward, instead of failing.
     #[test]
-    fn auth_problem_picks_the_failure_line() {
-        let out = "github.com\n  X Failed to log in to github.com account alice (keyring)\n  - Active account: true\n  - The token in keyring is invalid.\n  - To re-authenticate, run: gh auth login -h github.com\n  - To forget about this account, run: gh auth logout -h github.com -u alice\n";
-        assert_eq!(
-            auth_problem(out),
-            "Failed to log in to github.com account alice (keyring)"
-        );
-        assert_eq!(
-            auth_problem("You are not logged into any GitHub hosts. To log in, run: gh auth login"),
-            "You are not logged into any GitHub hosts. To log in, run: gh auth login"
-        );
+    fn github_account_without_sign_in() {
+        crate::secrets::use_fake();
+        let cfg = Config::default();
+        let mut acc = cfg
+            .accounts()
+            .into_iter()
+            .find(|a| a.kind == "github")
+            .unwrap();
+        acc.settings
+            .insert("client_id".into(), toml::Value::String("Iv1.x".into()));
+        let mut c = Ctx::new("en");
+        forge_check(&mut c, &acc, &cfg);
+        let ch = &c.v[0];
+        assert!(!ch.ok && ch.detail == "not signed in" && ch.action == Some(FIX_PLUGINS));
+        assert_eq!(ch.account.as_deref(), Some("github"));
+
+        if crate::forge::github_auth::DEFAULT_CLIENT_ID.is_empty() {
+            acc.settings.clear();
+            let mut c = Ctx::new("en");
+            forge_check(&mut c, &acc, &cfg);
+            assert!(c.v[0].detail.contains("client ID"));
+        }
     }
 }

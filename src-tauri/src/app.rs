@@ -250,6 +250,118 @@ async fn check_tools(
 
 /// Check one plugin: a code-host account (`account` = its id in `cfg.forges`, or the implicit GitHub account) or a
 /// review engine.
+/// The GitHub account the window is editing (possibly not saved yet): id, address and settings are all sign-in needs.
+fn github_account(account: Value) -> Result<crate::config::ForgeAccount, String> {
+    let a: crate::config::ForgeAccount =
+        serde_json::from_value(account).map_err(|e| format!("bad account: {e}"))?;
+    if a.kind != "github" {
+        return Err(format!("{} is not a GitHub account", a.id));
+    }
+    Ok(a)
+}
+
+/// Who is signed in on a GitHub account, if anyone.
+#[derive(Serialize)]
+struct GithubSession {
+    signed_in: bool,
+    login: String,
+    /// The account has a GitHub App client ID (its own, or Nod's).
+    has_client_id: bool,
+}
+
+#[tauri::command]
+fn github_session(account: Value) -> Result<GithubSession, String> {
+    let a = github_account(account)?;
+    let t = crate::forge::github_auth::load(&a.id);
+    Ok(GithubSession {
+        signed_in: t.is_some(),
+        login: t.map(|t| t.login).unwrap_or_default(),
+        has_client_id: !crate::forge::github::client_id(&a).is_empty(),
+    })
+}
+
+/// Start the device flow: the window shows the code and opens the verification page.
+#[tauri::command]
+async fn github_login_start(
+    account: Value,
+) -> Result<crate::forge::github_auth::DeviceCode, String> {
+    let a = github_account(account)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::forge::github_auth::start(
+            &crate::forge::github_auth::Hosts::new(&a.url),
+            &crate::forge::github::client_id(&a),
+        )
+        .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// One poll of the device flow. `state`: pending | slow_down (wait `interval` from now on) | done | expired | denied
+/// | failed (`message` says why).
+#[derive(Serialize)]
+struct GithubPoll {
+    state: String,
+    interval: u64,
+    login: String,
+    message: String,
+}
+
+#[tauri::command]
+async fn github_login_poll(account: Value, device_code: String) -> Result<GithubPoll, String> {
+    use crate::forge::github_auth::{self as auth, Poll};
+    let a = github_account(account)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let hosts = auth::Hosts::new(&a.url);
+        let cid = crate::forge::github::client_id(&a);
+        let p = |state: &str| GithubPoll {
+            state: state.into(),
+            interval: 0,
+            login: String::new(),
+            message: String::new(),
+        };
+        Ok(
+            match auth::poll(&hosts, &cid, &device_code).map_err(|e| format!("{e:#}"))? {
+                Poll::Pending => p("pending"),
+                Poll::SlowDown(i) => GithubPoll {
+                    interval: i,
+                    ..p("slow_down")
+                },
+                Poll::Failed(m) if m == "expired" || m == "denied" => p(&m),
+                Poll::Failed(m) => GithubPoll {
+                    message: m,
+                    ..p("failed")
+                },
+                Poll::Done(mut t) => {
+                    auth::save(&a.id, &t)
+                        .map_err(|e| format!("could not store the sign-in: {e:#}"))?;
+                    // who signed in: shown on the plugin page and in the self-check
+                    let gh = crate::forge::github::Gh::new(&a);
+                    if let Ok(me) = crate::forge::Forge::current_user(&gh) {
+                        t.login = me;
+                        let _ = auth::save(&a.id, &t);
+                    }
+                    crate::info!("github: account {} signed in as {}", a.id, t.login);
+                    GithubPoll {
+                        login: t.login,
+                        ..p("done")
+                    }
+                }
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn github_logout(account: Value) -> Result<(), String> {
+    let a = github_account(account)?;
+    crate::forge::github_auth::forget(&a.id);
+    crate::info!("github: account {} signed out", a.id);
+    Ok(())
+}
+
 #[tauri::command]
 async fn check_plugin(
     cfg: Value,
@@ -383,10 +495,19 @@ fn quote_arg(s: &str) -> String {
 /// The terminal command (or web page) for a fix action.
 pub fn fix_target(action: &str, cfg: &Config) -> Option<Fix> {
     let zh = cfg.language != "en";
-    let term = |c: &str| Fix::Terminal(c.to_string(), vec![]);
     Some(match action {
-        doctor::FIX_GH_LOGIN => term("gh auth login -h github.com"),
-        doctor::FIX_GH_SCOPE => term("gh auth refresh -h github.com -s repo"),
+        doctor::FIX_GITHUB_INSTALL => {
+            let url = cfg
+                .accounts()
+                .iter()
+                .find(|a| a.kind == "github")
+                .map(|a| a.url.clone())
+                .unwrap_or_default();
+            Fix::Url(
+                crate::forge::github_auth::Hosts::new(&url)
+                    .install_url(crate::forge::github_auth::DEFAULT_APP_SLUG),
+            )
+        }
         doctor::FIX_CLAUDE_LOGIN => {
             let dir = crate::review::expand_path(&cfg.review.claude_config_dir);
             let env = if dir.is_empty() {
@@ -406,7 +527,6 @@ pub fn fix_target(action: &str, cfg: &Config) -> Option<Fix> {
             Fix::Url("https://geminicli.com/docs/get-started/installation".into())
         }
         doctor::FIX_INSTALL_GIT => Fix::Url("https://git-scm.com/downloads".into()),
-        doctor::FIX_INSTALL_GH => Fix::Url("https://cli.github.com".into()),
         doctor::FIX_INSTALL_CLAUDE => {
             Fix::Url("https://docs.claude.com/en/docs/claude-code/setup".into())
         }
@@ -564,7 +684,7 @@ fn locations() -> Value {
 
 // ---------------------------------------------------------------- start-up
 
-/// Apps started from Finder, the Dock or at login get a minimal PATH, so `gh`, `git` and `claude` installed by
+/// Apps started from Finder, the Dock or at login get a minimal PATH, so `git` and `claude` installed by
 /// Homebrew, npm or the Claude installer would not be found. Take PATH from the user's login shell instead.
 #[cfg(unix)]
 fn adopt_login_shell_path() {
@@ -669,6 +789,10 @@ pub fn run(hidden: bool) {
             save_config,
             check_tools,
             check_plugin,
+            github_session,
+            github_login_start,
+            github_login_poll,
+            github_logout,
             catalog,
             test_notification,
             fix,
@@ -749,9 +873,8 @@ mod tests {
     #[test]
     fn fix_actions() {
         let mut c = Config::default();
-        assert_eq!(
-            fix_target(doctor::FIX_GH_LOGIN, &c),
-            Some(Fix::Terminal("gh auth login -h github.com".into(), vec![]))
+        assert!(
+            matches!(fix_target(doctor::FIX_GITHUB_INSTALL, &c), Some(Fix::Url(u)) if u.starts_with("https://github.com/"))
         );
         assert_eq!(
             fix_target(doctor::FIX_CLAUDE_LOGIN, &c),

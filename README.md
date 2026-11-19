@@ -49,7 +49,7 @@ later one has problems, it dismisses its own approval (never one you gave by han
 
 | | |
 |---|---|
-| A code host | GitHub: the [GitHub CLI](https://cli.github.com), signed in (*Fix* opens a terminal to sign in); Gitee / Gitea: an access token, see [docs/forges.md](docs/forges.md) |
+| A code host | GitHub: click *Sign in to GitHub* on the GitHub plugin page (the Nod GitHub App must be installed on the accounts or organizations whose repositories you review); Gitee / Gitea: an access token, see [docs/forges.md](docs/forges.md) |
 | A review engine (any one) | [Claude Code](https://claude.com/claude-code), [Codex CLI](https://developers.openai.com/codex/cli) or [Gemini CLI](https://geminicli.com), signed in; or an OpenAI-compatible endpoint and key (a local Ollama works) |
 | git | installed |
 | Windows 10 1809+, macOS 12+, or Linux with a desktop | the Linux tray needs AppIndicator support (on GNOME, the AppIndicator extension) |
@@ -198,8 +198,8 @@ Details and known limits: [docs/security.md](docs/security.md). To report a vuln
   repository. The log is under *Settings → Files → Show log*.
 - **"Another Nod is already reviewing"**: the old command-line edition is still running. Quit Nod and
   open it again; it cleans up on start. If that does not help, end the old `nod.exe run` process in Task Manager.
-- **gh or claude not found on macOS / Linux**: the app reads PATH from your login shell when it starts. Install
-  `gh` and `claude` where your shell finds them, then quit and reopen the app, or set the full path of `claude` in
+- **claude not found on macOS / Linux**: the app reads PATH from your login shell when it starts. Install
+  `claude` where your shell finds it, then quit and reopen the app, or set the full path of `claude` in
   Settings.
 - **The Feishu button shows an error**: Nod must be running and not paused, and only one program may hold a
   Feishu app's long connection. See [docs/feishu-setup.md](docs/feishu-setup.md#troubleshooting).

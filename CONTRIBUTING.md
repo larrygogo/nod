@@ -6,7 +6,7 @@ Thanks for helping! Issues and pull requests are welcome in English or Chinese.
 
 Requirements: Rust 1.89+ (stable), [Bun](https://bun.sh) for the window's front end, and on Linux the WebKitGTK and
 AppIndicator development packages (`libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev`).
-`gh`, `git` and Claude Code are only needed to run real reviews.
+`git` and Claude Code are only needed to run real reviews.
 
 ```sh
 bun install
@@ -42,7 +42,7 @@ With these overrides the app also leaves an installed command-line edition's bac
 | `src-tauri/src/osnotify.rs` | desktop notifications that open a link when clicked |
 | `src-tauri/src/legacy.rs` | removes the command-line edition's background service |
 | `src-tauri/src/config.rs`, `paths.rs` | configuration file and locations |
-| `src-tauri/src/forge/` | `Forge` trait; GitHub (`gh`), Gitee and Gitea (REST, `http.rs` + a fake server for tests) |
+| `src-tauri/src/forge/` | `Forge` trait; GitHub (REST + GraphQL, signed in through the Nod GitHub App in `github_auth.rs`), Gitee and Gitea (REST, `http.rs` + a fake server for tests) |
 | `src-tauri/src/reviewer/` | `Reviewer`/`Engine`, the shared checkout, Claude Code, Codex, Gemini, OpenAI-compatible API |
 | `src-tauri/src/plugins/` | the plugin catalog the window builds its forms from; external plugins (JSON-RPC host and adapters) |
 | `src-tauri/src/secrets.rs` | system keychain for tokens and secrets |
@@ -92,7 +92,7 @@ outcomes can reuse `SystemNotifier::message` (see `notify/robot.rs`).
   make a missing English string a build error; a Rust test checks that placeholders match).
 - Keep the app small: prefer the standard library and small crates; Preact is the only front-end dependency;
   reviewing code stays synchronous (threads, no async runtime). Follow [docs/design.md](docs/design.md) for the UI.
-- Tests must not need the network, `gh` or Claude. Use the fakes in `src-tauri/src/engine_tests.rs`.
+- Tests must not need the network, a GitHub sign-in or Claude. Use the fakes in `src-tauri/src/engine_tests.rs`.
 - Update `CHANGELOG.md` under *Unreleased*.
 
 ## Releasing

@@ -4,6 +4,7 @@
 pub mod gitea;
 pub mod gitee;
 pub mod github;
+pub mod github_auth;
 pub mod http;
 
 use std::collections::{HashMap, HashSet};
@@ -87,8 +88,6 @@ pub trait Forge: Send + Sync {
 /// How to get a repository's code.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Remote {
-    /// `gh repo clone` (uses the GitHub CLI's login).
-    Gh { host: String },
     /// Plain git over HTTPS; `header` (e.g. `Authorization: Bearer …`) is passed to git through the environment, never
     /// on the command line or in the repository's config.
     Git { url: String, header: Option<String> },
@@ -230,7 +229,7 @@ pub fn make(
 ) -> anyhow::Result<std::sync::Arc<dyn Forge>> {
     use std::sync::Arc;
     Ok(match acc.kind.as_str() {
-        "github" => Arc::new(github::Gh::new(&acc.url)),
+        "github" => Arc::new(github::Gh::new(acc)),
         "gitee" => Arc::new(
             gitee::Gitee::new(&acc.url, &crate::secrets::forge_token(acc))
                 .with_scope(&cfg.scope.repos, &cfg.scope.exclude_repos),

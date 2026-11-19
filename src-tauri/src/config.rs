@@ -343,7 +343,7 @@ pub struct ForgeAccount {
     /// Web address for self-hosted instances / GitHub Enterprise (empty = the public service).
     pub url: String,
     pub enabled: bool,
-    /// Stored in the system keychain; only kept here when the keychain is unavailable. (GitHub uses `gh auth`.)
+    /// Stored in the system keychain; only kept here when the keychain is unavailable. (GitHub signs in through the Nod GitHub App instead; see forge::github_auth.)
     pub token: String,
     /// Settings of an external plugin.
     #[serde(skip_serializing_if = "toml::Table::is_empty")]
@@ -354,7 +354,7 @@ pub struct ForgeAccount {
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub language: String,
-    /// Code-host accounts. Empty = the original single GitHub account through `gh`.
+    /// Code-host accounts. Empty = the original single GitHub account (id `github`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub forges: Vec<ForgeAccount>,
     /// Settings of external plugins, by plugin name.

@@ -70,8 +70,9 @@ impl Fake {
 
 impl Forge for Fake {
     fn remote(&self, _repo: &str) -> Result<crate::forge::Remote> {
-        Ok(crate::forge::Remote::Gh {
-            host: String::new(),
+        Ok(crate::forge::Remote::Git {
+            url: "https://example.invalid/o/r.git".into(),
+            header: None,
         })
     }
 
@@ -114,7 +115,7 @@ impl Forge for Fake {
         };
         thread::sleep(Duration::from_millis(delay));
         if fail {
-            bail!("gh 502");
+            bail!("GitHub 502");
         }
         let mut w = self.w();
         w.posts.push(review["event"].as_str().unwrap().to_string());

@@ -476,3 +476,9 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .btn:active:not(:disabled), .icon-btn:active, .switch:active, .segmented button:active, .link:active { transform: scale(0.95); }
 .choice:active, .pl-item:active, .nav:active, .review-row:active { transform: scale(0.985); }
 .switch span { transition: transform 260ms var(--spring); }
+
+.gh-device { display: flex; flex-direction: column; gap: 10px; }
+.gh-device p { margin: 0; }
+.gh-code-row { display: flex; align-items: center; gap: 12px; }
+.gh-code { font: 600 26px/1.2 var(--mono, ui-monospace, "Cascadia Mono", monospace); letter-spacing: 0.12em; padding: 8px 14px; border-radius: var(--r-sm); background: var(--surface-2); user-select: all; }
+.gh-signed { display: flex; align-items: center; gap: 10px; }

@@ -312,7 +312,6 @@ mod tests {
                 assert!(url.ends_with("/o/r.git"));
                 assert!(header.unwrap().starts_with("Authorization: Basic "));
             }
-            other => panic!("{other:?}"),
         }
         let seen = f.seen.lock().unwrap();
         let post = seen

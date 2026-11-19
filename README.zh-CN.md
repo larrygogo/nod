@@ -38,7 +38,7 @@ Nod（托盘里常驻） ──► 通知「审查中」（飞书卡片 / Webhoo
 
 | | |
 |---|---|
-| 代码平台 | GitHub：装好 [GitHub CLI](https://cli.github.com) 并登录（没登录时「去修复」会打开终端帮你登录）；Gitee / Gitea：一个访问令牌，见 [docs/forges.zh-CN.md](docs/forges.zh-CN.md) |
+| 代码平台 | GitHub：在插件页的 GitHub 里点「登录 GitHub」（要审查的仓库所在的账号或组织需要安装 Nod GitHub App）；Gitee / Gitea：一个访问令牌，见 [docs/forges.zh-CN.md](docs/forges.zh-CN.md) |
 | 审查引擎（任选） | [Claude Code](https://claude.com/claude-code)、[Codex CLI](https://developers.openai.com/codex/cli)、[Gemini CLI](https://geminicli.com) 已登录；或一个 OpenAI 兼容接口的地址和密钥（本地 Ollama 也行） |
 | git | 已安装 |
 | Windows 10 1809 及以上、macOS 12 及以上，或带桌面环境的 Linux | Linux 托盘需要 AppIndicator 支持（GNOME 要装 AppIndicator 扩展） |
@@ -149,7 +149,7 @@ authors = ["dependabot[bot]"]
 
 - **被点名了却没反应**：看托盘图标和窗口顶部的状态栏，出错时那里会写原因并给出修复按钮。默认只处理直接点名请**你**审查的；想连请你所在团队审查的也处理，在设置里勾选「团队被点名时也审查」，另外检查「审查范围」有没有把仓库排除掉。日志在「设置 → 文件位置 → 查看日志」。
 - **状态栏写着「另一个 Nod 正在审查」**：旧的命令行版还在运行。退出 Nod 再打开，它会自动清理；仍然不行就在任务管理器里结束旧的 `nod.exe run` 进程。
-- **macOS / Linux 上找不到 gh 或 claude**：应用启动时会读取你登录 shell 的 PATH。把 `gh`、`claude` 装在 shell 能找到的位置后，在托盘里退出再打开；也可以在设置里填 `claude` 的完整路径。
+- **macOS / Linux 上找不到 claude**：应用启动时会读取你登录 shell 的 PATH。把 `claude` 装在 shell 能找到的位置后，在托盘里退出再打开；也可以在设置里填 `claude` 的完整路径。
 - **飞书卡片收到了，点按钮却报错**：Nod 必须在运行且没有暂停；另外一个飞书应用的长连接只能由一个程序占用。见 [docs/feishu-setup.zh-CN.md](docs/feishu-setup.zh-CN.md#排障)。
 - **看起来没问题却没有 approve**：窗口、卡片和 GitHub 评审里都会写明是哪条规则拦住了，比如 CI 还没跑完，或者这是你自己的 PR。
 

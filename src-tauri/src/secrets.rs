@@ -84,6 +84,19 @@ fn forget(name: &str) {
     }
 }
 
+/// A value kept only in the keychain (not mirrored from a config field), e.g. GitHub sign-in tokens.
+pub fn get_value(name: &str) -> Option<String> {
+    get(name)
+}
+
+pub fn set_value(name: &str, value: &str) -> Result<()> {
+    set(name, value)
+}
+
+pub fn forget_value(name: &str) {
+    forget(name)
+}
+
 /// Copy every secret of `c` from another keychain service (the app's previous name) into this one, without
 /// overwriting a secret already stored here. Returns how many were copied.
 pub fn copy_from(old_service: &str, c: &Config) -> usize {

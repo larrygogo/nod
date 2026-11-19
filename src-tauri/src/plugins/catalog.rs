@@ -113,10 +113,14 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
     let mut v = vec![
         // ------------------------------------------------------------ code hosts
         p("github", "forge", "GitHub",
-          l.t("使用 GitHub CLI（gh）的登录，不需要另外的令牌。也支持 GitHub Enterprise。", "Uses the GitHub CLI (gh) sign-in; no extra token. GitHub Enterprise works too."),
+          l.t("在 Nod 里点一下登录 GitHub，不用装别的工具，也不用填令牌。Nod 以你的身份审查，只能看到装了 Nod GitHub App 的仓库。也支持 GitHub Enterprise。",
+              "Sign in to GitHub from Nod with one click: no other tool, no token to paste. Nod reviews as you and sees the repositories where the Nod GitHub App is installed. GitHub Enterprise works too."),
           "github",
-          vec![f("url", l.t("GitHub Enterprise 地址（github.com 留空）", "GitHub Enterprise address (empty for github.com)"), "text").ph("https://github.example.com")],
-          vec![b("info", l.t("用 gh 登录", "Signs in with gh"))], "https://cli.github.com"),
+          vec![
+              f("url", l.t("GitHub Enterprise 地址（github.com 留空）", "GitHub Enterprise address (empty for github.com)"), "text").ph("https://github.example.com"),
+              f("settings.client_id", l.t("GitHub App 的 Client ID（留空使用 Nod 自带的 App；GitHub Enterprise 要填你在自己实例上注册的 App）", "GitHub App client ID (empty for Nod's own App; GitHub Enterprise needs an App registered on your instance)"), "text").ph("Iv23li…"),
+          ],
+          vec![b("info", l.t("GitHub App 登录", "GitHub App sign-in"))], "https://docs.github.com/en/apps/using-github-apps/installing-a-github-app-from-a-third-party"),
         p("gitee", "forge", "Gitee",
           l.t("码云 gitee.com。需要一个私人令牌。Gitee 不支持撤销已给出的审查通过。", "Gitee (gitee.com). Needs a personal access token. Gitee does not let a reviewer withdraw an approval."),
           "gitee",

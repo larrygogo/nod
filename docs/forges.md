@@ -2,7 +2,7 @@
 
 [简体中文](forges.zh-CN.md)
 
-GitHub uses the GitHub CLI (gh) sign-in; nothing else to set up. Gitee and Gitea / Forgejo need an access token,
+GitHub: click **Sign in to GitHub** on the GitHub plugin page. Nod shows a one-time code and opens GitHub; paste the code and authorize. Nod acts as you and sees the repositories where the Nod GitHub App is installed (an organization installs it once; ask an owner if you are not one). GitHub Enterprise needs an App registered on your instance: fill in its Client ID on the same page. Gitee and Gitea / Forgejo need an access token,
 which Nod keeps in the system keychain — never in the settings file.
 
 In Nod, go to *Plugins → Code hosts → Add account*, pick the platform, enter the token (and the address for

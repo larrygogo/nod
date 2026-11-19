@@ -1,8 +1,8 @@
 // Plugins: a list of everything that can be plugged in on the left (code-host accounts, review engines, notification
 // channels, third-party plugins), the selected one on the right. Every form is built from the plugin's own field list
 // (catalog), so a third-party plugin gets the same settings UI as a built-in one.
-import { useState } from "preact/hooks";
-import { accounts, activeChannels, api, getPath, setPath, type Account, type Check, type Config, type Field, type Plugin } from "../api";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { accounts, activeChannels, api, getPath, setPath, type Account, type Check, type Config, type DeviceCode, type Field, type GithubSession, type Plugin } from "../api";
 import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
 import { t } from "../i18n";
@@ -69,8 +69,8 @@ function Checks({ checks }: { checks: Check[] }) {
 }
 
 /** The right-hand pane for one plugin: what it is, what it can do, its settings and its self-test. */
-function Pane({ p, sub, control, children, onCheck, testLabel, extra }: {
-  p: Plugin; sub?: string; control?: preact.ComponentChildren; children?: preact.ComponentChildren;
+function Pane({ p, sub, control, children, onCheck, testLabel, extra, account }: {
+  p: Plugin; sub?: string; control?: preact.ComponentChildren; children?: preact.ComponentChildren; account?: preact.ComponentChildren;
   onCheck?: () => Promise<Check[] | string>; testLabel?: string; extra?: preact.ComponentChildren;
 }) {
   const [result, setResult] = useState<Check[] | string | null>(null);
@@ -87,6 +87,7 @@ function Pane({ p, sub, control, children, onCheck, testLabel, extra }: {
       </header>
       <p class="pane-desc">{p.description}</p>
       {p.badges.length > 0 && <div class="caps">{p.badges.map((b) => <Badge tone={b.tone === "warn" ? "warn" : "cap"}>{b.text}</Badge>)}</div>}
+      {account && <section class="pane-section"><h3>{t("gh.account")}</h3>{account}</section>}
       <section class="pane-section">
         <h3>{t("pl.settings")}</h3>
         {children || <p class="muted">{t("pl.no_settings")}</p>}
@@ -188,6 +189,7 @@ export function PluginsPage() {
       <Pane key={`${a.id}|${a.kind}`} p={p} sub={`${a.id}${hostOf(a) ? " · " + hostOf(a) : ""}`}
         control={<Switch on={a.enabled} label={t("pl.enabled")} onChange={(v) => edit((c) => { materialize(c); c.forges![i].enabled = v; })} />}
         onCheck={() => api.checkPlugin(draft, "forge", a.id, cleared)}
+        account={a.kind === "github" ? <GithubSignIn account={a} /> : undefined}
         extra={list.length > 1 && <section class="pane-section"><Button kind="danger" icon="trash" onClick={() => edit((c) => { materialize(c); c.forges!.splice(i, 1); })}>{t("pl.remove_account")}</Button></section>}>
         {p.fields.length > 0 && <Fields fields={p.fields}
           get={(k) => getPath(a, k)}
@@ -263,6 +265,94 @@ export function PluginsPage() {
         {pane}
       </div>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ GitHub sign-in (device flow)
+
+/** Sign in through Nod's GitHub App: show a one-time code, open github.com/login/device, poll until the user approves.
+ *  Same flow as GitHub Desktop and the GitHub CLI; nothing to paste back into Nod. */
+function GithubSignIn({ account }: { account: Account }) {
+  const [session, setSession] = useState<GithubSession | null>(null);
+  const [code, setCode] = useState<DeviceCode | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // bumping the run id stops an older polling loop (cancel, a new attempt, or leaving the page)
+  const run = useRef(0);
+  const key = `${account.id}|${account.url}|${String(account.settings?.client_id ?? "")}`;
+
+  const refresh = () => api.githubSession(account).then(setSession).catch((e) => setErr(errText(e)));
+  useEffect(() => { refresh(); return () => { run.current++; }; }, [key]);
+
+  const copy = (text: string) => navigator.clipboard?.writeText(text).then(() => setCopied(true)).catch(() => {});
+
+  const start = async () => {
+    setErr(null); setBusy(true); setCopied(false);
+    const me = ++run.current;
+    try {
+      const d = await api.githubLoginStart(account);
+      if (me !== run.current) return;
+      setCode(d);
+      copy(d.user_code);
+      api.url(d.verification_uri);
+      let wait = Math.max(d.interval, 1);
+      const until = Date.now() + d.expires_in * 1000;
+      while (me === run.current && Date.now() < until) {
+        await new Promise((r) => setTimeout(r, wait * 1000));
+        if (me !== run.current) return;
+        const r = await api.githubLoginPoll(account, d.device_code);
+        if (r.state === "pending") continue;
+        if (r.state === "slow_down") { wait = Math.max(r.interval, wait + 5); continue; }
+        if (r.state === "done") { setSession({ signed_in: true, login: r.login, has_client_id: true }); break; }
+        setErr(r.state === "expired" ? t("gh.expired") : r.state === "denied" ? t("gh.denied") : r.message);
+        break;
+      }
+      if (me === run.current && Date.now() >= until) setErr(t("gh.expired"));
+    } catch (e) {
+      if (me === run.current) setErr(errText(e));
+    } finally {
+      if (me === run.current) { setCode(null); setBusy(false); }
+    }
+  };
+  const cancel = () => { run.current++; setCode(null); setBusy(false); };
+
+  if (!session) return <p class="muted">…</p>;
+  if (code) {
+    return (
+      <div class="gh-device">
+        <p>{t("gh.enter_code")}</p>
+        <div class="gh-code-row">
+          <code class="gh-code">{code.user_code}</code>
+          <Button small icon={copied ? "check" : undefined} onClick={() => copy(code.user_code)}>{copied ? t("gh.copied") : t("gh.copy")}</Button>
+        </div>
+        <p class="muted small">{t("gh.waiting")}</p>
+        <div class="pane-actions">
+          <Button small icon="external" onClick={() => api.url(code.verification_uri)}>{t("gh.reopen")}</Button>
+          <Button small kind="quiet" onClick={cancel}>{t("btn.cancel")}</Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <>
+      {session.signed_in ? (
+        <div class="gh-signed">
+          <span class="state-dot good" />
+          <span class="grow">{session.login ? <>{t("gh.signed_in_as")} <b>{session.login}</b></> : t("gh.signed_in")}</span>
+          <Button small onClick={start} disabled={busy || !session.has_client_id}>{t("gh.switch")}</Button>
+          <Button small kind="quiet" onClick={async () => { cancel(); await api.githubLogout(account).catch((e) => setErr(errText(e))); refresh(); }}>{t("gh.sign_out")}</Button>
+        </div>
+      ) : !session.has_client_id ? (
+        <Note tone="warn">{t("gh.no_client_id")}</Note>
+      ) : (
+        <>
+          <Button kind="primary" icon="key" busy={busy} onClick={start}>{t("gh.sign_in")}</Button>
+          <p class="muted small">{t("gh.sign_in_help")}</p>
+        </>
+      )}
+      {err && <Note tone="bad">{err}</Note>}
+    </>
   );
 }
 

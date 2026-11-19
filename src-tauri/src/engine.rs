@@ -291,7 +291,7 @@ impl Engine {
         self.refresh(key, None, true);
     }
 
-    /// A whole round failed (gh logged out, network…). At most once every 6 hours.
+    /// A whole round failed (signed out of GitHub, network…). At most once every 6 hours.
     pub fn alert(&self, text: &str) {
         let p = paths::data_dir().join("alert.json");
         let last = fs::read_to_string(&p)

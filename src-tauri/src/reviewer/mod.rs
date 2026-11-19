@@ -114,29 +114,6 @@ impl Workspace {
             let _ = fs::remove_dir_all(&mirror);
             let m = mirror.to_string_lossy().to_string();
             match &remote {
-                Remote::Gh { host } => {
-                    let repo = if host.is_empty() {
-                        pr.repo.clone()
-                    } else {
-                        format!("{host}/{}", pr.repo)
-                    };
-                    run(
-                        &[
-                            "gh",
-                            "repo",
-                            "clone",
-                            &repo,
-                            &m,
-                            "--",
-                            "--no-checkout",
-                            "--filter=blob:none",
-                        ],
-                        RunOpts {
-                            timeout: Duration::from_secs(1800),
-                            ..Default::default()
-                        },
-                    )?;
-                }
                 Remote::Git { url, .. } => {
                     run(
                         &[
@@ -455,11 +432,12 @@ mod tests {
         .unwrap();
         assert_eq!(env["GIT_CONFIG_KEY_0"], "http.extraHeader");
         assert_eq!(env["GIT_CONFIG_VALUE_0"], "Authorization: Basic abc");
-        let gh = git_env(&Remote::Gh {
-            host: String::new(),
+        let plain = git_env(&Remote::Git {
+            url: "https://x/y.git".into(),
+            header: None,
         })
         .unwrap();
-        assert!(!gh.contains_key("GIT_CONFIG_COUNT"));
-        assert_eq!(gh["GIT_TERMINAL_PROMPT"], "0");
+        assert!(!plain.contains_key("GIT_CONFIG_COUNT"));
+        assert_eq!(plain["GIT_TERMINAL_PROMPT"], "0");
     }
 }

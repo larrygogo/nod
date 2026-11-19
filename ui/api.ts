@@ -42,6 +42,9 @@ export interface Config {
   notify: Record<string, any> & { channels: string[]; channel: string };
   [k: string]: unknown;
 }
+export interface GithubSession { signed_in: boolean; login: string; has_client_id: boolean }
+export interface DeviceCode { device_code: string; user_code: string; verification_uri: string; interval: number; expires_in: number }
+export interface GithubPoll { state: "pending" | "slow_down" | "done" | "expired" | "denied" | "failed"; interval: number; login: string; message: string }
 export interface LoadedConfig { config: Config; secrets: Record<string, boolean>; error: string | null }
 
 export const api = {
@@ -61,6 +64,10 @@ export const api = {
   importOld: () => invoke<string[]>("import_old"),
   open: (which: "config" | "data" | "log" | "plugins") => invoke<void>("open_location", { which }),
   url: (url: string) => invoke<void>("open_url", { url }).catch(() => {}),
+  githubSession: (account: Account) => invoke<GithubSession>("github_session", { account }),
+  githubLoginStart: (account: Account) => invoke<DeviceCode>("github_login_start", { account }),
+  githubLoginPoll: (account: Account, deviceCode: string) => invoke<GithubPoll>("github_login_poll", { account, deviceCode }),
+  githubLogout: (account: Account) => invoke<void>("github_logout", { account }),
 };
 
 /** The channels in effect (new list or the legacy single channel), like Notify::active in Rust. */

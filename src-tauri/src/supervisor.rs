@@ -82,7 +82,7 @@ pub fn explain(lang: &str, raw: &str) -> (String, Option<&'static str>) {
 /// Like [`explain`], knowing the kind of code host that failed ("github", "gitee", …) when the heartbeat says which
 /// account it was. Without it, a sign-in error is attributed by its wording.
 pub fn explain_for(lang: &str, raw: &str, kind: Option<&str>) -> (String, Option<&'static str>) {
-    use crate::doctor::{FIX_GH_LOGIN, FIX_INSTALL_GH, FIX_SETTINGS};
+    use crate::doctor::FIX_SETTINGS;
     let l = |zh: &str, en: &str| if lang == "en" { en } else { zh }.to_string();
     let r = raw.to_lowercase();
     if r.contains("another nod process") {
@@ -95,47 +95,25 @@ pub fn explain_for(lang: &str, raw: &str, kind: Option<&str>) -> (String, Option
             ),
             Some(FIX_SETTINGS),
         )
-    } else if (r.contains("401") || r.contains("unauthorized"))
-        && match kind {
-            Some(k) => k != "github",
-            // `gh` as a word (not "high " or "through ")
-            None => {
-                !(r.starts_with("gh ")
-                    || r.contains(" gh ")
-                    || r.contains("`gh")
-                    || r.contains("github")
-                    || r.contains("auth login")
-                    || r.contains("bad credentials"))
-            }
-        }
+    } else if r.contains(crate::forge::github_auth::SIGNIN_REQUIRED)
+        || (kind == Some("github")
+            && (r.contains("401") || r.contains("unauthorized") || r.contains("bad credentials")))
     {
-        // a token-based code host (Gitee, Gitea, a third-party plugin): the fix is a new token, not `gh auth login`
+        (
+            l(
+                "GitHub 还没登录或登录已失效，请在「插件」里登录 GitHub",
+                "Not signed in to GitHub, or the sign-in expired; sign in under Plugins",
+            ),
+            Some("plugins"),
+        )
+    } else if r.contains("401") || r.contains("unauthorized") || r.contains("bad credentials") {
+        // a token-based code host (Gitee, Gitea, a third-party plugin): the fix is a new token
         (
             l(
                 "代码平台的令牌无效或已过期，请在「插件」里重新填写",
                 "A code host's token is invalid or expired; enter a new one under Plugins",
             ),
             Some("plugins"),
-        )
-    } else if r.contains("auth login")
-        || r.contains("401")
-        || r.contains("bad credentials")
-        || r.contains("not logged")
-    {
-        (
-            l(
-                "GitHub 登录已失效，需要重新登录",
-                "The GitHub sign-in expired; sign in again",
-            ),
-            Some(FIX_GH_LOGIN),
-        )
-    } else if r.contains("cannot start `gh`") {
-        (
-            l(
-                "找不到 GitHub CLI（gh）",
-                "The GitHub CLI (gh) was not found",
-            ),
-            Some(FIX_INSTALL_GH),
         )
     } else if is_network(raw) {
         (
@@ -498,14 +476,16 @@ mod tests {
     fn explains_errors() {
         let (t, a) = explain(
             "en",
-            "`gh api` exited Some(1): net/http: TLS handshake timeout",
+            "GET /repos/o/r/pulls/1: Connection Failed: tls connection init failed: TLS handshake timeout",
         );
         assert!(t.starts_with("Cannot reach GitHub"));
         assert_eq!(a, None);
-        assert_eq!(
-            explain("zh-CN", "HTTP 401: Bad credentials").1,
-            Some(crate::doctor::FIX_GH_LOGIN)
+        let (t, a) = explain(
+            "zh-CN",
+            "github_signin_required: not signed in to GitHub; sign in on the GitHub page in Nod",
         );
+        assert!(t.contains("登录 GitHub"), "{t}");
+        assert_eq!(a, Some("plugins"));
         assert_eq!(
             explain(
                 "zh-CN",
@@ -533,10 +513,9 @@ mod tests {
             .1,
             Some("plugins")
         );
-        assert_eq!(
-            explain_for("en", "HTTP 401: Unauthorized", Some("github")).1,
-            Some(crate::doctor::FIX_GH_LOGIN)
-        );
+        assert!(explain_for("en", "HTTP 401: Unauthorized", Some("github"))
+            .0
+            .contains("sign in under Plugins"));
         assert!(
             explain("en", "another Nod process is already reviewing (pid 3)")
                 .0
