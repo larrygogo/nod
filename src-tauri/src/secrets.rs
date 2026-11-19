@@ -200,6 +200,8 @@ fn fields_with<'a>(
     let mut v: Vec<(String, &mut String)> = vec![
         ("notify.feishu.app_secret".into(), &mut n.feishu.app_secret),
         ("notify.webhook.secret".into(), &mut n.webhook.secret),
+        ("notify.feishu_bot.url".into(), &mut n.feishu_bot.url),
+        ("notify.feishu_bot.secret".into(), &mut n.feishu_bot.secret),
         ("notify.dingtalk.url".into(), &mut n.dingtalk.url),
         ("notify.dingtalk.secret".into(), &mut n.dingtalk.secret),
         ("notify.wecom.url".into(), &mut n.wecom.url),

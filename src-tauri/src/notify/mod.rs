@@ -65,6 +65,7 @@ pub fn make_one(cfg: &Config, me: &str, channel: &str) -> Result<Arc<dyn Notifie
         "feishu" => Arc::new(feishu::FeishuNotifier::new(cfg, me)),
         "webhook" => Arc::new(webhook::WebhookNotifier::new(cfg)),
         "system" => Arc::new(system::SystemNotifier::new(cfg)),
+        "feishu_bot" => Arc::new(robot::RobotNotifier::new(cfg, robot::Kind::FeishuBot)),
         "dingtalk" => Arc::new(robot::RobotNotifier::new(cfg, robot::Kind::DingTalk)),
         "wecom" => Arc::new(robot::RobotNotifier::new(cfg, robot::Kind::WeCom)),
         "slack" => Arc::new(robot::RobotNotifier::new(cfg, robot::Kind::Slack)),

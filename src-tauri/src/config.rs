@@ -14,8 +14,15 @@ use crate::paths;
 pub const LANGUAGES: [&str; 2] = ["zh-CN", "en"];
 pub const APPROVE_MODES: [&str; 2] = ["auto", "never"];
 /// Built-in notification channels ("none" is the legacy single-channel value for "nothing").
-pub const CHANNELS: [&str; 7] = [
-    "system", "feishu", "webhook", "dingtalk", "wecom", "slack", "none",
+pub const CHANNELS: [&str; 8] = [
+    "system",
+    "feishu",
+    "feishu_bot",
+    "webhook",
+    "dingtalk",
+    "wecom",
+    "slack",
+    "none",
 ];
 /// Built-in review engines.
 pub const ENGINES: [&str; 4] = ["claude", "codex", "gemini", "api"];
@@ -288,7 +295,7 @@ pub struct Webhook {
 #[serde(default, deny_unknown_fields)]
 pub struct Robot {
     pub url: String,
-    /// DingTalk "sign" secret (optional; other robots ignore it).
+    /// Signature secret (optional): DingTalk "加签", Feishu "签名校验"; WeCom and Slack have none.
     pub secret: String,
 }
 
@@ -301,6 +308,8 @@ pub struct Notify {
     pub channel: String,
     pub feishu: Feishu,
     pub webhook: Webhook,
+    /// A Feishu / Lark group's custom bot (an incoming webhook), as opposed to `feishu`, the Feishu app.
+    pub feishu_bot: Robot,
     pub dingtalk: Robot,
     pub wecom: Robot,
     pub slack: Robot,
@@ -313,6 +322,7 @@ impl Default for Notify {
             channel: "none".into(),
             feishu: Feishu::default(),
             webhook: Webhook::default(),
+            feishu_bot: Robot::default(),
             dingtalk: Robot::default(),
             wecom: Robot::default(),
             slack: Robot::default(),
@@ -519,6 +529,7 @@ impl Config {
             errs.push("notify.webhook.url must be an http(s) URL for the webhook channel".into());
         }
         for (name, robot) in [
+            ("feishu_bot", &self.notify.feishu_bot),
             ("dingtalk", &self.notify.dingtalk),
             ("wecom", &self.notify.wecom),
             ("slack", &self.notify.slack),

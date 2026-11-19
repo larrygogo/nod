@@ -185,7 +185,7 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
         p("system", "notify", l.t("系统通知", "Desktop notifications").as_str(),
           l.t("审查完成或出错时弹系统通知，点击打开 PR。", "A desktop notification when a review is posted or something fails; click it to open the PR."),
           "bell", vec![], vec![], ""),
-        p("feishu", "notify", l.t("飞书 / Lark", "Feishu / Lark").as_str(),
+        p("feishu", "notify", l.t("飞书应用", "Feishu / Lark app").as_str(),
           l.t("每个 PR 一张卡片，原地刷新，可直接通过。需自建飞书应用。", "One card per PR, updated in place, with an Approve now button. Needs your own Feishu app."),
           "feishu",
           vec![
@@ -196,6 +196,14 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
                   .help(l.t("Lark 国际版填 https://open.larksuite.com", "Lark: https://open.larksuite.com")),
           ],
           vec![b("good", l.t("可直接通过", "Approve from chat"))], &doc("feishu-setup")),
+        p("feishu_bot", "notify", l.t("飞书群机器人", "Feishu / Lark group bot").as_str(),
+          l.t("群里的自定义机器人，粘贴它的 Webhook 地址即可，不用建应用。", "A group's custom bot: paste its webhook address, no app needed."),
+          "feishu",
+          vec![
+              f("notify.feishu_bot.url", "Webhook".into(), "password").ph("https://open.feishu.cn/open-apis/bot/v2/hook/…"),
+              f("notify.feishu_bot.secret", l.t("签名校验密钥（可选）", "Signature secret (optional)"), "password"),
+          ],
+          vec![b("info", l.t("只读通知", "Notifications only"))], ""),
         p("dingtalk", "notify", l.t("钉钉", "DingTalk").as_str(),
           l.t("群自定义机器人，建议开启加签。", "A custom group robot. Choose the signing (加签) security setting."),
           "dingtalk",

@@ -1,4 +1,4 @@
-//! Chat robots reached through an incoming-webhook URL: DingTalk, WeCom (企业微信) and Slack.
+//! Chat robots reached through an incoming-webhook URL: Feishu / Lark group bots, DingTalk, WeCom (企业微信) and Slack.
 //!
 //! Like desktop notifications they announce outcomes only (review posted, failed, approved directly) and whole-round
 //! failures; each robot remembers per PR what it last sent, so nothing is repeated.
@@ -20,6 +20,7 @@ use crate::util::now;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
+    FeishuBot,
     DingTalk,
     WeCom,
     Slack,
@@ -28,6 +29,7 @@ pub enum Kind {
 impl Kind {
     pub fn name(self) -> &'static str {
         match self {
+            Kind::FeishuBot => "feishu_bot",
             Kind::DingTalk => "dingtalk",
             Kind::WeCom => "wecom",
             Kind::Slack => "slack",
@@ -44,6 +46,15 @@ pub struct RobotNotifier {
     outcome: SystemNotifier,
 }
 
+/// Feishu / Lark "签名校验": `sign = base64(hmac_sha256(key = "{timestamp}\n{secret}", message = ""))`, with the
+/// timestamp in seconds; both go in the JSON body.
+pub fn feishu_sign(secret: &str, ts_s: u64) -> String {
+    use base64::Engine;
+    let m = Hmac::<Sha256>::new_from_slice(format!("{ts_s}\n{secret}").as_bytes())
+        .expect("any key length");
+    base64::engine::general_purpose::STANDARD.encode(m.finalize().into_bytes())
+}
+
 /// DingTalk "加签": `timestamp` and `sign = base64(hmac_sha256(secret, "{timestamp}\n{secret}"))`, URL-encoded.
 pub fn dingtalk_sign(secret: &str, ts_ms: u64) -> String {
     use base64::Engine;
@@ -56,6 +67,7 @@ pub fn dingtalk_sign(secret: &str, ts_ms: u64) -> String {
 impl RobotNotifier {
     pub fn new(cfg: &Config, kind: Kind) -> Self {
         let robot = match kind {
+            Kind::FeishuBot => cfg.notify.feishu_bot.clone(),
             Kind::DingTalk => cfg.notify.dingtalk.clone(),
             Kind::WeCom => cfg.notify.wecom.clone(),
             Kind::Slack => cfg.notify.slack.clone(),
@@ -73,6 +85,20 @@ impl RobotNotifier {
     pub fn body(&self, title: &str, text: &str, url: &str) -> Value {
         let open = if self.lang == "en" { "Open" } else { "打开" };
         match self.kind {
+            Kind::FeishuBot => {
+                // a rich-text ("post") message: the title, the text, and a link line
+                let mut lines = vec![json!([{"tag": "text", "text": text}])];
+                if !url.is_empty() {
+                    lines.push(json!([{"tag": "a", "text": open, "href": url}]));
+                }
+                let mut b = json!({"msg_type": "post", "content": {"post": {"zh_cn": {"title": title, "content": lines}}}});
+                if !self.robot.secret.is_empty() {
+                    let ts = now() as u64;
+                    b["timestamp"] = json!(ts.to_string());
+                    b["sign"] = json!(feishu_sign(&self.robot.secret, ts));
+                }
+                b
+            }
             Kind::DingTalk => {
                 let link = if url.is_empty() {
                     String::new()
@@ -138,10 +164,18 @@ impl RobotNotifier {
             // the URL carries the robot's token: never put it in an error (they reach the log and the window)
             Err(e) => bail!("{}: {}", self.kind.name(), redact_url(&e.to_string(), &url)),
         };
-        // DingTalk and WeCom answer 200 with {"errcode": n, "errmsg": …}; Slack answers "ok"
+        // DingTalk and WeCom answer 200 with {"errcode": n, "errmsg": …}; Feishu with {"code": n, "msg": …}; Slack "ok"
         if let Ok(v) = serde_json::from_str::<Value>(&text) {
             if v["errcode"].as_i64().is_some_and(|c| c != 0) {
                 bail!("{} refused the message: {}", self.kind.name(), v["errmsg"]);
+            }
+            if v["code"].as_i64().is_some_and(|c| c != 0) {
+                bail!(
+                    "{} refused the message: {} {}",
+                    self.kind.name(),
+                    v["code"],
+                    v["msg"]
+                );
             }
         }
         Ok(())
@@ -266,6 +300,56 @@ mod tests {
             .to_string();
         assert!(!err.contains("SECRET-KEY"), "{err}");
         assert!(err.starts_with("wecom:"));
+    }
+
+    #[test]
+    fn feishu_group_bot_posts_rich_text_and_signs_in_the_body() {
+        let f = fake::serve(vec![(
+            "POST /open-apis/bot/v2/hook/abc",
+            200,
+            json!({"code": 0, "msg": "success"}).to_string(),
+        )]);
+        let mut c = cfg(&f.url);
+        c.notify.feishu_bot.url = format!("{}/open-apis/bot/v2/hook/abc", f.url);
+        c.notify.feishu_bot.secret = "S3".into();
+        let n = RobotNotifier::new(&c, Kind::FeishuBot);
+        n.send("Reviewed", "looks fine", "https://github.com/a/b/pull/1")
+            .unwrap();
+        let body: Value = serde_json::from_str(&f.seen.lock().unwrap()[0].body).unwrap();
+        assert_eq!(body["msg_type"], "post");
+        let post = &body["content"]["post"]["zh_cn"];
+        assert_eq!(post["title"], "Reviewed");
+        assert_eq!(
+            post["content"][1][0]["href"],
+            "https://github.com/a/b/pull/1"
+        );
+        let ts: u64 = body["timestamp"].as_str().unwrap().parse().unwrap();
+        assert_eq!(body["sign"], feishu_sign("S3", ts));
+    }
+
+    #[test]
+    fn feishu_refusals_are_errors() {
+        let f = fake::serve(vec![("POST /hook", 200, json!({"code": 19021, "msg": "sign match fail or timestamp is not within one hour from current time"}).to_string())]);
+        let mut c = cfg(&f.url);
+        c.notify.feishu_bot.url = format!("{}/hook", f.url);
+        let err = RobotNotifier::new(&c, Kind::FeishuBot)
+            .test()
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("19021") && err.contains("sign match fail"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn feishu_signature_matches_the_documented_algorithm() {
+        // HmacSHA256 keyed with "timestamp\nsecret" over an empty message, base64
+        use base64::Engine;
+        let mut m = Hmac::<Sha256>::new_from_slice(b"1599360473\ndemo").unwrap();
+        m.update(b"");
+        let want = base64::engine::general_purpose::STANDARD.encode(m.finalize().into_bytes());
+        assert_eq!(feishu_sign("demo", 1599360473), want);
     }
 
     #[test]
