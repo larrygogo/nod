@@ -11,7 +11,7 @@ use super::http::{basic, enc};
 use super::{commentable_lines, DiffLines, Forge, Pr, PrStatus, Remote};
 
 pub struct Gh {
-    pub session: Session,
+    pub session: std::sync::Arc<Session>,
 }
 
 /// The App's client ID for an account: its own `client_id` setting (GitHub Enterprise), else Nod's App.
@@ -28,7 +28,7 @@ pub fn client_id(acc: &crate::config::ForgeAccount) -> String {
 impl Gh {
     pub fn new(acc: &crate::config::ForgeAccount) -> Gh {
         Gh {
-            session: Session::new(&acc.id, Hosts::new(&acc.url), &client_id(acc)),
+            session: super::github_auth::shared(&acc.id, Hosts::new(&acc.url), &client_id(acc)),
         }
     }
 
@@ -453,7 +453,7 @@ mod tests {
         )
         .unwrap();
         Gh {
-            session: Session::new(account, Hosts::at(&f.url), "cid"),
+            session: std::sync::Arc::new(Session::new(account, Hosts::at(&f.url), "cid")),
         }
     }
 

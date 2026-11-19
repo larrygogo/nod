@@ -228,6 +228,13 @@ async fn save_config(
     back_up_broken_config();
     let (disk, kept) = secrets::stash(&c, &previous);
     config::save(&disk).map_err(|e| format!("{e:#}"))?;
+    // a removed GitHub account takes its sign-in with it (re-adding the same id must not revive it)
+    let ids: Vec<String> = c.accounts().into_iter().map(|a| a.id).collect();
+    for a in previous.accounts() {
+        if a.kind == "github" && !ids.contains(&a.id) {
+            crate::forge::github_auth::forget(&a.id);
+        }
+    }
     let sup = state.sup.clone();
     tauri::async_runtime::spawn_blocking(move || sup.restart())
         .await
@@ -248,8 +255,6 @@ async fn check_tools(
         .map_err(|e| e.to_string())
 }
 
-/// Check one plugin: a code-host account (`account` = its id in `cfg.forges`, or the implicit GitHub account) or a
-/// review engine.
 /// The GitHub account the window is editing (possibly not saved yet): id, address and settings are all sign-in needs.
 fn github_account(account: Value) -> Result<crate::config::ForgeAccount, String> {
     let a: crate::config::ForgeAccount =
@@ -272,11 +277,15 @@ struct GithubSession {
 #[tauri::command]
 fn github_session(account: Value) -> Result<GithubSession, String> {
     let a = github_account(account)?;
-    let t = crate::forge::github_auth::load(&a.id);
+    let cid = crate::forge::github::client_id(&a);
+    let hosts = crate::forge::github_auth::Hosts::new(&a.url);
+    // tokens for another address or App, or ones that ran out completely, do not count as signed in
+    let t = crate::forge::github_auth::load(&a.id)
+        .filter(|t| t.fits(&hosts, &cid) && !t.dead(crate::util::now()));
     Ok(GithubSession {
         signed_in: t.is_some(),
         login: t.map(|t| t.login).unwrap_or_default(),
-        has_client_id: !crate::forge::github::client_id(&a).is_empty(),
+        has_client_id: !cid.is_empty(),
     })
 }
 
@@ -308,9 +317,14 @@ struct GithubPoll {
 }
 
 #[tauri::command]
-async fn github_login_poll(account: Value, device_code: String) -> Result<GithubPoll, String> {
+async fn github_login_poll(
+    state: State<'_, AppState>,
+    account: Value,
+    device_code: String,
+) -> Result<GithubPoll, String> {
     use crate::forge::github_auth::{self as auth, Poll};
     let a = github_account(account)?;
+    let sup = state.sup.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let hosts = auth::Hosts::new(&a.url);
         let cid = crate::forge::github::client_id(&a);
@@ -332,16 +346,21 @@ async fn github_login_poll(account: Value, device_code: String) -> Result<Github
                     message: m,
                     ..p("failed")
                 },
-                Poll::Done(mut t) => {
+                Poll::Done(t) => {
+                    let mut t = t.bind(&hosts, &cid);
                     auth::save(&a.id, &t)
                         .map_err(|e| format!("could not store the sign-in: {e:#}"))?;
                     // who signed in: shown on the plugin page and in the self-check
                     let gh = crate::forge::github::Gh::new(&a);
+                    gh.session.invalidate();
                     if let Ok(me) = crate::forge::Forge::current_user(&gh) {
                         t.login = me;
                         let _ = auth::save(&a.id, &t);
                     }
                     crate::info!("github: account {} signed in as {}", a.id, t.login);
+                    // start reviewing as this user now: the worker may be backing off after "not signed in", and
+                    // after a switch its idea of "me" belongs to the previous account
+                    sup.restart();
                     GithubPoll {
                         login: t.login,
                         ..p("done")
@@ -355,13 +374,19 @@ async fn github_login_poll(account: Value, device_code: String) -> Result<Github
 }
 
 #[tauri::command]
-fn github_logout(account: Value) -> Result<(), String> {
+async fn github_logout(state: State<'_, AppState>, account: Value) -> Result<(), String> {
     let a = github_account(account)?;
     crate::forge::github_auth::forget(&a.id);
     crate::info!("github: account {} signed out", a.id);
-    Ok(())
+    // the worker must stop acting as this user right away, not when its cached token runs out
+    let sup = state.sup.clone();
+    tauri::async_runtime::spawn_blocking(move || sup.restart())
+        .await
+        .map_err(|e| e.to_string())
 }
 
+/// Check one plugin: a code-host account (`account` = its id in `cfg.forges`, or the implicit GitHub account) or a
+/// review engine.
 #[tauri::command]
 async fn check_plugin(
     cfg: Value,
@@ -496,18 +521,11 @@ fn quote_arg(s: &str) -> String {
 pub fn fix_target(action: &str, cfg: &Config) -> Option<Fix> {
     let zh = cfg.language != "en";
     Some(match action {
-        doctor::FIX_GITHUB_INSTALL => {
-            let url = cfg
-                .accounts()
-                .iter()
-                .find(|a| a.kind == "github")
-                .map(|a| a.url.clone())
-                .unwrap_or_default();
-            Fix::Url(
-                crate::forge::github_auth::Hosts::new(&url)
-                    .install_url(crate::forge::github_auth::DEFAULT_APP_SLUG),
-            )
-        }
+        // offered only for Nod's own App on github.com (see doctor::github_check)
+        doctor::FIX_GITHUB_INSTALL => Fix::Url(
+            crate::forge::github_auth::Hosts::new("")
+                .install_url(crate::forge::github_auth::DEFAULT_APP_SLUG),
+        ),
         doctor::FIX_CLAUDE_LOGIN => {
             let dir = crate::review::expand_path(&cfg.review.claude_config_dir);
             let env = if dir.is_empty() {

@@ -204,6 +204,11 @@ fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
     let signed_in = l(lang, "已登录：", "signed in as ") + &me;
     match gh.installations() {
         Ok(v) if v.is_empty() => {
+            // the install page is known only for Nod's own App on github.com; an Enterprise App is installed from
+            // the instance where it was registered
+            let ours = gh.session.hosts == crate::forge::github_auth::Hosts::new("")
+                && gh.session.client_id == crate::forge::github_auth::DEFAULT_CLIENT_ID
+                && !crate::forge::github_auth::DEFAULT_APP_SLUG.is_empty();
             let ch = c.push(
                 "github",
                 name,
@@ -211,13 +216,16 @@ fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
                 signed_in,
                 Some((
                     (
-                        "Nod 的 GitHub App 还没有安装到任何账号或组织，所以看不到任何仓库。去安装它",
-                        "Nod's GitHub App is not installed on any account or organization yet, so no repository is visible. Install it",
+                        "GitHub App 还没有安装到任何账号或组织，所以看不到任何仓库。把它安装到要审查的仓库所在的账号或组织",
+                        "The GitHub App is not installed on any account or organization yet, so no repository is visible. Install it where the repositories you review live",
                     ),
                     FIX_GITHUB_INSTALL,
                 )),
             );
             ch.warn = true;
+            if !ours {
+                ch.action = None;
+            }
             ch.detail_account(&acc.id);
         }
         Ok(v) => {

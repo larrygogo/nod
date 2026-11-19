@@ -50,6 +50,11 @@ pub fn use_fake() {
     FAKE.with(|f| *f.borrow_mut() = Some(HashMap::new()));
 }
 
+/// Tests use the in-memory keychain on this thread: nothing may touch real files or the real keychain.
+pub fn is_fake() -> bool {
+    FAKE.with(|f| f.borrow().is_some())
+}
+
 fn get(name: &str) -> Option<String> {
     if let Some(v) = FAKE.with(|f| f.borrow().as_ref().map(|m| m.get(name).cloned())) {
         return v;

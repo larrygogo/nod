@@ -5,6 +5,21 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- GitHub signs in through the Nod GitHub App (device flow) from the GitHub plugin page; the GitHub CLI (`gh`) is no
+  longer needed or used. Nod acts as you and sees the repositories where the App is installed. GitHub Enterprise
+  accounts can set their own App's client ID.
+- **Review** (Reviews and Overview pages) is one real review of a PR someone sent you directly, under the usual
+  approval rules; *Track* and *Dry run* are gone. Pasted links are recognized with surrounding spaces, inside a
+  sentence, or ending in `/files`, `/changes`, `/commits/…`, and the review starts at once.
+- Overview: one list of the latest reviews, newest first; the ones that need you are flagged in place.
+- Small brand tiles use a solid fill so they stay legible at 18 px.
+
+### Fixed
+
+- A PR merged or closed while waiting for CI no longer claims it was not approved because CI was still running.
+
 ## [0.1.0]
 
 First public release: a desktop app.

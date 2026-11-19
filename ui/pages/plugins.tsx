@@ -283,7 +283,8 @@ function GithubSignIn({ account }: { account: Account }) {
   const key = `${account.id}|${account.url}|${String(account.settings?.client_id ?? "")}`;
 
   const refresh = () => api.githubSession(account).then(setSession).catch((e) => setErr(errText(e)));
-  useEffect(() => { refresh(); return () => { run.current++; }; }, [key]);
+  // a new address or client ID is a different sign-in: stop a pending one and show the code screen no longer
+  useEffect(() => { refresh(); return () => { run.current++; setCode(null); setBusy(false); }; }, [key]);
 
   const copy = (text: string) => navigator.clipboard?.writeText(text).then(() => setCopied(true)).catch(() => {});
 
@@ -298,10 +299,20 @@ function GithubSignIn({ account }: { account: Account }) {
       api.url(d.verification_uri);
       let wait = Math.max(d.interval, 1);
       const until = Date.now() + d.expires_in * 1000;
+      let failures = 0;
       while (me === run.current && Date.now() < until) {
         await new Promise((r) => setTimeout(r, wait * 1000));
         if (me !== run.current) return;
-        const r = await api.githubLoginPoll(account, d.device_code);
+        let r;
+        try { r = await api.githubLoginPoll(account, d.device_code); failures = 0; }
+        catch (e) {
+          // one dropped request should not throw away a code the user may be typing in right now
+          if (++failures < 4) continue;
+          if (me === run.current) setErr(t("gh.poll_failed") + errText(e));
+          break;
+        }
+        // cancelled while the request was out: if GitHub finished anyway, the sign-in is stored; show the truth
+        if (me !== run.current) { if (r.state === "done") refresh(); return; }
         if (r.state === "pending") continue;
         if (r.state === "slow_down") { wait = Math.max(r.interval, wait + 5); continue; }
         if (r.state === "done") { setSession({ signed_in: true, login: r.login, has_client_id: true }); break; }
