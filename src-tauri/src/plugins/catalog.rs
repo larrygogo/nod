@@ -113,14 +113,15 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
     let mut v = vec![
         // ------------------------------------------------------------ code hosts
         p("github", "forge", "GitHub",
-          l.t("一键登录，以你的身份审查，不用装 gh。支持 GitHub Enterprise。",
-              "One-click sign-in; Nod reviews as you. No gh needed. GitHub Enterprise works too."),
+          l.t("一键登录，以你的身份审查。也可以填个人访问令牌。", "Sign in with one click; Nod reviews as you. A personal access token works too."),
           "github",
           vec![
-              f("url", l.t("GitHub Enterprise 地址（github.com 留空）", "GitHub Enterprise address (empty for github.com)"), "text").ph("https://github.example.com"),
-              f("settings.client_id", l.t("OAuth App Client ID（仅 Enterprise 需要填）", "OAuth App client ID (Enterprise only)"), "text").ph("Ov23li…"),
+              f("url", l.t("Enterprise 地址", "Enterprise address"), "text").ph(&l.t("github.com 留空", "empty for github.com")),
+              f("settings.client_id", l.t("Enterprise Client ID", "Enterprise client ID"), "text").ph("Ov23li…"),
+              f("token", l.t("个人访问令牌（可选）", "Personal access token (optional)"), "password").ph("ghp_…")
+                  .help(l.t("填了就不用登录。需要 repo 权限。", "Replaces the sign-in. Needs the repo scope.")),
           ],
-          vec![b("info", l.t("OAuth 登录", "OAuth sign-in"))], "https://docs.github.com/en/apps/oauth-apps/using-oauth-apps/authorizing-oauth-apps"),
+          vec![], "https://docs.github.com/en/apps/oauth-apps/using-oauth-apps/authorizing-oauth-apps"),
         p("gitee", "forge", "Gitee",
           l.t("需要私人令牌。Gitee 不支持撤销已给出的通过。", "Gitee (gitee.com). Needs a personal access token. Gitee does not let a reviewer withdraw an approval."),
           "gitee",

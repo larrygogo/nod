@@ -127,6 +127,38 @@ fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
     let lang = c.lang;
     let name = ("GitHub 登录", "GitHub sign-in");
     let gh = crate::forge::github::Gh::new(acc);
+    if gh.pat.is_some() {
+        // a personal access token replaces the sign-in: only whether it works matters
+        let ch = match crate::forge::Forge::current_user(&gh) {
+            Ok(me) => c.push(
+                "github",
+                name,
+                true,
+                l(lang, "令牌有效：", "token works: ") + &me,
+                None,
+            ),
+            Err(e) => {
+                let msg = format!("{e:#}");
+                let fix = if crate::supervisor::is_network(&msg) {
+                    (
+                        "连不上 GitHub，检查网络后重试",
+                        "Cannot reach GitHub; check the network, then check again",
+                    )
+                } else {
+                    ("令牌无效或权限不够（需要 repo），在插件页重新填写", "The token is invalid or lacks the repo scope; enter it again on the plugin page")
+                };
+                c.push(
+                    "github",
+                    name,
+                    false,
+                    crate::util::truncate(&msg, 200),
+                    Some((fix, FIX_PLUGINS)),
+                )
+            }
+        };
+        ch.detail_account(&acc.id);
+        return;
+    }
     if gh.session.client_id.trim().is_empty() {
         c.push(
             "github",

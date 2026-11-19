@@ -861,6 +861,7 @@ mod tests {
         save("live", &t.bind(&hosts, DEFAULT_CLIENT_ID)).unwrap();
         let gh = crate::forge::github::Gh {
             session: std::sync::Arc::new(Session::new("live", hosts, DEFAULT_CLIENT_ID)),
+            pat: None,
         };
         println!("LOGIN={}", crate::forge::Forge::current_user(&gh).unwrap());
         println!(

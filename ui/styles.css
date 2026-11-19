@@ -355,8 +355,10 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 
 /* ---------------------------------------------------------------- plugins */
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px 16px; }
-.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.field.inline { flex-direction: row; align-items: center; gap: 10px; grid-column: 1 / -1; }
+/* each field takes three rows of the grid (label, input, help): fields side by side keep their inputs level even
+   when one label wraps */
+.field { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: 5px; align-content: start; min-width: 0; }
+.field.inline { display: flex; grid-row: auto; flex-direction: row; align-items: center; gap: 10px; grid-column: 1 / -1; }
 .field-label { color: var(--text-2); font-size: 12px; font-weight: var(--w-medium); }
 .field.inline .field-label { color: var(--text); font-size: 13px; font-weight: var(--w-regular); order: 2; }
 .secret-row { display: flex; gap: 8px; align-items: center; }

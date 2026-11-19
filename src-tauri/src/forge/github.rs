@@ -12,6 +12,8 @@ use super::{commentable_lines, DiffLines, Forge, Pr, PrStatus, Remote};
 
 pub struct Gh {
     pub session: std::sync::Arc<Session>,
+    /// A personal access token set on the account: used instead of the OAuth sign-in when present.
+    pub pat: Option<String>,
 }
 
 /// The App's client ID for an account: its own `client_id` setting (GitHub Enterprise), else Nod's App.
@@ -27,8 +29,18 @@ pub fn client_id(acc: &crate::config::ForgeAccount) -> String {
 
 impl Gh {
     pub fn new(acc: &crate::config::ForgeAccount) -> Gh {
+        let pat = crate::secrets::forge_token(acc);
         Gh {
             session: super::github_auth::shared(&acc.id, Hosts::new(&acc.url), &client_id(acc)),
+            pat: Some(pat.trim().to_string()).filter(|t| !t.is_empty()),
+        }
+    }
+
+    /// The token for this request: the account's personal access token, else the OAuth sign-in.
+    fn token(&self) -> Result<String> {
+        match &self.pat {
+            Some(t) => Ok(t.clone()),
+            None => self.session.token(),
         }
     }
 
@@ -47,7 +59,7 @@ impl Gh {
     /// One request with the current token; a 401 re-reads the keychain once (the window may have signed in again).
     fn call(&self, method: &str, url: &str, body: Option<&Value>) -> Result<ureq::Response> {
         for attempt in 0..2 {
-            let token = self.session.token()?;
+            let token = self.token()?;
             let req = ureq::request(method, url)
                 .timeout(Duration::from_secs(120))
                 .set("Accept", "application/vnd.github+json")
@@ -60,6 +72,9 @@ impl Gh {
             };
             match r {
                 Ok(resp) => return Ok(resp),
+                Err(ureq::Error::Status(401, _)) if self.pat.is_some() => {
+                    bail!("GitHub rejected the personal access token (HTTP 401); check it on the GitHub plugin page")
+                }
                 Err(ureq::Error::Status(401, _)) if attempt == 0 => self.session.invalidate(),
                 Err(ureq::Error::Status(401, _)) => {
                     bail!("{SIGNIN_REQUIRED}: GitHub no longer accepts the sign-in; sign in again in Nod")
@@ -422,7 +437,7 @@ impl Forge for Gh {
         // git over HTTPS accepts a user access token as the password of `x-access-token`
         Ok(Remote::Git {
             url: format!("{}/{repo}.git", self.hosts().web),
-            header: Some(basic("x-access-token", &self.session.token()?)),
+            header: Some(basic("x-access-token", &self.token()?)),
         })
     }
 }
@@ -447,6 +462,7 @@ mod tests {
         .unwrap();
         Gh {
             session: std::sync::Arc::new(Session::new(account, Hosts::at(&f.url), "cid")),
+            pat: None,
         }
     }
 
@@ -641,6 +657,30 @@ mod tests {
                 .filter(|r| r.path == "/user")
                 .count(),
             2
+        );
+    }
+
+    #[test]
+    fn a_personal_access_token_replaces_the_sign_in() {
+        let f = fake::serve(vec![
+            ("GET /user", 200, json!({"login": "me"}).to_string()),
+            (
+                "GET /repos/o/r/pulls/3",
+                401,
+                json!({"message": "Bad credentials"}).to_string(),
+            ),
+        ]);
+        crate::secrets::use_fake(); // nothing signed in: the token alone must do
+        let g = Gh {
+            session: std::sync::Arc::new(Session::new("pat1", Hosts::at(&f.url), "cid")),
+            pat: Some("ghp_abc".into()),
+        };
+        assert_eq!(g.current_user().unwrap(), "me");
+        assert_eq!(f.seen.lock().unwrap()[0].auth, "Bearer ghp_abc");
+        let e = g.fetch_pr("o/r", 3).unwrap_err().to_string();
+        assert!(
+            e.contains("personal access token") && !e.contains(SIGNIN_REQUIRED),
+            "{e}"
         );
     }
 

@@ -160,7 +160,7 @@ const hostOf = (a: Account) => a.url || (a.kind === "github" ? "github.com" : a.
 // ------------------------------------------------------------------ page
 
 export function PluginsPage() {
-  const { draft, edit, catalog, cleared } = useStore();
+  const { draft, edit, catalog, cleared, loaded } = useStore();
   const forgeKinds = catalog.filter((p) => p.kind === "forge");
   const engines = catalog.filter((p) => p.kind === "engine");
   const channels = catalog.filter((p) => p.kind === "notify");
@@ -189,7 +189,7 @@ export function PluginsPage() {
       <Pane key={`${a.id}|${a.kind}`} p={p} sub={`${a.id}${hostOf(a) ? " · " + hostOf(a) : ""}`}
         control={<Switch on={a.enabled} label={t("pl.enabled")} onChange={(v) => edit((c) => { materialize(c); c.forges![i].enabled = v; })} />}
         onCheck={() => api.checkPlugin(draft, "forge", a.id, cleared)}
-        account={a.kind === "github" ? <GithubSignIn account={a} /> : undefined}
+        account={a.kind === "github" ? <GithubSignIn account={a} usingToken={!!a.token || (!!loaded.secrets[`forge.${a.id}.token`] && !cleared.includes(`forge.${a.id}.token`))} /> : undefined}
         extra={list.length > 1 && <section class="pane-section"><Button kind="danger" icon="trash" onClick={() => edit((c) => { materialize(c); c.forges!.splice(i, 1); })}>{t("pl.remove_account")}</Button></section>}>
         {p.fields.length > 0 && <Fields fields={p.fields}
           get={(k) => getPath(a, k)}
@@ -272,7 +272,7 @@ export function PluginsPage() {
 
 /** Sign in with Nod's OAuth App: show a one-time code, open github.com/login/device, poll until the user approves.
  *  Same flow as GitHub Desktop and the GitHub CLI; nothing to paste back into Nod. */
-function GithubSignIn({ account }: { account: Account }) {
+function GithubSignIn({ account, usingToken }: { account: Account; usingToken: boolean }) {
   const [session, setSession] = useState<GithubSession | null>(null);
   const [code, setCode] = useState<DeviceCode | null>(null);
   const [copied, setCopied] = useState(false);
@@ -328,6 +328,7 @@ function GithubSignIn({ account }: { account: Account }) {
   };
   const cancel = () => { run.current++; setCode(null); setBusy(false); };
 
+  if (usingToken && !code) return <Note tone="info">{t("gh.using_token")}</Note>;
   if (!session) return <p class="muted">…</p>;
   if (code) {
     return (
