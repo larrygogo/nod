@@ -58,7 +58,10 @@ jobs:
           merge-multiple: true
       - run: (cd assets && sha256sum * > SHA256SUMS)
       - name: release notes from CHANGELOG
-        run: awk -v v="${GITHUB_REF_NAME#v}" '$0 ~ "^## \\[?"v {f=1; next} /^## / && f {exit} f' CHANGELOG.md > notes.md
+        # the section from "## [x.y.z]" (or "## x.y.z") up to the next "## "; stops the release if it is missing
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" 'index($0, "## [" v "]") == 1 || index($0, "## " v) == 1 {f=1; next} /^## / && f {exit} f' CHANGELOG.md > notes.md
+          test -s notes.md
       - run: gh release create "$GITHUB_REF_NAME" assets/* --title "$GITHUB_REF_NAME" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}

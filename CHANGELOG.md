@@ -3,49 +3,7 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Changed
-
-- Comments go up as soon as the review is done; the approval follows as a review of its own once CI passes (before,
-  both waited for CI together). If CI fails, a short review says why it was not approved. *Approve directly* posts
-  the findings with the approval when they are not on GitHub yet, instead of dropping them.
-- No CI: the wait for checks to appear counts from when Nod first saw the commit, and is skipped in repositories
-  whose earlier PRs never had CI. The card says until when it waits.
-- Settings: one *Review* tab with two rule sets: *which PRs to review* (repositories, and now authors:
-  `scope.authors` / `scope.exclude_authors`) and *auto-approve*, an on/off on top of the comments with its own
-  repository and author lists and the CI waits.
-
-- GitHub signs in with an OAuth device-flow login from the GitHub plugin page (the way the GitHub CLI does); `gh`
-  is no longer needed or used. A personal access token can be entered instead of signing in. GitHub Enterprise
-  accounts can set their own OAuth App's client ID.
-- **Review** (Reviews and Overview pages) is one real review of a PR someone sent you directly, under the usual
-  approval rules; *Track* and *Dry run* are gone. Pasted links are recognized with surrounding spaces, inside a
-  sentence, or ending in `/files`, `/changes`, `/commits/…`, and the review starts at once.
-- Overview: one list of the latest reviews, newest first; the ones that need you are flagged in place.
-- Small brand tiles use a solid fill so they stay legible at 18 px.
-
-### Added
-
-- When a review engine is out of quota or rate limited, Nod waits and tries again by itself (at the reset time the
-  engine gives, else after 15 minutes, doubling up to 6 hours) instead of giving up after two quick tries; these
-  waits do not use up `max_attempts`, and you are told once. Other errors wait a minute before the retry.
-- Fallback engine (`review.fallback`, Plugins → engine → *Make fallback*): reviews instead when the chosen engine is
-  out of quota, signed out or not installed.
-- *Review again* on a failed or waiting review, and pasting the link of a failed PR into **Review**, starts it over;
-  before, the same commit was never reviewed again.
-
-- Webhook recognises chat and push apps and sends in their format: Feishu / Lark, DingTalk, WeCom, Slack, Discord,
-  Microsoft Teams, Google Chat, Telegram, Bark, Server酱, ntfy. New channel: Feishu / Lark group bot.
-
-- Review signature: turn the note at the end of each review off, or write your own (Settings → Review; `{engine}`
-  names the engine). The default note now names the engine that actually reviewed instead of always saying Claude.
-
-### Fixed
-
-- A PR merged or closed while waiting for CI no longer claims it was not approved because CI was still running.
-
-## [0.1.0]
+## [0.1.0] - 2026-11-19
 
 First public release: a desktop app.
 
@@ -54,8 +12,8 @@ First public release: a desktop app.
 - Approves only when fixed rules pass; otherwise posts one review with inline comments and the blocking reasons.
 - Re-reviews when new commits arrive; dismisses its own earlier approval if a later commit has problems.
 - Lives in the system tray (status dot: reviewing, paused, needs attention; pause, resume, quit); starts at sign-in.
-- Window: first-run setup with a health check whose *Fix* buttons open a terminal for sign-ins or the download page;
-  recent reviews with verdicts and findings; dry runs and tracking a PR by hand; every setting, applied on save.
+- Window: first-run setup with a health check whose *Fix* buttons point at the missing piece;
+  recent reviews with verdicts and findings; **Review** a PR someone sent you by link; every setting, applied on save.
 - Problems are explained in plain words in the window and tray, with a fix button; a single network hiccup does not
   raise an alarm.
 - Notifications: desktop notifications that open the PR when clicked; Feishu/Lark interactive cards updated in place,
@@ -74,3 +32,34 @@ First public release: a desktop app.
   while in the tray; the window's web view is released when the window is closed.
 - Upgrading from the command-line previews: their background service is removed on first start and replaced by
   start-at-sign-in; settings and review history carry over. pr-autoreview settings can be imported during setup.
+
+### More in this release
+
+- Comments go up as soon as the review is done; the approval follows as a review of its own once CI passes (before,
+  both waited for CI together). If CI fails, a short review says why it was not approved. *Approve directly* posts
+  the findings with the approval when they are not on GitHub yet, instead of dropping them.
+- No CI: the wait for checks to appear counts from when Nod first saw the commit, and is skipped in repositories
+  whose earlier PRs never had CI. The card says until when it waits.
+- Settings: one *Review* tab with two rule sets: *which PRs to review* (repositories, and now authors:
+  `scope.authors` / `scope.exclude_authors`) and *auto-approve*, an on/off on top of the comments with its own
+  repository and author lists and the CI waits.
+- GitHub signs in with an OAuth device-flow login from the GitHub plugin page (the way the GitHub CLI does); `gh`
+  is no longer needed or used. A personal access token can be entered instead of signing in. GitHub Enterprise
+  accounts can set their own OAuth App's client ID.
+- **Review** (Reviews and Overview pages) is one real review of a PR someone sent you directly, under the usual
+  approval rules; *Track* and *Dry run* are gone. Pasted links are recognized with surrounding spaces, inside a
+  sentence, or ending in `/files`, `/changes`, `/commits/…`, and the review starts at once.
+- Overview: one list of the latest reviews, newest first; the ones that need you are flagged in place.
+- Small brand tiles use a solid fill so they stay legible at 18 px.
+- When a review engine is out of quota or rate limited, Nod waits and tries again by itself (at the reset time the
+  engine gives, else after 15 minutes, doubling up to 6 hours) instead of giving up after two quick tries; these
+  waits do not use up `max_attempts`, and you are told once. Other errors wait a minute before the retry.
+- Fallback engine (`review.fallback`, Plugins → engine → *Make fallback*): reviews instead when the chosen engine is
+  out of quota, signed out or not installed.
+- *Review again* on a failed or waiting review, and pasting the link of a failed PR into **Review**, starts it over;
+  before, the same commit was never reviewed again.
+- Webhook recognises chat and push apps and sends in their format: Feishu / Lark, DingTalk, WeCom, Slack, Discord,
+  Microsoft Teams, Google Chat, Telegram, Bark, Server酱, ntfy. New channel: Feishu / Lark group bot.
+- Review signature: turn the note at the end of each review off, or write your own (Settings → Review; `{engine}`
+  names the engine). The default note now names the engine that actually reviewed instead of always saying Claude.
+- A PR merged or closed while waiting for CI no longer claims it was not approved because CI was still running.
