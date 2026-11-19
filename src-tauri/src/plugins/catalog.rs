@@ -113,25 +113,25 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
     let mut v = vec![
         // ------------------------------------------------------------ code hosts
         p("github", "forge", "GitHub",
-          l.t("在 Nod 里点一下登录 GitHub，不用装别的工具，也不用填令牌。Nod 以你的身份审查，只能看到装了 Nod GitHub App 的仓库。也支持 GitHub Enterprise。",
+          l.t("一键登录，以你的身份审查。只能看到装了 Nod GitHub App 的仓库。支持 GitHub Enterprise。",
               "Sign in to GitHub from Nod with one click: no other tool, no token to paste. Nod reviews as you and sees the repositories where the Nod GitHub App is installed. GitHub Enterprise works too."),
           "github",
           vec![
               f("url", l.t("GitHub Enterprise 地址（github.com 留空）", "GitHub Enterprise address (empty for github.com)"), "text").ph("https://github.example.com"),
-              f("settings.client_id", l.t("GitHub App 的 Client ID（留空使用 Nod 自带的 App；GitHub Enterprise 要填你在自己实例上注册的 App）", "GitHub App client ID (empty for Nod's own App; GitHub Enterprise needs an App registered on your instance)"), "text").ph("Iv23li…"),
+              f("settings.client_id", l.t("GitHub App Client ID（仅 Enterprise 需要填）", "GitHub App client ID (empty for Nod's own App; GitHub Enterprise needs an App registered on your instance)"), "text").ph("Iv23li…"),
           ],
           vec![b("info", l.t("GitHub App 登录", "GitHub App sign-in"))], "https://docs.github.com/en/apps/using-github-apps/installing-a-github-app-from-a-third-party"),
         p("gitee", "forge", "Gitee",
-          l.t("码云 gitee.com。需要一个私人令牌。Gitee 不支持撤销已给出的审查通过。", "Gitee (gitee.com). Needs a personal access token. Gitee does not let a reviewer withdraw an approval."),
+          l.t("需要私人令牌。Gitee 不支持撤销已给出的通过。", "Gitee (gitee.com). Needs a personal access token. Gitee does not let a reviewer withdraw an approval."),
           "gitee",
           vec![
               f("token", l.t("私人令牌", "Personal access token"), "password")
-                  .help(l.t("在 Gitee「设置 → 私人令牌」生成，勾选 user_info、projects、pull_requests。", "Generate it under Settings → Personal access tokens with user_info, projects and pull_requests.")),
+                  .help(l.t("在「设置 → 私人令牌」生成，勾选 user_info、projects、pull_requests。", "Generate it under Settings → Personal access tokens with user_info, projects and pull_requests.")),
               f("url", l.t("地址（gitee.com 留空）", "Address (empty for gitee.com)"), "text").ph("https://gitee.com"),
           ],
           vec![b("info", l.t("令牌存系统钥匙串", "Token kept in the system keychain")), b("warn", l.t("通过后无法撤销", "Approvals cannot be withdrawn"))], &doc("forges")),
         p("gitea", "forge", "Gitea / Forgejo",
-          l.t("自建的 Gitea 或 Forgejo（含 Codeberg）。需要一个访问令牌。", "Self-hosted Gitea or Forgejo (Codeberg too). Needs an access token."),
+          l.t("自建 Gitea / Forgejo（含 Codeberg），需要访问令牌。", "Self-hosted Gitea or Forgejo (Codeberg too). Needs an access token."),
           "gitea",
           vec![
               f("url", l.t("地址", "Address"), "text").ph("https://gitea.example.com"),
@@ -141,17 +141,17 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           vec![b("info", l.t("令牌存系统钥匙串", "Token kept in the system keychain"))], &doc("forges")),
         // ------------------------------------------------------------ review engines
         p("claude", "engine", "Claude Code",
-          l.t("Anthropic 的 Claude Code，用你自己的订阅。只给只读的 Read、Grep、Glob 工具。", "Anthropic's Claude Code on your own subscription, with only the read-only Read, Grep and Glob tools."),
+          l.t("用你自己的 Claude 订阅，只开放只读工具。", "Anthropic's Claude Code on your own subscription, with only the read-only Read, Grep and Glob tools."),
           "claude",
           vec![
               f("review.claude", l.t("claude 程序", "claude program"), "text").ph("claude"),
-              f("review.claude_config_dir", l.t("配置目录（用另一个账号时填写）", "Config directory (for another account)"), "text"),
+              f("review.claude_config_dir", l.t("配置目录（换账号时填）", "Config directory (for another account)"), "text"),
               f("review.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text"),
           ],
           vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("good", l.t("只读，不能执行命令", "Read-only, no commands"))],
           "https://docs.claude.com/en/docs/claude-code/setup"),
         p("codex", "engine", "OpenAI Codex",
-          l.t("OpenAI 的 Codex CLI，在只读的系统沙箱里运行：能读文件、跑只读命令，不能改文件、不能联网。", "OpenAI's Codex CLI in its read-only OS sandbox: reads files and runs read-only commands; no writes, no network."),
+          l.t("在只读沙箱里运行：不能改文件、不能联网。", "OpenAI's Codex CLI in its read-only OS sandbox: reads files and runs read-only commands; no writes, no network."),
           "openai",
           vec![
               f("review.codex.exe", l.t("codex 程序", "codex program"), "text").ph("codex"),
@@ -160,17 +160,17 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("good", l.t("系统沙箱只读", "Read-only OS sandbox"))],
           "https://developers.openai.com/codex/cli"),
         p("gemini", "engine", "Gemini CLI",
-          l.t("Google 的 Gemini CLI，以只读的 plan 模式运行。没有系统级沙箱，所以默认只评论、不自动 approve。", "Google's Gemini CLI in read-only plan mode. There is no OS sandbox, so by default it comments but never approves."),
+          l.t("只读 plan 模式运行。没有系统沙箱，默认只评论、不 approve。", "Google's Gemini CLI in read-only plan mode. There is no OS sandbox, so by default it comments but never approves."),
           "gemini",
           vec![
               f("review.gemini.exe", l.t("gemini 程序", "gemini program"), "text").ph("gemini"),
               f("review.gemini.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text"),
-              f("review.gemini.allow_approve", l.t("允许它的结论触发自动 approve（隔离较弱，自行承担风险）", "Let its verdicts lead to auto-approval (weaker isolation; at your own risk)"), "bool"),
+              f("review.gemini.allow_approve", l.t("允许触发自动 approve（隔离较弱）", "Let its verdicts lead to auto-approval (weaker isolation; at your own risk)"), "bool"),
           ],
           vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("warn", l.t("无系统沙箱，默认不 approve", "No OS sandbox; does not approve by default"))],
           "https://geminicli.com/docs"),
         p("api", "engine", l.t("OpenAI 兼容 API", "OpenAI-compatible API").as_str(),
-          l.t("任何兼容 OpenAI 接口的服务：OpenAI、DeepSeek、通义千问、OpenRouter、本地 Ollama 等。模型只看到 diff，看不到仓库。", "Any OpenAI-compatible service: OpenAI, DeepSeek, Qwen, OpenRouter, a local Ollama… The model sees only the diff, not the repository."),
+          l.t("OpenAI、DeepSeek、通义千问、Ollama 等兼容接口。只看 diff，看不到仓库。", "Any OpenAI-compatible service: OpenAI, DeepSeek, Qwen, OpenRouter, a local Ollama… The model sees only the diff, not the repository."),
           "api",
           vec![
               f("review.api.base_url", l.t("接口地址", "Base URL"), "text").ph("https://api.deepseek.com/v1")
@@ -182,10 +182,10 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           vec![b("warn", l.t("只看 diff", "Sees only the diff")), b("good", l.t("不接触本机文件", "Never touches local files"))], ""),
         // ------------------------------------------------------------ notifications
         p("system", "notify", l.t("系统通知", "Desktop notifications").as_str(),
-          l.t("审查结果发出或出错时弹一条系统通知，点击打开 PR。", "A desktop notification when a review is posted or something fails; click it to open the PR."),
+          l.t("审查完成或出错时弹系统通知，点击打开 PR。", "A desktop notification when a review is posted or something fails; click it to open the PR."),
           "bell", vec![], vec![], ""),
         p("feishu", "notify", l.t("飞书 / Lark", "Feishu / Lark").as_str(),
-          l.t("每个 PR 一张卡片，原地刷新，带「直接通过」按钮。需要你自己建一个飞书应用。", "One card per PR, updated in place, with an Approve now button. Needs your own Feishu app."),
+          l.t("每个 PR 一张卡片，原地刷新，可直接通过。需自建飞书应用。", "One card per PR, updated in place, with an Approve now button. Needs your own Feishu app."),
           "feishu",
           vec![
               f("notify.feishu.app_id", "App ID".into(), "text").ph("cli_…"),
@@ -196,7 +196,7 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           ],
           vec![b("good", l.t("可直接通过", "Approve from chat"))], &doc("feishu-setup")),
         p("dingtalk", "notify", l.t("钉钉", "DingTalk").as_str(),
-          l.t("群里的自定义机器人。安全设置建议选「加签」。", "A custom group robot. Choose the signing (加签) security setting."),
+          l.t("群自定义机器人，建议开启加签。", "A custom group robot. Choose the signing (加签) security setting."),
           "dingtalk",
           vec![
               f("notify.dingtalk.url", "Webhook".into(), "password").ph("https://oapi.dingtalk.com/robot/send?access_token=…"),
@@ -204,7 +204,7 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           ],
           vec![b("info", l.t("只读通知", "Notifications only"))], ""),
         p("wecom", "notify", l.t("企业微信", "WeCom").as_str(),
-          l.t("群里的机器人：群设置 → 群机器人 → 添加，复制 Webhook 地址。", "A group robot: group settings → robots → add, then copy its webhook address."),
+          l.t("群机器人的 Webhook 地址。", "A group robot: group settings → robots → add, then copy its webhook address."),
           "wecom",
           vec![f("notify.wecom.url", "Webhook".into(), "password").ph("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…")],
           vec![b("info", l.t("只读通知", "Notifications only"))], ""),
@@ -214,7 +214,7 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           vec![f("notify.slack.url", "Webhook".into(), "password").ph("https://hooks.slack.com/services/…")],
           vec![b("info", l.t("只读通知", "Notifications only"))], "https://api.slack.com/messaging/webhooks"),
         p("webhook", "notify", "Webhook",
-          l.t("每次状态变化发一个带签名的 JSON POST，接到你自己的服务或自动化流程。", "A signed JSON POST on every change, for your own service or automation."),
+          l.t("状态变化时发送带签名的 JSON POST。", "A signed JSON POST on every change, for your own service or automation."),
           "webhook",
           vec![
               f("notify.webhook.url", l.t("地址", "URL"), "text").ph("https://"),

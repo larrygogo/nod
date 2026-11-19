@@ -167,14 +167,45 @@ fn fallback_file(account: &str) -> std::path::PathBuf {
 }
 
 pub fn load(account: &str) -> Option<Tokens> {
-    crate::secrets::get_value(&key(account))
-        .or_else(|| {
-            if crate::secrets::is_fake() {
-                return None;
-            }
-            std::fs::read_to_string(fallback_file(account)).ok()
-        })
-        .and_then(|s| serde_json::from_str(&s).ok())
+    let parse = |s: String| serde_json::from_str::<Tokens>(&s).ok();
+    let kc = crate::secrets::get_value(&key(account)).and_then(parse);
+    let file = if crate::secrets::is_fake() {
+        None
+    } else {
+        std::fs::read_to_string(fallback_file(account))
+            .ok()
+            .and_then(parse)
+    };
+    // Both exist when a keychain write failed once after a refresh: the file then holds the newer pair, and the
+    // keychain's refresh token has already been spent. Take whichever expires later.
+    newest(kc, file)
+}
+
+fn newest(a: Option<Tokens>, b: Option<Tokens>) -> Option<Tokens> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(if b.expires_at > a.expires_at { b } else { a }),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Write the fallback file readable by this user only: it holds a live token.
+fn write_private(path: &std::path::Path, text: &str) -> Result<()> {
+    std::fs::create_dir_all(path.parent().unwrap_or(std::path::Path::new(".")))?;
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.mode(0o600);
+    }
+    std::io::Write::write_all(&mut o.open(path)?, text.as_bytes())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        // an older file kept its mode
+    }
+    Ok(())
 }
 
 pub fn save(account: &str, t: &Tokens) -> Result<()> {
@@ -188,10 +219,7 @@ pub fn save(account: &str, t: &Tokens) -> Result<()> {
             crate::warn!(
                 "github: keychain unavailable ({e:#}); keeping the sign-in in the data folder"
             );
-            let f = fallback_file(account);
-            std::fs::create_dir_all(f.parent().unwrap_or(std::path::Path::new(".")))?;
-            std::fs::write(&f, text)?;
-            Ok(())
+            write_private(&fallback_file(account), &text)
         }
     }
 }
@@ -374,7 +402,11 @@ struct RefreshLock(std::path::PathBuf);
 impl RefreshLock {
     fn acquire(account: &str, web: &str) -> Result<RefreshLock> {
         use sha2::{Digest, Sha256};
-        let h = Sha256::digest(format!("{account}|{web}").as_bytes());
+        // per OS user: a shared /tmp must not make one user's crash block another
+        let user = std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .unwrap_or_default();
+        let h = Sha256::digest(format!("{user}|{account}|{web}").as_bytes());
         let name: String = h.iter().take(6).map(|b| format!("{b:02x}")).collect();
         let path = std::env::temp_dir().join(format!("nod-github-refresh-{name}.lock"));
         let until = std::time::Instant::now() + Duration::from_secs(20);
@@ -391,14 +423,13 @@ impl RefreshLock {
                         .ok()
                         .and_then(|t| t.elapsed().ok())
                         .is_some_and(|age| age > Duration::from_secs(60));
-                    if stale {
-                        let _ = std::fs::remove_file(&path);
+                    // a lock left by a crash is taken over; if it cannot be removed, keep waiting like any other
+                    if stale && std::fs::remove_file(&path).is_ok() {
                         continue;
                     }
                     if std::time::Instant::now() > until {
-                        bail!(
-                            "timed out waiting for another Nod process to renew the GitHub sign-in"
-                        );
+                        // (no "timed out" here: the error classifier would call it a network problem)
+                        bail!("another Nod process is still renewing the GitHub sign-in; it will be tried again shortly");
                     }
                     std::thread::sleep(Duration::from_millis(100));
                 }
@@ -771,6 +802,43 @@ mod tests {
         drop(first);
         h.join().unwrap().unwrap();
         assert!(t.elapsed() >= Duration::from_millis(300));
+    }
+
+    #[test]
+    fn fallback_storage_is_private_and_newest_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("sub").join("github-x.json");
+        write_private(&f, "{}").unwrap();
+        write_private(&f, "{\"access\":\"a\"}").unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "{\"access\":\"a\"}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        let t = |a: &str, exp: f64| {
+            Some(Tokens {
+                access: a.into(),
+                expires_at: exp,
+                ..Default::default()
+            })
+        };
+        assert_eq!(
+            newest(t("kc", 10.0), t("file", 20.0)).unwrap().access,
+            "file"
+        );
+        assert_eq!(newest(t("kc", 30.0), t("file", 20.0)).unwrap().access, "kc");
+        assert_eq!(newest(None, t("file", 1.0)).unwrap().access, "file");
+    }
+
+    #[test]
+    fn lock_wait_message_is_not_a_network_error() {
+        // the waiting message must not read as a network problem
+        let e = "another Nod process is still renewing the GitHub sign-in; it will be tried again shortly";
+        assert!(!crate::supervisor::is_network(e));
     }
 
     #[test]

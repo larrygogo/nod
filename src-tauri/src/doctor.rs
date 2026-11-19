@@ -141,7 +141,7 @@ fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
             ),
             Some((
                 (
-                    "在插件页的 GitHub 里填写 Client ID",
+                    "在插件页填写 Client ID",
                     "Fill in the Client ID on the GitHub plugin page",
                 ),
                 FIX_PLUGINS,
@@ -158,7 +158,7 @@ fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
             l(lang, "还没有登录", "not signed in"),
             Some((
                 (
-                    "在插件页的 GitHub 里点「登录 GitHub」",
+                    "在插件页点「登录 GitHub」",
                     "Click \"Sign in to GitHub\" on the GitHub plugin page",
                 ),
                 FIX_PLUGINS,
@@ -175,7 +175,7 @@ fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
                 (
                     crate::util::truncate(&msg, 200),
                     (
-                        "连不上 GitHub，检查网络或代理后点「重新检查」",
+                        "连不上 GitHub，检查网络后重试",
                         "Cannot reach GitHub; check the network or proxy, then check again",
                     ),
                 )
@@ -216,7 +216,7 @@ fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
                 signed_in,
                 Some((
                     (
-                        "GitHub App 还没有安装到任何账号或组织，所以看不到任何仓库。把它安装到要审查的仓库所在的账号或组织",
+                        "GitHub App 还没装到任何账号或组织，看不到仓库",
                         "The GitHub App is not installed on any account or organization yet, so no repository is visible. Install it where the repositories you review live",
                     ),
                     FIX_GITHUB_INSTALL,
@@ -280,7 +280,7 @@ fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
                     detail,
                     (!good).then_some((
                         (
-                            "在终端里运行一次 claude 并登录（会打开一个终端窗口）",
+                            "在终端运行 claude 并登录",
                             "Run claude once in a terminal and sign in (opens one for you)",
                         ),
                         FIX_CLAUDE_LOGIN,
