@@ -40,14 +40,19 @@ pub fn show_main(app: &AppHandle) {
             let Some(conf) = app.config().app.windows.iter().find(|w| w.label == "main") else {
                 return;
             };
-            // The window draws its own title bar (ui/app.tsx TitleBar). macOS keeps its traffic lights over the
-            // page; Windows and Linux get no system frame and use the window's own buttons.
+            // Title bar per platform (the window side is TitleBar in ui/app.tsx):
+            // - Windows: no system frame; the window draws its bar and buttons (Windows keeps the shadow, the
+            //   rounded corners and edge resizing for frameless windows).
+            // - macOS: the system traffic lights stay, over the page, centred in the window's 40 px bar.
+            // - Linux: the native title bar. Window managers differ too much (tiling, GNOME, KDE) for a frameless
+            //   window to resize and snap reliably everywhere.
             let built = tauri::WebviewWindowBuilder::from_config(app, conf).and_then(|b| {
                 #[cfg(target_os = "macos")]
                 let b = b
                     .title_bar_style(tauri::TitleBarStyle::Overlay)
-                    .hidden_title(true);
-                #[cfg(not(target_os = "macos"))]
+                    .hidden_title(true)
+                    .traffic_light_position(tauri::LogicalPosition::new(16.0, 14.0));
+                #[cfg(windows)]
                 let b = b.decorations(false);
                 b.build()
             });

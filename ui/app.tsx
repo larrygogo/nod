@@ -138,7 +138,13 @@ export function App() {
   );
 }
 
-const isMac = /Mac/.test(navigator.userAgent);
+/** Which title bar the window has (see show_main in app.rs): our own on Windows, ours with the system traffic
+ *  lights on macOS, the native one on Linux. */
+const platform: "mac" | "windows" | "linux" = /Mac/.test(navigator.userAgent) ? "mac"
+  : /Windows/.test(navigator.userAgent) ? "windows" : "linux";
+const isMac = platform === "mac";
+/** Linux keeps the native title bar, so the window draws none and the logo stays in the sidebar. */
+const ownTitleBar = platform !== "linux";
 
 /** The window's own title bar: the system frame is off (see show_main in app.rs). Its empty parts move the window
  *  and maximize on double-click; on Windows and Linux it carries the window buttons, on macOS it leaves room for the
@@ -146,6 +152,7 @@ const isMac = /Mac/.test(navigator.userAgent);
 function TitleBar({ sidebar = false }: { sidebar?: boolean }) {
   const [max, setMax] = useState(false);
   useEffect(() => {
+    if (!ownTitleBar) return;
     const w = getCurrentWindow();
     const sync = () => w.isMaximized().then(setMax).catch(() => {});
     sync();
@@ -154,6 +161,7 @@ function TitleBar({ sidebar = false }: { sidebar?: boolean }) {
     return () => off?.();
   }, []);
   const w = () => getCurrentWindow();
+  if (!ownTitleBar) return null;
   return (
     <header class={`titlebar${isMac ? " mac" : ""}`} data-tauri-drag-region>
       <div class={`tb-brand${sidebar ? " side" : ""}`} data-tauri-drag-region><img src="./logo.svg" alt="" />Nod</div>
@@ -187,6 +195,7 @@ function Sidebar() {
   ];
   return (
     <aside class="sidebar">
+      {!ownTitleBar && <div class="brand"><img src="./logo.svg" alt="" />Nod</div>}
       <nav>
         {items.map(([id, icon, label]) => (
           <button class={`nav${page === id ? " active" : ""}`} onClick={() => go(id)}>

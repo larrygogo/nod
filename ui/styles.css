@@ -215,6 +215,7 @@ select.input { padding-right: 28px; }
 .tb-brand.side { width: var(--side-w); box-sizing: border-box; background: var(--sidebar); border-right: 1px solid var(--border); }
 .tb-brand img { width: 20px; height: 20px; pointer-events: none; }
 .titlebar.mac .tb-brand { padding-left: 84px; } /* room for the traffic lights */
+.sidebar > .brand:first-child { padding-top: 12px; } /* Linux: native title bar, logo back in the sidebar */
 .tb-fill { flex: 1; }
 .tb-controls { display: flex; }
 .tb-btn { display: grid; place-items: center; width: 46px; height: 40px; padding: 0; border: none; background: none; color: var(--text); cursor: default; }
@@ -463,6 +464,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 @media (max-width: 900px) {
   .frame { --side-w: 64px; }
   .tb-brand.side { justify-content: center; padding: 0; font-size: 0; gap: 0; } /* logo only, over the icon rail */
+  .titlebar.mac .tb-brand.side img { display: none; } /* the traffic lights already fill the narrow rail */
   .sidebar { padding: 4px 8px 12px; align-items: center; }
   .brand { padding: 2px 0 12px; font-size: 0; gap: 0; }
   .nav { justify-content: center; padding: 0; width: 40px; }
