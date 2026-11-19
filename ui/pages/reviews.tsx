@@ -18,7 +18,7 @@ export function statusLabel(r: Row): string {
   if (r.status === "retry" && r.wait_until > 0) return t("st.waiting");
   const k = (r.status === "posted" || r.status === "closed") && r.event ? `st.posted.${r.event}`
     : r.status === "closed" && r.commented ? "st.posted.COMMENT"
-    : r.status === "closed" && r.summary && r.earlier_approved ? "st.earlier_approved"
+    : r.status === "closed" && r.earlier_approved ? "st.posted.APPROVE"
     : r.status === "closed" && r.summary ? (r.pr_state === "merged" ? "st.merged_first" : "st.closed_first")
     : r.status === "closed" ? "st.not_posted" : `st.${r.status}`;
   return has(k) ? t(k) : r.status;
