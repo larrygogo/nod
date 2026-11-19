@@ -14,20 +14,14 @@ use crate::forge::PrStatus;
 use crate::i18n::reason_text;
 use crate::util::now;
 
-/// A Feishu / Lark group bot's incoming-webhook address (it only accepts Feishu's message format).
-pub fn is_feishu_bot(url: &str) -> bool {
-    let u = url.to_ascii_lowercase();
-    (u.contains("open.feishu.cn")
-        || u.contains("open.larksuite.com")
-        || u.contains("open.larkoffice.com"))
-        && u.contains("/open-apis/bot/")
-}
-
 pub struct WebhookNotifier {
     lang: String,
     url: String,
     secret: String,
     dry_run: bool,
+    /// The address belongs to a chat or push app Nod knows (Feishu, Slack, Discord, …): send in its format, and only
+    /// outcomes, like that app's own channel. None: Nod's JSON events.
+    app: Option<super::robot::RobotNotifier>,
 }
 
 impl WebhookNotifier {
@@ -37,6 +31,8 @@ impl WebhookNotifier {
             url: cfg.notify.webhook.url.clone(),
             secret: cfg.webhook_secret(),
             dry_run: cfg.dry_run,
+            app: super::robot::detect(&cfg.notify.webhook.url)
+                .map(|k| super::robot::RobotNotifier::for_webhook(cfg, k)),
         }
     }
 
@@ -47,10 +43,6 @@ impl WebhookNotifier {
     }
 
     fn post(&self, payload: &Value) -> Result<()> {
-        if is_feishu_bot(&self.url) {
-            // Nod's own JSON is not a Feishu message: the bot would refuse every one
-            bail!("this is a Feishu / Lark group bot address; use the 飞书群机器人 (Feishu group bot) channel for it instead of Webhook");
-        }
         let body = payload.to_string();
         let mut req = ureq::post(&self.url)
             .timeout(Duration::from_secs(20))
@@ -92,6 +84,9 @@ fn hex(b: &[u8]) -> String {
 
 impl Notifier for WebhookNotifier {
     fn update(&self, key: &str, e: &mut Entry, st: Option<&PrStatus>) -> Result<bool> {
+        if let Some(app) = &self.app {
+            return app.update(key, e, st);
+        }
         let mut payload = self.payload(key, e, st);
         let sig = hex(&Sha256::digest(payload.to_string().as_bytes()));
         if sig == e.webhook_sig {
@@ -108,10 +103,20 @@ impl Notifier for WebhookNotifier {
     }
 
     fn alert(&self, text: &str) -> Result<()> {
+        if let Some(app) = &self.app {
+            return app.alert(text);
+        }
         self.post(&json!({"type": "alert", "text": text, "sent_at": now() as u64}))
     }
 
     fn test(&self) -> Result<String> {
+        if let Some(app) = &self.app {
+            app.test()?;
+            return Ok(format!(
+                "sent a test message in {} format",
+                app.kind().name()
+            ));
+        }
         self.post(&json!({"type": "test", "text": "Nod webhook test", "sent_at": now() as u64}))?;
         Ok(format!("POSTed a test event to {}", self.url))
     }
@@ -121,23 +126,6 @@ impl Notifier for WebhookNotifier {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_feishu_bot_address_points_to_its_own_channel() {
-        assert!(is_feishu_bot(
-            "https://open.feishu.cn/open-apis/bot/v2/hook/0455f0b7"
-        ));
-        assert!(is_feishu_bot(
-            "https://open.larksuite.com/open-apis/bot/v2/hook/x"
-        ));
-        assert!(!is_feishu_bot("https://example.com/hook"));
-        let mut c = Config::default();
-        c.notify.webhook.url = "https://open.feishu.cn/open-apis/bot/v2/hook/abc".into();
-        let e = WebhookNotifier::new(&c)
-            .post(&serde_json::json!({}))
-            .unwrap_err()
-            .to_string();
-        assert!(e.contains("飞书群机器人"), "{e}");
-    }
     use crate::review::tests::{clean, finding};
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;

@@ -4,6 +4,28 @@ Set `notify.channel = "webhook"` and `notify.webhook.url`. Nod then `POST`s a JS
 request's review state changes (queued, reviewing, verdict posted, approved directly, merged/closed…). Unchanged state
 is not sent twice.
 
+## Chat and push apps
+
+If the address belongs to one of these apps, Nod sends in that app's own format instead of the JSON below, and only
+outcomes (review posted, failed, approved directly; a whole round failing), like the app's own channel would:
+
+| App | Address looks like |
+|---|---|
+| Feishu / Lark group bot | `https://open.feishu.cn/open-apis/bot/v2/hook/…` (also `open.larksuite.com`) |
+| DingTalk | `https://oapi.dingtalk.com/robot/send?access_token=…` |
+| WeCom (企业微信) | `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…` |
+| Slack | `https://hooks.slack.com/services/…` |
+| Discord | `https://discord.com/api/webhooks/…` |
+| Microsoft Teams | a Workflows URL (`…logic.azure.com…/workflows/…` or `…powerplatform.com…/workflows/…`) or `…webhook.office.com/…` |
+| Google Chat | `https://chat.googleapis.com/v1/spaces/…/messages?key=…&token=…` |
+| Telegram | `https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat>` |
+| Bark | `https://api.day.app/<key>` |
+| Server酱 | `https://sctapi.ftqq.com/<SendKey>.send` |
+| ntfy | `https://ntfy.sh/<topic>` or your own `ntfy.` server |
+
+For Feishu and DingTalk the signing secret is the bot's own (签名校验 / 加签). Feishu, DingTalk, WeCom and Slack also
+have channels of their own on the Plugins page.
+
 ## Payload
 
 ```json

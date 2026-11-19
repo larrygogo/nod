@@ -1,4 +1,6 @@
-//! Chat robots reached through an incoming-webhook URL: Feishu / Lark group bots, DingTalk, WeCom (企业微信) and Slack.
+//! Chat apps reached through an incoming-webhook URL: Feishu / Lark group bots, DingTalk, WeCom (企业微信) and Slack
+//! as channels of their own, and these plus Discord, Microsoft Teams, Google Chat, Telegram, Bark, Server酱 and ntfy
+//! when their address is given to the generic Webhook channel (see `detect`).
 //!
 //! Like desktop notifications they announce outcomes only (review posted, failed, approved directly) and whole-round
 //! failures; each robot remembers per PR what it last sent, so nothing is repeated.
@@ -24,6 +26,55 @@ pub enum Kind {
     DingTalk,
     WeCom,
     Slack,
+    Discord,
+    Teams,
+    GoogleChat,
+    Telegram,
+    Bark,
+    ServerChan,
+    Ntfy,
+}
+
+/// The app behind a webhook address, if it is one Nod knows the message format of.
+pub fn detect(url: &str) -> Option<Kind> {
+    let u = url.trim().to_ascii_lowercase();
+    let rest = u.split_once("://").map(|(_, r)| r).unwrap_or(&u);
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let host = host.split(':').next().unwrap_or(host); // drop a port
+    let path = format!("/{path}");
+    let on = |h: &str| host == h || host.ends_with(&format!(".{h}"));
+    Some(
+        if (on("feishu.cn") || on("larksuite.com") || on("larkoffice.com"))
+            && path.starts_with("/open-apis/bot/")
+        {
+            Kind::FeishuBot
+        } else if on("dingtalk.com") && path.starts_with("/robot/send") {
+            Kind::DingTalk
+        } else if on("qyapi.weixin.qq.com") && path.starts_with("/cgi-bin/webhook/send") {
+            Kind::WeCom
+        } else if on("hooks.slack.com") {
+            Kind::Slack
+        } else if (on("discord.com") || on("discordapp.com")) && path.starts_with("/api/webhooks/")
+        {
+            Kind::Discord
+        } else if on("webhook.office.com")
+            || ((on("logic.azure.com") || on("powerplatform.com")) && path.contains("/workflows/"))
+        {
+            Kind::Teams
+        } else if on("chat.googleapis.com") {
+            Kind::GoogleChat
+        } else if on("api.telegram.org") && path.contains("/sendmessage") {
+            Kind::Telegram
+        } else if on("api.day.app") {
+            Kind::Bark
+        } else if on("ftqq.com") && path.ends_with(".send") {
+            Kind::ServerChan
+        } else if host == "ntfy.sh" || host.starts_with("ntfy.") {
+            Kind::Ntfy
+        } else {
+            return None;
+        },
+    )
 }
 
 impl Kind {
@@ -33,6 +84,13 @@ impl Kind {
             Kind::DingTalk => "dingtalk",
             Kind::WeCom => "wecom",
             Kind::Slack => "slack",
+            Kind::Discord => "discord",
+            Kind::Teams => "teams",
+            Kind::GoogleChat => "google_chat",
+            Kind::Telegram => "telegram",
+            Kind::Bark => "bark",
+            Kind::ServerChan => "serverchan",
+            Kind::Ntfy => "ntfy",
         }
     }
 }
@@ -40,6 +98,8 @@ impl Kind {
 pub struct RobotNotifier {
     kind: Kind,
     robot: Robot,
+    /// Where it remembers per PR what it last sent (its own channel's, or the Webhook channel's).
+    slot: String,
     lang: String,
     dry_run: bool,
     /// Reuses the desktop notifier's choice of what to announce.
@@ -71,14 +131,33 @@ impl RobotNotifier {
             Kind::DingTalk => cfg.notify.dingtalk.clone(),
             Kind::WeCom => cfg.notify.wecom.clone(),
             Kind::Slack => cfg.notify.slack.clone(),
+            // only reached through the Webhook channel (`for_webhook`)
+            _ => Robot::default(),
         };
         RobotNotifier {
             kind,
             robot,
+            slot: format!("{}_sig", kind.name()),
             lang: cfg.language.clone(),
             dry_run: cfg.dry_run,
             outcome: SystemNotifier::new(cfg),
         }
+    }
+
+    /// The Webhook channel's address, sent in the format of the app it belongs to. The Webhook secret signs for
+    /// the apps that sign (Feishu, DingTalk).
+    pub fn for_webhook(cfg: &Config, kind: Kind) -> Self {
+        let mut n = RobotNotifier::new(cfg, kind);
+        n.robot = Robot {
+            url: cfg.notify.webhook.url.trim().to_string(),
+            secret: cfg.webhook_secret(),
+        };
+        n.slot = "webhook_app_sig".into();
+        n
+    }
+
+    pub fn kind(&self) -> Kind {
+        self.kind
     }
 
     /// The JSON body for one message.
@@ -123,6 +202,73 @@ impl RobotNotifier {
                 };
                 json!({"text": format!("*{title}*\n{text}{link}")})
             }
+            Kind::Discord => {
+                let mut embed = json!({"title": title, "description": text, "color": 0x4F46E5});
+                if !url.is_empty() {
+                    embed["url"] = json!(url);
+                }
+                json!({"username": "Nod", "embeds": [embed]})
+            }
+            Kind::Teams => {
+                // a Workflows ("When a Teams webhook request is received") or connector URL: an Adaptive Card
+                let mut card = json!({"$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard",
+                    "version": "1.4", "body": [
+                        {"type": "TextBlock", "text": title, "weight": "Bolder", "size": "Medium", "wrap": true},
+                        {"type": "TextBlock", "text": text, "wrap": true}]});
+                if !url.is_empty() {
+                    card["actions"] =
+                        json!([{"type": "Action.OpenUrl", "title": open, "url": url}]);
+                }
+                json!({"type": "message", "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive", "content": card}]})
+            }
+            Kind::GoogleChat => {
+                let link = if url.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n<{url}|{open}>")
+                };
+                json!({"text": format!("*{title}*\n{text}{link}")})
+            }
+            Kind::Telegram => {
+                let link = if url.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n\n{url}")
+                };
+                json!({"text": format!("{title}\n\n{text}{link}"), "disable_web_page_preview": true})
+            }
+            Kind::Bark => {
+                let mut b = json!({"title": title, "body": text, "group": "Nod"});
+                if !url.is_empty() {
+                    b["url"] = json!(url);
+                }
+                b
+            }
+            Kind::ServerChan => {
+                let link = if url.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n\n[{open}]({url})")
+                };
+                json!({"title": title, "desp": format!("{text}{link}")})
+            }
+            Kind::Ntfy => {
+                // JSON publishing goes to the server root with the topic in the body
+                let topic = self
+                    .robot
+                    .url
+                    .trim_end_matches('/')
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                let mut b =
+                    json!({"topic": topic, "title": title, "message": text, "tags": ["mag"]});
+                if !url.is_empty() {
+                    b["click"] = json!(url);
+                }
+                b
+            }
         }
     }
 
@@ -139,6 +285,15 @@ impl RobotNotifier {
                 self.robot.url,
                 dingtalk_sign(&self.robot.secret, ts)
             );
+        }
+        if self.kind == Kind::Ntfy {
+            // https://ntfy.sh/topic → https://ntfy.sh/ (JSON publishing)
+            let u = self.robot.url.trim_end_matches('/');
+            if let Some((base, _topic)) = u.rsplit_once('/') {
+                if base.contains("://") && base.split("://").nth(1).is_some_and(|r| !r.is_empty()) {
+                    return format!("{base}/");
+                }
+            }
         }
         self.robot.url.clone()
     }
@@ -164,21 +319,41 @@ impl RobotNotifier {
             // the URL carries the robot's token: never put it in an error (they reach the log and the window)
             Err(e) => bail!("{}: {}", self.kind.name(), redact_url(&e.to_string(), &url)),
         };
-        // DingTalk and WeCom answer 200 with {"errcode": n, "errmsg": …}; Feishu with {"code": n, "msg": …}; Slack "ok"
+        // Several apps answer HTTP 200 and say in the body whether they took the message.
         if let Ok(v) = serde_json::from_str::<Value>(&text) {
-            if v["errcode"].as_i64().is_some_and(|c| c != 0) {
-                bail!("{} refused the message: {}", self.kind.name(), v["errmsg"]);
-            }
-            if v["code"].as_i64().is_some_and(|c| c != 0) {
-                bail!(
-                    "{} refused the message: {} {}",
-                    self.kind.name(),
-                    v["code"],
-                    v["msg"]
-                );
+            if let Some(why) = refused(self.kind, &v) {
+                bail!("{} refused the message: {why}", self.kind.name());
             }
         }
         Ok(())
+    }
+}
+
+/// What an app says when it answered HTTP 200 but did not take the message.
+fn refused(kind: Kind, v: &Value) -> Option<String> {
+    let code = |k: &str| v[k].as_i64();
+    match kind {
+        // {"errcode": n, "errmsg": …}
+        Kind::DingTalk | Kind::WeCom => code("errcode")
+            .filter(|c| *c != 0)
+            .map(|_| v["errmsg"].to_string()),
+        // {"code": n, "msg": …} (older bots: {"StatusCode": n, "StatusMessage": …})
+        Kind::FeishuBot => code("code")
+            .filter(|c| *c != 0)
+            .map(|c| format!("{c} {}", v["msg"]))
+            .or_else(|| {
+                code("StatusCode")
+                    .filter(|c| *c != 0)
+                    .map(|c| format!("{c} {}", v["StatusMessage"]))
+            }),
+        Kind::ServerChan => code("code")
+            .filter(|c| *c != 0)
+            .map(|c| format!("{c} {}", v["message"])),
+        Kind::Bark => code("code")
+            .filter(|c| *c != 200)
+            .map(|c| format!("{c} {}", v["message"])),
+        Kind::Telegram => (v["ok"] == false).then(|| v["description"].to_string()),
+        _ => None,
     }
 }
 
@@ -201,12 +376,11 @@ impl Notifier for RobotNotifier {
         let Some((sig, title, text, url)) = self.outcome.message(key, e) else {
             return Ok(true);
         };
-        let slot = format!("{}_sig", self.kind.name());
-        if e.extra.get(&slot).and_then(Value::as_str) == Some(sig.as_str()) {
+        if e.extra.get(&self.slot).and_then(Value::as_str) == Some(sig.as_str()) {
             return Ok(true);
         }
         self.send(&title, &text, &url)?;
-        e.extra.insert(slot, Value::String(sig));
+        e.extra.insert(self.slot.clone(), Value::String(sig));
         Ok(true)
     }
 
@@ -340,6 +514,109 @@ mod tests {
             err.contains("19021") && err.contains("sign match fail"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn recognises_common_webhook_addresses() {
+        for (url, want) in [
+            ("https://open.feishu.cn/open-apis/bot/v2/hook/0455f0b7", Some(Kind::FeishuBot)),
+            ("https://open.larksuite.com/open-apis/bot/v2/hook/x", Some(Kind::FeishuBot)),
+            ("https://oapi.dingtalk.com/robot/send?access_token=t", Some(Kind::DingTalk)),
+            ("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=k", Some(Kind::WeCom)),
+            ("https://hooks.slack.com/services/T/B/X", Some(Kind::Slack)),
+            ("https://discord.com/api/webhooks/1/abc", Some(Kind::Discord)),
+            ("https://discordapp.com/api/webhooks/1/abc", Some(Kind::Discord)),
+            ("https://acme.webhook.office.com/webhookb2/x", Some(Kind::Teams)),
+            ("https://prod-12.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?sig=s", Some(Kind::Teams)),
+            ("https://default1.environment.api.powerplatform.com/powerautomate/automations/direct/workflows/abc/triggers/manual/paths/invoke", Some(Kind::Teams)),
+            ("https://chat.googleapis.com/v1/spaces/AAA/messages?key=k&token=t", Some(Kind::GoogleChat)),
+            ("https://api.telegram.org/bot123:ABC/sendMessage?chat_id=42", Some(Kind::Telegram)),
+            ("https://api.day.app/KEY", Some(Kind::Bark)),
+            ("https://sctapi.ftqq.com/SCT123.send", Some(Kind::ServerChan)),
+            ("https://ntfy.sh/nod-reviews", Some(Kind::Ntfy)),
+            ("https://ntfy.example.com/team", Some(Kind::Ntfy)),
+            ("https://example.com/hooks/nod", None),
+            ("https://evil.example.com/open-apis/bot/v2/hook/x", None),
+        ] {
+            assert_eq!(detect(url), want, "{url}");
+        }
+    }
+
+    #[test]
+    fn webhook_apps_get_their_own_formats() {
+        let mut c = cfg("http://unused");
+        let body = |url: &str, c: &mut Config| {
+            c.notify.webhook.url = url.into();
+            let n = RobotNotifier::for_webhook(c, detect(url).unwrap());
+            (n.body("T", "x", "https://github.com/a/b/pull/1"), n.url())
+        };
+        let (b, _) = body("https://discord.com/api/webhooks/1/a", &mut c);
+        assert_eq!(b["embeds"][0]["url"], "https://github.com/a/b/pull/1");
+        let (b, _) = body("https://acme.webhook.office.com/webhookb2/x", &mut c);
+        assert_eq!(
+            b["attachments"][0]["contentType"],
+            "application/vnd.microsoft.card.adaptive"
+        );
+        assert_eq!(
+            b["attachments"][0]["content"]["actions"][0]["url"],
+            "https://github.com/a/b/pull/1"
+        );
+        let (b, _) = body(
+            "https://chat.googleapis.com/v1/spaces/A/messages?key=k",
+            &mut c,
+        );
+        assert!(b["text"]
+            .as_str()
+            .unwrap()
+            .contains("<https://github.com/a/b/pull/1|Open>"));
+        let (b, _) = body(
+            "https://api.telegram.org/bot1:A/sendMessage?chat_id=4",
+            &mut c,
+        );
+        assert!(b["text"].as_str().unwrap().starts_with("T\n\nx"));
+        let (b, _) = body("https://api.day.app/KEY", &mut c);
+        assert_eq!(
+            (b["title"].as_str(), b["url"].as_str()),
+            (Some("T"), Some("https://github.com/a/b/pull/1"))
+        );
+        let (b, _) = body("https://sctapi.ftqq.com/SCT1.send", &mut c);
+        assert!(b["desp"]
+            .as_str()
+            .unwrap()
+            .contains("[Open](https://github.com/a/b/pull/1)"));
+        let (b, u) = body("https://ntfy.sh/nod-reviews", &mut c);
+        assert_eq!(
+            (b["topic"].as_str(), u.as_str()),
+            (Some("nod-reviews"), "https://ntfy.sh/")
+        );
+        assert_eq!(b["click"], "https://github.com/a/b/pull/1");
+    }
+
+    #[test]
+    fn apps_that_answer_200_can_still_refuse() {
+        assert!(refused(Kind::Bark, &json!({"code": 200, "message": "success"})).is_none());
+        assert!(refused(
+            Kind::Bark,
+            &json!({"code": 400, "message": "device key not found"})
+        )
+        .is_some());
+        assert!(refused(
+            Kind::Telegram,
+            &json!({"ok": false, "description": "chat not found"})
+        )
+        .unwrap()
+        .contains("chat not found"));
+        assert!(refused(Kind::Telegram, &json!({"ok": true})).is_none());
+        assert!(refused(
+            Kind::ServerChan,
+            &json!({"code": 40001, "message": "bad sendkey"})
+        )
+        .is_some());
+        assert!(refused(
+            Kind::FeishuBot,
+            &json!({"StatusCode": 0, "StatusMessage": "success"})
+        )
+        .is_none());
     }
 
     #[test]

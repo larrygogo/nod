@@ -18,6 +18,9 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Webhook recognises chat and push apps and sends in their format: Feishu / Lark, DingTalk, WeCom, Slack, Discord,
+  Microsoft Teams, Google Chat, Telegram, Bark, Server酱, ntfy. New channel: Feishu / Lark group bot.
+
 - Review signature: turn the note at the end of each review off, or write your own (Settings → Review; `{engine}`
   names the engine). The default note now names the engine that actually reviewed instead of always saying Claude.
 

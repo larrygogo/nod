@@ -223,11 +223,11 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           vec![f("notify.slack.url", "Webhook".into(), "password").ph("https://hooks.slack.com/services/…")],
           vec![b("info", l.t("只读通知", "Notifications only"))], "https://api.slack.com/messaging/webhooks"),
         p("webhook", "notify", "Webhook",
-          l.t("状态变化时发送带签名的 JSON POST。", "A signed JSON POST on every change, for your own service or automation."),
+          l.t("填聊天或推送应用的 Webhook 地址会自动用它的格式：飞书、钉钉、企业微信、Slack、Discord、Teams、Google Chat、Telegram、Bark、Server酱、ntfy。其他地址收到 Nod 的 JSON。", "Addresses of chat and push apps get their format automatically: Feishu, DingTalk, WeCom, Slack, Discord, Teams, Google Chat, Telegram, Bark, ServerChan, ntfy. Any other address gets Nod's JSON."),
           "webhook",
           vec![
               f("notify.webhook.url", l.t("地址", "URL"), "text").ph("https://"),
-              f("notify.webhook.secret", l.t("签名密钥（可选）", "Signing secret (optional)"), "password"),
+              f("notify.webhook.secret", l.t("签名密钥（可选；飞书、钉钉用作它们的签名）", "Signing secret (optional)"), "password"),
           ],
           vec![], &format!("{DOCS}/webhook.md")),
     ];
