@@ -35,6 +35,9 @@ struct Inner {
     last_exit: Option<String>,
     failures: u32,
     retry_at: Option<Instant>,
+    /// A start is on its way: the app just opened (the worker starts after the legacy clean-up) or a restart is
+    /// stopping the old worker. Shown as "starting", not as an error.
+    starting: bool,
 }
 
 pub struct Supervisor {
@@ -169,7 +172,10 @@ pub fn worker_command(args: &[&str]) -> Command {
 impl Supervisor {
     pub fn new(on_notify: OnNotify) -> Arc<Supervisor> {
         let s = Arc::new(Supervisor {
-            inner: Mutex::new(Inner::default()),
+            inner: Mutex::new(Inner {
+                starting: true,
+                ..Inner::default()
+            }),
             on_notify,
         });
         let me = s.clone();
@@ -192,6 +198,7 @@ impl Supervisor {
         // Checked under the lock: `set_paused` writes the flag before it stops the worker (which takes the lock), so a
         // start racing with a pause either sees the flag or is stopped right after.
         let mut g = self.lock();
+        g.starting = false;
         if !configured() || paused() || g.running.is_some() {
             return;
         }
@@ -279,6 +286,7 @@ impl Supervisor {
 
     /// Apply new settings.
     pub fn restart(&self) {
+        self.lock().starting = true;
         self.stop();
         self.start();
     }
@@ -392,6 +400,9 @@ impl Supervisor {
             return base("paused", None);
         }
         let Some(r) = g.running.as_ref() else {
+            if g.starting {
+                return base("starting", None);
+            }
             return base(
                 "error",
                 Some(

@@ -56,15 +56,16 @@ fn powershell(script: &str) -> Option<(bool, String)> {
     ])
 }
 
-/// The PowerShell snippet that tells whether the old task exists (prints its state, or nothing).
-pub fn task_query() -> String {
-    format!("(Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue).State")
+/// The command that tells whether the old task exists (exit code 0 = it does). `schtasks` answers in milliseconds;
+/// starting PowerShell for the same question took seconds at every launch, and the worker waits for it.
+pub fn task_query() -> [&'static str; 4] {
+    ["schtasks", "/Query", "/TN", TASK_NAME]
 }
 
 /// Whether the command-line edition's background service is installed.
 pub fn service_installed() -> bool {
     if cfg!(windows) {
-        powershell(&task_query()).is_some_and(|(_, out)| !out.trim().is_empty())
+        sh(&task_query()).is_some_and(|(found, _)| found)
     } else if cfg!(target_os = "macos") {
         launchd_path().exists()
     } else {
@@ -136,7 +137,7 @@ mod tests {
     fn locations_match_the_cli_edition() {
         assert!(launchd_path().ends_with("Library/LaunchAgents/io.github.revwarden.plist"));
         assert!(systemd_path().ends_with("systemd/user/revwarden.service"));
-        assert!(task_query().contains("-TaskName 'revwarden'"));
+        assert_eq!(task_query(), ["schtasks", "/Query", "/TN", "revwarden"]);
     }
 
     #[test]
