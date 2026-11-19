@@ -85,6 +85,21 @@ export function SettingsPage() {
         </Card>
       </Section>}
 
+      {tab === "review" && <Section title={t("set.footer")}>
+        <Card>
+          <Row label={t("set.footer")} help={t("set.footer_help")}>
+            <Switch on={draft.review.footer_enabled !== false} label={t("set.footer")}
+              onChange={(v) => edit((c) => { c.review.footer_enabled = v; })} />
+          </Row>
+          {draft.review.footer_enabled !== false && (
+            <Row label={t("set.footer_text")} help={t("set.footer_text_help")} wide>
+              <TextInput value={draft.review.footer ?? ""} placeholder={t("set.footer_default")}
+                onInput={(v) => edit((c) => { c.review.footer = v; })} />
+            </Row>
+          )}
+        </Card>
+      </Section>}
+
       {tab === "about" && <>
       <Section title={t("set.files")}>
         <Card class="row-buttons">

@@ -16,6 +16,11 @@ project uses [Semantic Versioning](https://semver.org/).
 - Overview: one list of the latest reviews, newest first; the ones that need you are flagged in place.
 - Small brand tiles use a solid fill so they stay legible at 18 px.
 
+### Added
+
+- Review signature: turn the note at the end of each review off, or write your own (Settings → Review; `{engine}`
+  names the engine). The default note now names the engine that actually reviewed instead of always saying Claude.
+
 ### Fixed
 
 - A PR merged or closed while waiting for CI no longer claims it was not approved because CI was still running.

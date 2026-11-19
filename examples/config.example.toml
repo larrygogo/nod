@@ -18,6 +18,8 @@ max_attempts = 2
 ci_wait_max_min = 60         # a clean verdict waits this long for running CI before posting
 ci_none_grace_min = 10       # a repository with no checks at all is treated as passing after this long
 rereview_days = 14           # re-review PRs you already reviewed when new commits arrive, for this many days
+footer_enabled = true         # add a short signature at the end of every review Nod posts
+footer = ""                   # the signature (Markdown); empty = Nod's own; {engine} = the engine that reviewed
 
 # Which pull requests get reviewed.
 [scope]

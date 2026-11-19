@@ -39,6 +39,11 @@ pub struct Review {
     pub ci_wait_max_min: f64,
     pub ci_none_grace_min: f64,
     pub rereview_days: f64,
+    /// Add a short signature ("tail") at the end of every review Nod posts.
+    pub footer_enabled: bool,
+    /// The signature text (Markdown); empty = Nod's own, naming the engine. `{engine}` is replaced by the engine's
+    /// name.
+    pub footer: String,
     pub codex: Codex,
     pub gemini: Gemini,
     pub api: ApiEngine,
@@ -124,6 +129,8 @@ impl Default for Review {
             ci_wait_max_min: 60.0,
             ci_none_grace_min: 10.0,
             rereview_days: 14.0,
+            footer_enabled: true,
+            footer: String::new(),
             codex: Codex::default(),
             gemini: Gemini::default(),
             api: ApiEngine::default(),

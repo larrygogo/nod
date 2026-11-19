@@ -628,6 +628,7 @@ impl Engine {
             event,
             &reasons,
             &self.forge.diff_lines(&pr)?,
+            review::footer_text(self.lang(), &self.cfg.review, &verdict.meta.engine).as_deref(),
         );
         let leaked = review::find_secrets(&body);
         if !leaked.is_empty() {

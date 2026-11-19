@@ -38,8 +38,8 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("review.outside_diff", "（`{loc}`，不在 diff 内）", " (`{loc}`, outside the diff)"),
     (
         "review.footer",
-        "<sub>由 Nod 用 Claude 自动审查；approve 由固定规则决定：无高风险、无 PR 引入的中风险、CI 未失败、非草稿。</sub>",
-        "<sub>Automated review by Nod using Claude. Approval is decided by fixed rules: no high-severity issues, no medium-severity issues introduced by the PR, CI not failing, not a draft.</sub>",
+        "<sub>由 Nod 用 {engine} 自动审查；approve 由固定规则决定：无高风险、无 PR 引入的中风险、CI 未失败、非草稿。</sub>",
+        "<sub>Automated review by Nod using {engine}. Approval is decided by fixed rules: no high-severity issues, no medium-severity issues introduced by the PR, CI not failing, not a draft.</sub>",
     ),
     (
         "review.direct",

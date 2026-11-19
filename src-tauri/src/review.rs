@@ -259,6 +259,7 @@ pub fn build_review(
     event: &str,
     reasons: &[String],
     valid: &DiffLines,
+    footer: Option<&str>,
 ) -> Value {
     let mut findings = v.findings.clone();
     findings.sort_by_key(|f| {
@@ -322,9 +323,36 @@ pub fn build_review(
         lines.push(String::new());
         lines.push(o);
     }
-    lines.push(String::new());
-    lines.push(t(lang, "review.footer"));
+    if let Some(f) = footer.filter(|f| !f.trim().is_empty()) {
+        lines.push(String::new());
+        lines.push(f.to_string());
+    }
     json!({"commit_id": pr.head, "event": event, "body": lines.join("\n"), "comments": comments})
+}
+
+/// The engine's name as people know it, for the review's signature.
+pub fn engine_name(id: &str) -> String {
+    match id {
+        "" | "claude" => "Claude Code".into(),
+        "codex" => "OpenAI Codex".into(),
+        "gemini" => "Gemini CLI".into(),
+        "api" => "AI".into(),
+        other => other.trim_start_matches("ext:").to_string(),
+    }
+}
+
+/// The signature at the end of a review ([review] footer_enabled / footer): None when turned off.
+pub fn footer_text(lang: &str, cfg: &crate::config::Review, engine: &str) -> Option<String> {
+    if !cfg.footer_enabled {
+        return None;
+    }
+    let name = engine_name(engine);
+    let text = if cfg.footer.trim().is_empty() {
+        tf(lang, "review.footer", &[("engine", &name)])
+    } else {
+        cfg.footer.trim().replace("{engine}", &name)
+    };
+    Some(text)
 }
 
 /// Credential-looking strings in the review text (blocks posting).
@@ -499,7 +527,15 @@ pub mod tests {
             let mut v = clean();
             v.findings = vec![finding("low", true, 3), finding("nit", true, 99)];
             let valid = DiffLines::from([("a.py".to_string(), HashSet::from([3]))]);
-            let r = build_review(lang, &pr("a"), &v, "COMMENT", &["high".into()], &valid);
+            let r = build_review(
+                lang,
+                &pr("a"),
+                &v,
+                "COMMENT",
+                &["high".into()],
+                &valid,
+                Some("<sub>sig</sub>"),
+            );
             assert_eq!(r["comments"].as_array().unwrap().len(), 1);
             assert_eq!(r["comments"][0]["line"], 3);
             let body = r["body"].as_str().unwrap();
@@ -513,9 +549,42 @@ pub mod tests {
             "COMMENT",
             &["ci_failed".into(), "unable:huge".into()],
             &DiffLines::new(),
+            None,
         );
         let body = r["body"].as_str().unwrap();
         assert!(body.contains("CI failed") && body.contains("review could not finish: huge"));
+        assert!(
+            !body.contains("<sub>"),
+            "no signature when it is turned off: {body}"
+        );
+    }
+
+    #[test]
+    fn signature() {
+        let mut c = crate::config::Review::default();
+        // the default names the engine that actually reviewed
+        let f = footer_text("en", &c, "codex").unwrap();
+        assert!(f.contains("OpenAI Codex") && !f.contains("Claude"), "{f}");
+        assert!(footer_text("zh-CN", &c, "claude")
+            .unwrap()
+            .contains("Claude Code"));
+        c.footer = "  — reviewed with {engine} by our bot  ".into();
+        assert_eq!(
+            footer_text("en", &c, "gemini").unwrap(),
+            "— reviewed with Gemini CLI by our bot"
+        );
+        c.footer_enabled = false;
+        assert_eq!(footer_text("en", &c, "claude"), None);
+        let body = build_review(
+            "en",
+            &pr("a"),
+            &clean(),
+            "APPROVE",
+            &[],
+            &DiffLines::new(),
+            Some("TAIL"),
+        );
+        assert!(body["body"].as_str().unwrap().ends_with("\n\nTAIL"));
     }
 
     #[test]
