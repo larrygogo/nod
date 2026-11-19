@@ -1,9 +1,59 @@
 // Settings: general, approval rules, review scope, reviewing, files, about. Plugin settings live under Plugins.
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
+import { Icon } from "../icons";
 import { getTheme, setTheme, useStore, useUpdate, type Theme } from "../app";
 import { ago, setLang, t } from "../i18n";
-import { Card, TagInput, Note, Row, Section, Segmented, Select, Switch, TextInput, Button } from "../ui";
+import { Card, TagInput, cleanLogin, cleanRepo, Note, Row, Section, Segmented, Select, Switch, TextInput, Button } from "../ui";
+
+/** One side of an always-approve rule: typed freely, checked and tidied (a pasted link becomes owner/repo) when the
+ *  field is left. Empty means "any". */
+function RuleField({ value, kind, placeholder, list, onChange }: {
+  value: string; kind: "repo" | "login"; placeholder: string; list: string; onChange: (v: string) => void;
+}) {
+  const [text, setText] = useState(value);
+  const [bad, setBad] = useState(false);
+  useEffect(() => { setText(value); }, [value]);
+  const commit = () => {
+    const raw = text.trim();
+    if (!raw) { setBad(false); onChange(""); return; }
+    const c = (kind === "repo" ? cleanRepo : cleanLogin)(raw);
+    setBad(!c);
+    if (c) { setText(c); onChange(c); }
+  };
+  return (
+    <input class={`input mono${bad ? " invalid" : ""}`} value={text} placeholder={placeholder} list={list} spellcheck={false}
+      title={bad ? t(kind === "repo" ? "tag.bad_repo" : "tag.bad_login", { x: text }) : undefined}
+      onInput={(e) => { setText((e.target as HTMLInputElement).value); setBad(false); }}
+      onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} />
+  );
+}
+
+/** Always-approve rules: a repository and an author on one line, both must match; an empty side means any. */
+function AlwaysRules({ repoHints, loginHints }: { repoHints: string[]; loginHints: string[] }) {
+  const { draft, edit } = useStore();
+  const rules = draft.approve.always ?? [];
+  const set = (i: number, k: "repo" | "author", v: string) => edit((c) => { c.approve.always![i][k] = v; });
+  return (
+    <div class="always">
+      <datalist id="always-repos">{repoHints.map((r) => <option value={r} />)}</datalist>
+      <datalist id="always-authors">{loginHints.map((r) => <option value={r} />)}</datalist>
+      {rules.length > 0 && (
+        <div class="always-row head muted small"><span>{t("set.always.repo")}</span><span /><span>{t("set.always.author")}</span><span /></div>
+      )}
+      {rules.map((r, i) => (
+        <div class="always-row">
+          <RuleField kind="repo" value={r.repo} placeholder={t("set.always.any_repo")} list="always-repos" onChange={(v) => set(i, "repo", v)} />
+          <span class="muted small">{t("set.always.and")}</span>
+          <RuleField kind="login" value={r.author} placeholder={t("set.always.any_author")} list="always-authors" onChange={(v) => set(i, "author", v)} />
+          <button class="icon-btn" aria-label={t("btn.remove")} onClick={() => edit((c) => { c.approve.always!.splice(i, 1); })}><Icon name="trash" /></button>
+        </div>
+      ))}
+      {rules.length === 0 && <p class="muted small">{t("set.always.none")}</p>}
+      <Button small icon="plus" onClick={() => edit((c) => { (c.approve.always ??= []).push({ repo: "", author: "" }); })}>{t("set.always.add")}</Button>
+    </div>
+  );
+}
 
 /** The update check: where it stands, a button to check now, and to install when there is something newer. */
 function UpdateRow() {
@@ -111,12 +161,7 @@ export function SettingsPage() {
       </Section>}
 
       {tab === "review" && <Section title={t("set.always")} help={t("set.always_help")}>
-        <Card>
-          <Row label={t("set.always.authors")} wide>
-            <TagInput kind="login" suggest={loginHints} value={draft.approve.always_authors ?? []} onChange={(v) => edit((c) => { c.approve.always_authors = v; })} placeholder="dependabot[bot]" /></Row>
-          <Row label={t("set.always.repos")} wide>
-            <TagInput kind="repo" suggest={repoHints} value={draft.approve.always_repos ?? []} onChange={(v) => edit((c) => { c.approve.always_repos = v; })} placeholder="my-org/docs" /></Row>
-        </Card>
+        <Card><AlwaysRules repoHints={repoHints} loginHints={loginHints} /></Card>
       </Section>}
 
       {tab === "review" && <Section title={t("set.review_run")}>

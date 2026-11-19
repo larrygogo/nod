@@ -7,7 +7,8 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Always approve (`approve.always_authors` / `always_repos`, Settings → Review): PRs on these lists are approved
+- Always approve (`[[approve.always]]` rules, Settings → Review; each a repository, an author, or both, which must
+  then both match): matching PRs are approved
   whenever you are asked, whatever the review finds, without waiting for CI and even if the review fails; the
   findings are still posted as comments. Your own PRs, drafts and closed PRs are still never approved.
 

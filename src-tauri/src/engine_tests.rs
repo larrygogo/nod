@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
 
-use crate::config::Config;
+use crate::config::{AlwaysRule, Config};
 use crate::daemon::Daemon;
 use crate::engine::{Engine, Entry, Store};
 use crate::forge::{DiffLines, Forge, Pr, PrStatus};
@@ -294,7 +294,10 @@ fn always_approve_list_approves_whatever_the_review_says() {
     let (f, en, _d) = setup();
     f.w().ci = "pending".into(); // bad() has a high-severity finding
     let en = with_cfg(&en, |c| {
-        c.approve.always_authors = vec!["alice".into()];
+        c.approve.always = vec![AlwaysRule {
+            author: "alice".into(),
+            ..Default::default()
+        }];
         c.approve.mode = "never".into(); // independent of the auto-approve switch
     });
     en.review_one(&f.pr());
@@ -315,7 +318,12 @@ fn always_approve_list_approves_whatever_the_review_says() {
 fn always_approve_list_approves_when_the_review_fails() {
     let (f, en, _d) = setup();
     f.w().claude_fail = true;
-    let en = with_cfg(&en, |c| c.approve.always_repos = vec!["o/*".into()]);
+    let en = with_cfg(&en, |c| {
+        c.approve.always = vec![AlwaysRule {
+            repo: "o/*".into(),
+            ..Default::default()
+        }]
+    });
     en.review_one(&f.pr());
     assert!(f.w().posts.is_empty(), "the first failure is retried");
     en.review_one(&f.pr());
@@ -331,7 +339,12 @@ fn always_approve_list_approves_when_the_review_fails() {
 fn always_approve_list_still_skips_your_own_pr() {
     let (f, en, _d) = setup();
     f.w().pr_author = "me".into();
-    let en = with_cfg(&en, |c| c.approve.always_authors = vec!["*".into()]);
+    let en = with_cfg(&en, |c| {
+        c.approve.always = vec![AlwaysRule {
+            author: "*".into(),
+            ..Default::default()
+        }]
+    });
     en.review_one(&f.pr());
     assert_eq!(f.w().posts, vec!["COMMENT"]);
 }

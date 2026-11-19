@@ -149,7 +149,7 @@ authors = ["dependabot[bot]"]
 
 *Approve now* on a Feishu card is your own action and is not limited by `[approve]`. The approve lists only **narrow**
 auto-approval: the quality rules (no high-severity issue, CI not failing, …) always apply. The one exception is
-`always_authors` / `always_repos` (*Always approve* in Settings): those PRs are approved whenever you are asked,
+`[[approve.always]]` rules (*Always approve* in Settings; a repository, an author, or both): matching PRs are approved whenever you are asked,
 whatever the review finds and without waiting for CI; the comments are still posted.
 
 Tokens, app secrets, API keys and robot webhook addresses live in the system keychain, not in the file (only if the

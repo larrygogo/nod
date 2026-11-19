@@ -180,10 +180,30 @@ pub struct Approve {
     pub authors: Vec<String>,
     pub exclude_repos: Vec<String>,
     pub exclude_authors: Vec<String>,
-    /// Approve whenever asked, whatever the review finds and whether or not CI passed: PRs by these authors / in
-    /// these repositories. The review still runs and its comments are posted. Independent of `mode`.
+    /// Approve whenever asked, whatever the review finds and whether or not CI passed: PRs matching any of these
+    /// rules. The review still runs and its comments are posted. Independent of `mode`.
+    pub always: Vec<AlwaysRule>,
+    /// Earlier form of `always` (an author anywhere / a whole repository); read once and turned into rules.
+    #[serde(skip_serializing)]
     pub always_authors: Vec<String>,
+    #[serde(skip_serializing)]
     pub always_repos: Vec<String>,
+}
+
+/// One "always approve" rule: PRs in `repo` by `author`. An empty side matches anything; not both empty.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct AlwaysRule {
+    pub repo: String,
+    pub author: String,
+}
+
+impl AlwaysRule {
+    pub fn matches(&self, repo: &str, author: &str, me: &str) -> bool {
+        (!self.repo.is_empty() || !self.author.is_empty())
+            && (self.repo.is_empty() || repo_matches(&self.repo, repo, me))
+            && (self.author.is_empty() || author_matches(&self.author, author, me))
+    }
 }
 
 impl Default for Approve {
@@ -194,6 +214,7 @@ impl Default for Approve {
             authors: vec![],
             exclude_repos: vec![],
             exclude_authors: vec![],
+            always: vec![],
             always_authors: vec![],
             always_repos: vec![],
         }
@@ -448,8 +469,36 @@ fn is_login_pattern(s: &str) -> bool {
 }
 
 impl Config {
+    /// Settings written by earlier versions, in their current form.
+    pub fn upgrade(&mut self) {
+        let a = &mut self.approve;
+        for author in std::mem::take(&mut a.always_authors) {
+            a.always.push(AlwaysRule {
+                repo: String::new(),
+                author,
+            });
+        }
+        for repo in std::mem::take(&mut a.always_repos) {
+            a.always.push(AlwaysRule {
+                repo,
+                author: String::new(),
+            });
+        }
+    }
+
     pub fn validate(self) -> Result<Self> {
         let mut errs = vec![];
+        for r in &self.approve.always {
+            let ok = (!r.repo.is_empty() || !r.author.is_empty())
+                && (r.repo.is_empty() || is_repo_pattern(&r.repo))
+                && (r.author.is_empty() || is_login_pattern(&r.author));
+            if !ok {
+                errs.push(format!(
+                    "approve.always: repo {:?} / author {:?} needs a repository pattern, a login, or both",
+                    r.repo, r.author
+                ));
+            }
+        }
         if !LANGUAGES.contains(&self.language.as_str()) {
             errs.push(format!(
                 "language must be one of {LANGUAGES:?}, got {:?}",
@@ -486,7 +535,6 @@ impl Config {
             ("scope.exclude_repos", &self.scope.exclude_repos),
             ("approve.repos", &self.approve.repos),
             ("approve.exclude_repos", &self.approve.exclude_repos),
-            ("approve.always_repos", &self.approve.always_repos),
         ] {
             for x in list {
                 if !is_repo_pattern(x) {
@@ -497,7 +545,6 @@ impl Config {
         for (name, list) in [
             ("approve.authors", &self.approve.authors),
             ("approve.exclude_authors", &self.approve.exclude_authors),
-            ("approve.always_authors", &self.approve.always_authors),
             ("scope.authors", &self.scope.authors),
             ("scope.exclude_authors", &self.scope.exclude_authors),
         ] {
@@ -653,7 +700,9 @@ impl Config {
 }
 
 pub fn parse(text: &str) -> Result<Config> {
-    toml::from_str::<Config>(text).map_err(|e| anyhow!("{}", e.to_string().trim()))
+    let mut c = toml::from_str::<Config>(text).map_err(|e| anyhow!("{}", e.to_string().trim()))?;
+    c.upgrade();
+    Ok(c)
 }
 
 pub fn load_from(path: &Path, validate: bool) -> Result<Config> {
@@ -809,5 +858,63 @@ mod tests {
     fn ints_are_accepted_for_floats() {
         let c = parse("[review]\ntimeout_min = 30").unwrap();
         assert_eq!(c.review.timeout_min, 30.0);
+    }
+
+    #[test]
+    fn always_rules_need_both_sides_when_both_are_given() {
+        let r = AlwaysRule {
+            repo: "acme/docs".into(),
+            author: "alice".into(),
+        };
+        assert!(r.matches("acme/docs", "Alice", "me"));
+        assert!(!r.matches("acme/api", "alice", "me"), "another repository");
+        assert!(!r.matches("acme/docs", "bob", "me"), "another author");
+        let any_repo = AlwaysRule {
+            author: "alice".into(),
+            ..Default::default()
+        };
+        assert!(any_repo.matches("x/y", "alice", "me"));
+        assert!(
+            !AlwaysRule::default().matches("x/y", "alice", "me"),
+            "an empty rule matches nothing"
+        );
+    }
+
+    #[test]
+    fn earlier_always_lists_become_rules() {
+        let c = parse(
+            "[approve]
+always_authors = [\"alice\"]
+always_repos = [\"acme/*\"]
+",
+        )
+        .unwrap();
+        assert_eq!(
+            c.approve.always,
+            vec![
+                AlwaysRule {
+                    repo: "".into(),
+                    author: "alice".into()
+                },
+                AlwaysRule {
+                    repo: "acme/*".into(),
+                    author: "".into()
+                },
+            ]
+        );
+        let text = toml::to_string(&c).unwrap();
+        assert!(
+            !text.contains("always_authors") && text.contains("[[approve.always]]"),
+            "{text}"
+        );
+        let bad = parse(
+            "[[approve.always]]
+repo = \"\"
+author = \"\"
+",
+        )
+        .unwrap()
+        .validate();
+        assert!(bad.is_err());
     }
 }

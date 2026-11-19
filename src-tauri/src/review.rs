@@ -197,14 +197,11 @@ fn fill(tpl: &str, values: &[(&str, &str)]) -> String {
 /// On the "always approve" list (`[approve] always_authors` / `always_repos`): approved whenever asked, whatever the
 /// review says. Only what GitHub itself forbids still stops it (your own PR, a closed PR or a draft).
 pub fn always_approve(cfg: &Config, pr: &Pr, me: &str) -> bool {
-    let a = &cfg.approve;
-    let listed = a
-        .always_authors
+    let listed = cfg
+        .approve
+        .always
         .iter()
-        .any(|p| config::author_matches(p, &pr.author, me))
-        || a.always_repos
-            .iter()
-            .any(|p| config::repo_matches(p, &pr.repo, me));
+        .any(|r| r.matches(&pr.repo, &pr.author, me));
     listed && !pr.author.eq_ignore_ascii_case(me) && !pr.draft && pr.state == "open"
 }
 
