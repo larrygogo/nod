@@ -23,6 +23,8 @@ const HEAD: &str = "aaaaaaa1";
 #[derive(Default)]
 struct World {
     posts: Vec<String>,
+    /// The reviews as posted, in order.
+    bodies: Vec<Value>,
     post_delay_ms: u64,
     post_fail: bool,
     checkout_delay_ms: u64,
@@ -121,6 +123,7 @@ impl Forge for Fake {
         }
         let mut w = self.w();
         w.posts.push(review["event"].as_str().unwrap().to_string());
+        w.bodies.push(review.clone());
         Ok((
             "https://github.com/o/r/pull/1#r".into(),
             w.posts.len() as u64,
@@ -398,10 +401,112 @@ fn clean_waits_for_ci() {
     }
     en.review_one(&f.pr());
     assert_eq!(e(&en).status, "awaiting_ci");
-    assert!(f.w().posts.is_empty());
+    // the comments go up at once; the approval waits for CI
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
+    let first = f.w().bodies[0]["body"].as_str().unwrap().to_string();
+    assert!(first.contains("CI 通过后会 approve"), "{first}");
+    en.finish_safe("o/r#1"); // still pending: nothing new
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
     f.w().ci = "success".into();
     en.finish_safe("o/r#1");
-    assert_eq!(f.w().posts, vec!["APPROVE"]);
+    assert_eq!(f.w().posts, vec!["COMMENT", "APPROVE"]);
+    let approve = f.w().bodies[1].clone();
+    assert!(
+        approve.get("comments").is_none(),
+        "the comments are not posted twice"
+    );
+    assert_eq!(
+        (e(&en).status.as_str(), e(&en).approve_ids.as_slice()),
+        ("posted", &[2u64][..])
+    );
+}
+
+#[test]
+fn ci_failing_after_the_comments_says_why_without_repeating_them() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        w.verdict = Some(clean());
+        w.ci = "pending".into();
+    }
+    en.review_one(&f.pr());
+    f.w().ci = "failure".into();
+    en.finish_safe("o/r#1");
+    assert_eq!(f.w().posts, vec!["COMMENT", "COMMENT"]);
+    let last = f.w().bodies[1]["body"].as_str().unwrap().to_string();
+    assert!(
+        last.contains("未 approve") && f.w().bodies[1].get("comments").is_none(),
+        "{last}"
+    );
+}
+
+#[test]
+fn no_ci_waits_from_when_the_commit_was_seen_and_not_in_a_repo_without_ci() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        w.verdict = Some(clean());
+        w.ci = "none".into();
+    }
+    en.review_one(&f.pr());
+    assert_eq!(e(&en).status, "awaiting_ci");
+    assert!(e(&en).ci_deadline > util::now());
+    // seen more than the grace ago (the review itself took most of it): approve now
+    en.store
+        .with("o/r#1", |e| e.queued_at = util::now() - 11.0 * 60.0);
+    en.finish_safe("o/r#1");
+    assert_eq!(f.w().posts, vec!["COMMENT", "APPROVE"]);
+
+    // a second PR in the same repository: it had no CI before, so no wait
+    let (f2, en2, _d2) = setup();
+    {
+        let mut w = f2.w();
+        w.verdict = Some(clean());
+        w.ci = "none".into();
+    }
+    en2.store.with("o/r#9", |e| {
+        e.status = "posted".into();
+        e.last_pr_status = Some(PrStatus {
+            ci: "none".into(),
+            ..Default::default()
+        });
+    });
+    en2.review_one(&f2.pr());
+    assert_eq!(f2.w().posts, vec!["APPROVE"]);
+}
+
+#[test]
+fn approving_directly_keeps_the_findings() {
+    let (f, en, _d) = setup();
+    f.w().ci = "pending".into();
+    f.w().verdict = Some(Verdict {
+        approve_recommended: false,
+        ..bad()
+    });
+    // reviewed, comments not yet posted (e.g. a rule still blocks): the approval carries them
+    en.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.verdict_sha = HEAD.into();
+        e.verdict = Some(bad());
+        e.status = "reviewed".into();
+    });
+    en.direct_approve("o/r#1", HEAD);
+    let b = f.w().bodies[0].clone();
+    assert_eq!(b["event"], "APPROVE");
+    assert!(b["body"].as_str().unwrap().contains("由本人直接通过"));
+    assert!(!b["comments"].as_array().unwrap().is_empty(), "{b}");
+
+    // comments already up: the approval alone
+    let (f2, en2, _d2) = setup();
+    en2.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.verdict_sha = HEAD.into();
+        e.comment_sha = HEAD.into();
+        e.verdict = Some(bad());
+        e.status = "awaiting_ci".into();
+    });
+    en2.direct_approve("o/r#1", HEAD);
+    assert!(f2.w().bodies[0].get("comments").is_none());
 }
 
 #[test]
@@ -416,7 +521,11 @@ fn merged_while_waiting_for_ci_does_not_claim_ci_blocked_it() {
     assert_eq!(e(&en).reasons, vec!["ci_pending"]);
     f.w().pr_state = "merged".into();
     en.finish_safe("o/r#1");
-    assert!(f.w().posts.is_empty());
+    assert_eq!(
+        f.w().posts,
+        vec!["COMMENT"],
+        "only the comments posted while waiting"
+    );
     assert_eq!(e(&en).status, "closed");
     assert_eq!(e(&en).reasons, vec!["closed_while_waiting"]);
 }

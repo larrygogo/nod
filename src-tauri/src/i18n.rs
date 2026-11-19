@@ -29,6 +29,10 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("review.approve", "**结论：Approve。** {summary}", "**Verdict: Approve.** {summary}"),
     ("review.comment", "**结论：只评论，未 approve。** {summary}", "**Verdict: comments only, not approved.** {summary}"),
     ("review.blocked_by", "卡在：{reasons}", "Blocked by: {reasons}"),
+    ("review.after_ci", "没有阻塞问题，CI 通过后会 approve。", "No blocking issues; Nod approves once CI passes."),
+    ("review.approve_after_ci", "**CI 已通过，Approve。** 审查意见见上一条评审。", "**CI passed: Approve.** See the previous review for the findings."),
+    ("review.no_approve_after_ci", "**未 approve。** 卡在：{reasons}", "**Not approved.** Blocked by: {reasons}"),
+    ("review.direct_note", "_由本人直接通过。_", "_Approved directly by the reviewer._"),
     (
         "review.legend",
         "问题清单（🔴 高会阻塞 approve；🟠 中建议本 PR 修；🟡 低可排后；⚪ nit 顺手改）：",
@@ -144,6 +148,12 @@ const TABLE: &[(&str, &str, &str)] = &[
         "**结论：没有阻塞问题。** {summary}\n等 CI 跑完后自动 approve。",
         "**Verdict: no blocking issues.** {summary}\nWill approve once CI finishes.",
     ),
+    (
+        "card.awaiting_ci_none",
+        "**结论：没有阻塞问题。** {summary}\n还没看到 CI，{at} 前仍没有就直接 approve。",
+        "**Verdict: no blocking issues.** {summary}\nNo CI yet; approves at {at} if none shows up.",
+    ),
+    ("card.comments_posted", "评论已发到 GitHub。", "Comments are on GitHub."),
     ("card.verdict", "**结论：** {summary}", "**Verdict:** {summary}"),
     ("card.not_approved", "未自动 approve：", "Not auto-approved: "),
     ("card.n_issues", "**{n} 个问题**", "**{n} finding(s)**"),

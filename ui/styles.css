@@ -521,10 +521,11 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 }
 
 /* ---------------------------------------------------------------- settings */
-.tabbed .section > header h2 { display: none; }
-.tabbed .section > header:not(:has(p)) { display: none; }
+/* a tab with one section: the tab already names it; several: each keeps its heading */
+.tabbed .section:only-of-type > header h2 { display: none; }
+.tabbed .section:only-of-type > header:not(:has(p)) { display: none; }
+.tabbed .section + .section { margin-top: 12px; }
 .tabbed > .segmented { align-self: flex-start; width: auto; }
-.tabbed .section + .section { margin-top: 4px; }
 
 /* ---------------------------------------------------------------- press feedback */
 .btn, .icon-btn, .switch, .choice, .pl-item, .nav, .review-row, .segmented button, .link {

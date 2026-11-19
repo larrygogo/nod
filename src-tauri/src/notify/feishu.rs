@@ -315,14 +315,25 @@ pub fn render(
             }
             els.push(md(&txt, "normal"));
         }
-        "awaiting_ci" => els.push(md(
-            &tf(
-                lang,
-                "card.awaiting_ci",
-                &[("summary", v.map(|v| v.summary.as_str()).unwrap_or(""))],
-            ),
-            "normal",
-        )),
+        "awaiting_ci" => {
+            let summary = v.map(|v| v.summary.as_str()).unwrap_or("");
+            let mut txt = if e.reasons.iter().any(|r| r == "ci_none_wait") && e.ci_deadline > 0.0 {
+                tf(
+                    lang,
+                    "card.awaiting_ci_none",
+                    &[
+                        ("summary", summary),
+                        ("at", &crate::util::clock(e.ci_deadline)),
+                    ],
+                )
+            } else {
+                tf(lang, "card.awaiting_ci", &[("summary", summary)])
+            };
+            if !e.comment_sha.is_empty() && e.comment_sha == e.sha {
+                txt = format!("{txt}{}", t(lang, "card.comments_posted"));
+            }
+            els.push(md(&txt, "normal"));
+        }
         _ => {
             if let Some(v) = v {
                 els.push(md(

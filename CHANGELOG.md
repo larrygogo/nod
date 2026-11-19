@@ -7,6 +7,13 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Comments go up as soon as the review is done; the approval follows as a review of its own once CI passes (before,
+  both waited for CI together). If CI fails, a short review says why it was not approved. *Approve directly* posts
+  the findings with the approval when they are not on GitHub yet, instead of dropping them.
+- No CI: the wait for checks to appear counts from when Nod first saw the commit, and is skipped in repositories
+  whose earlier PRs never had CI. The card says until when it waits.
+- Settings: *Auto-approve* moved into the *Review* tab, with the CI waits.
+
 - GitHub signs in with an OAuth device-flow login from the GitHub plugin page (the way the GitHub CLI does); `gh`
   is no longer needed or used. A personal access token can be entered instead of signing in. GitHub Enterprise
   accounts can set their own OAuth App's client ID.

@@ -20,7 +20,7 @@ export function SettingsPage() {
     <div class="page narrow tabbed">
       <header class="page-head"><h1>{t("set.title")}</h1></header>
       <Segmented value={tab} onChange={setTab} options={[
-        ["general", t("set.general")], ["approve", t("set.approve")], ["scope", t("set.scope")],
+        ["general", t("set.general")], ["scope", t("set.scope")],
         ["review", t("set.review")], ["about", t("set.about")],
       ]} />
       {loaded.error && (
@@ -47,7 +47,9 @@ export function SettingsPage() {
         </Card>
       </Section>}
 
-      {tab === "approve" && <Section title={t("set.approve")} help={t("set.approve_help")}>
+      {/* Reviewing and approving share a tab: what Nod does with a PR, start to finish. The approval waits for CI,
+          so the CI waits live with it. */}
+      {tab === "review" && <Section title={t("set.approve")} help={t("set.approve_help")}>
         <Card>
           <Row label={t("set.approve.mode")}>
             <Segmented value={draft.approve.mode} onChange={(v) => edit((c) => { c.approve.mode = v; })}
@@ -62,6 +64,8 @@ export function SettingsPage() {
               <TagInput kind="repo" suggest={repoHints} value={draft.approve.exclude_repos} onChange={(v) => edit((c) => { c.approve.exclude_repos = v; })} /></Row>
             <Row label={t("set.approve.exclude_authors")} wide>
               <TagInput kind="login" suggest={loginHints} value={draft.approve.exclude_authors} onChange={(v) => edit((c) => { c.approve.exclude_authors = v; })} /></Row>
+            <Row label={t("set.ci_wait")}>{num((c) => c.review.ci_wait_max_min, (c, v) => { c.review.ci_wait_max_min = v; })}</Row>
+            <Row label={t("set.ci_grace")} help={t("set.ci_grace_help")}>{num((c) => c.review.ci_none_grace_min, (c, v) => { c.review.ci_none_grace_min = v; })}</Row>
           </>}
         </Card>
       </Section>}
@@ -77,12 +81,10 @@ export function SettingsPage() {
         </Card>
       </Section>}
 
-      {tab === "review" && <Section title={t("set.review")}>
+      {tab === "review" && <Section title={t("set.review_run")}>
         <Card>
           <Row label={t("set.timeout")}>{num((c) => c.review.timeout_min, (c, v) => { c.review.timeout_min = v; })}</Row>
           <Row label={t("set.attempts")}>{num((c) => c.review.max_attempts, (c, v) => { c.review.max_attempts = v; })}</Row>
-          <Row label={t("set.ci_wait")}>{num((c) => c.review.ci_wait_max_min, (c, v) => { c.review.ci_wait_max_min = v; })}</Row>
-          <Row label={t("set.ci_grace")}>{num((c) => c.review.ci_none_grace_min, (c, v) => { c.review.ci_none_grace_min = v; })}</Row>
           <Row label={t("set.rereview")}>{num((c) => c.review.rereview_days, (c, v) => { c.review.rereview_days = v; })}</Row>
           <Row label={t("set.poll")}>{num((c) => c.daemon.poll_seconds, (c, v) => { c.daemon.poll_seconds = v; })}</Row>
           <Row label={t("set.refresh")}>{num((c) => c.daemon.refresh_seconds, (c, v) => { c.daemon.refresh_seconds = v; })}</Row>

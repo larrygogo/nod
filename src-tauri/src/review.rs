@@ -298,7 +298,10 @@ pub fn build_review(
         "review.comment"
     };
     let mut lines = vec![tf(lang, key, &[("summary", &v.summary)])];
-    if event != "APPROVE" {
+    if event != "APPROVE" && (reasons == ["ci_pending"] || reasons == ["ci_none_wait"]) {
+        // posted ahead of the approval, which waits only for CI
+        lines.push(t(lang, "review.after_ci"));
+    } else if event != "APPROVE" && !reasons.is_empty() {
         let rs: Vec<String> = reasons.iter().map(|r| reason_text(lang, r)).collect();
         lines.push(tf(
             lang,

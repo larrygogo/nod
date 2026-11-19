@@ -59,6 +59,12 @@ pub struct Entry {
     /// Times the engine said it is out of quota (or rate limited) for this commit. These do not use up attempts.
     #[serde(skip_serializing_if = "is_zero")]
     pub waits: u32,
+    /// The commit whose review comments are already on the code host, posted while the approval waits for CI.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub comment_sha: String,
+    /// While waiting for CI: when Nod stops waiting (unix seconds).
+    #[serde(skip_serializing_if = "is_zero_f")]
+    pub ci_deadline: f64,
     /// A retry waits until this time (unix seconds); 0 = may run now.
     #[serde(skip_serializing_if = "is_zero_f")]
     pub retry_at: f64,
@@ -668,45 +674,91 @@ impl Engine {
                 now()
             })
             / 60.0;
-        if ci == "none" && waited < self.cfg.review.ci_none_grace_min {
-            ci = "none_wait".into(); // checks may not exist yet right after a push
+        // No checks yet may only mean they have not registered since the push: wait a little, counted from when Nod
+        // first saw the commit, unless this repository's earlier PRs never had CI either.
+        let seen = if e.queued_at > 0.0 {
+            e.queued_at
+        } else {
+            now()
+        };
+        let grace_end = seen + self.cfg.review.ci_none_grace_min * 60.0;
+        if ci == "none" && now() < grace_end && !self.repo_without_ci(&pr.repo, key) {
+            ci = "none_wait".into();
         }
         let (event, reasons) = review::decide(&self.cfg, &pr, &verdict, &ci, &self.me);
         self.store.with(key, |e| e.reasons = reasons.clone());
         let only_ci = reasons == ["ci_pending"] || reasons == ["ci_none_wait"];
+        let commented = e.comment_sha == pr.head;
+        let footer = review::footer_text(self.lang(), &self.cfg.review, &verdict.meta.engine);
         if (ci == "pending" || ci == "none_wait")
             && only_ci
             && waited < self.cfg.review.ci_wait_max_min
         {
-            self.store.with(key, |e| e.status = "awaiting_ci".into());
+            // Nothing blocks but CI. The comments go up now, so the author can act on them; the approval follows
+            // as a review of its own once CI passes.
+            let deadline = if ci == "none_wait" {
+                grace_end
+            } else {
+                e.reviewed_at + self.cfg.review.ci_wait_max_min * 60.0
+            };
+            if !commented && !self.cfg.dry_run {
+                let body = review::build_review(
+                    self.lang(),
+                    &pr,
+                    &verdict,
+                    "COMMENT",
+                    &reasons,
+                    &self.forge.diff_lines(&pr)?,
+                    footer.as_deref(),
+                );
+                if self.holds_secrets(key, &body) {
+                    return Ok(());
+                }
+                let (url, _) = self.forge.post_review(&pr, &body)?;
+                info!("{key}: posted the review comments {url}; approving after CI");
+                self.store.with(key, |e| {
+                    e.comment_sha = pr.head.clone();
+                    e.review_url = Some(url.clone());
+                });
+            }
+            self.store.with(key, |e| {
+                e.status = "awaiting_ci".into();
+                e.ci_deadline = deadline;
+            });
             info!("{key}: clean, waiting for CI ({waited:.0} min so far)");
+            if !commented {
+                self.refresh(key, None, true);
+            }
             return Ok(());
         }
-        let body = review::build_review(
-            self.lang(),
-            &pr,
-            &verdict,
-            event,
-            &reasons,
-            &self.forge.diff_lines(&pr)?,
-            review::footer_text(self.lang(), &self.cfg.review, &verdict.meta.engine).as_deref(),
-        );
-        let leaked = review::find_secrets(&body);
-        if !leaked.is_empty() {
-            let note = self.store.with(key, |e| {
-                e.status = "failed".into();
-                self.stale_approve_note(e)
-            });
-            error!(
-                "{key}: review text looks like it contains credentials ({}); not posting",
-                leaked.join(", ")
-            );
-            let msg = tf(
+        let body = if commented {
+            // the comments are already there: only the outcome
+            let text = if event == "APPROVE" {
+                t(self.lang(), "review.approve_after_ci")
+            } else {
+                let rs: Vec<String> = reasons
+                    .iter()
+                    .map(|r| crate::i18n::reason_text(self.lang(), r))
+                    .collect();
+                tf(
+                    self.lang(),
+                    "review.no_approve_after_ci",
+                    &[("reasons", &rs.join("; "))],
+                )
+            };
+            serde_json::json!({"commit_id": pr.head, "event": event, "body": text})
+        } else {
+            review::build_review(
                 self.lang(),
-                "note.secret_blocked",
-                &[("kinds", &leaked.join(", "))],
-            );
-            self.note(key, "manual", &(msg + &note), None);
+                &pr,
+                &verdict,
+                event,
+                &reasons,
+                &self.forge.diff_lines(&pr)?,
+                footer.as_deref(),
+            )
+        };
+        if self.holds_secrets(key, &body) {
             return Ok(());
         }
         if self.cfg.dry_run {
@@ -732,6 +784,7 @@ impl Engine {
             e.review_url = Some(url.clone());
             e.posted_at = now();
             e.post_attempts = 0;
+            e.ci_deadline = 0.0;
             if event == "APPROVE" {
                 e.approve_ids.push(id);
             }
@@ -754,6 +807,41 @@ impl Engine {
             Some(&url),
         );
         Ok(())
+    }
+
+    /// The review text looks like it holds credentials: never post it; tell the user instead.
+    fn holds_secrets(&self, key: &str, body: &Value) -> bool {
+        let leaked = review::find_secrets(body);
+        if leaked.is_empty() {
+            return false;
+        }
+        let note = self.store.with(key, |e| {
+            e.status = "failed".into();
+            self.stale_approve_note(e)
+        });
+        error!(
+            "{key}: review text looks like it contains credentials ({}); not posting",
+            leaked.join(", ")
+        );
+        let msg = tf(
+            self.lang(),
+            "note.secret_blocked",
+            &[("kinds", &leaked.join(", "))],
+        );
+        self.note(key, "manual", &(msg + &note), None);
+        true
+    }
+
+    /// Another PR of `repo` finished with no CI at all: the repository has none, so waiting for checks to appear
+    /// only delays the approval.
+    fn repo_without_ci(&self, repo: &str, key: &str) -> bool {
+        let prefix = format!("{repo}#");
+        self.store.lock().prs.iter().any(|(k, e)| {
+            k != key
+                && k.starts_with(&prefix)
+                && ["posted", "direct_approved", "closed"].contains(&e.status.as_str())
+                && e.last_pr_status.as_ref().is_some_and(|s| s.ci == "none")
+        })
     }
 
     /// This round did not approve, but Nod approved an earlier commit: dismiss those approvals so the new
@@ -834,7 +922,36 @@ impl Engine {
                     .store
                     .get(key)
                     .is_some_and(|e| ["queued", "reviewing", "retry"].contains(&e.status.as_str()));
-                let body = serde_json::json!({"commit_id": sha, "event": "APPROVE", "body": t(&lang, "review.direct")});
+                // A verdict for this commit whose comments are not on GitHub yet goes up with the approval, so
+                // approving early does not throw the findings away.
+                let e0 = self.store.get(key).unwrap_or_default();
+                let full = e0
+                    .verdict
+                    .as_ref()
+                    .filter(|_| e0.verdict_sha == sha && e0.comment_sha != sha)
+                    .and_then(|v| self.forge.diff_lines(&pr).ok().map(|d| (v, d)))
+                    .map(|(v, d)| {
+                        let footer = review::footer_text(&lang, &self.cfg.review, &v.meta.engine);
+                        let mut b = review::build_review(
+                            &lang,
+                            &pr,
+                            v,
+                            "APPROVE",
+                            &[],
+                            &d,
+                            footer.as_deref(),
+                        );
+                        b["body"] = Value::String(format!(
+                            "{}\n\n{}",
+                            t(&lang, "review.direct_note"),
+                            b["body"].as_str().unwrap_or_default()
+                        ));
+                        b
+                    })
+                    .filter(|b| review::find_secrets(b).is_empty());
+                let body = full.unwrap_or_else(
+                    || serde_json::json!({"commit_id": sha, "event": "APPROVE", "body": t(&lang, "review.direct")}),
+                );
                 let (url, id) = self.forge.post_review(&pr, &body)?;
                 self.store.with(key, |e| {
                     e.aborted = true;
