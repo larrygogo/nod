@@ -294,6 +294,12 @@ impl Daemon {
             if !["queued", "reviewing", "retry"].contains(&e.status.as_str()) || e.waiting() {
                 continue; // a waiting retry keeps its time; the poll picks it up then
             }
+            if e.status == "reviewing" {
+                // The review was cut off by the restart (quitting Nod, saving settings), not by the engine: it does
+                // not use up an attempt, or a later real error would give up without a retry.
+                self.store()
+                    .with(&key, |e| e.attempts = e.attempts.saturating_sub(1));
+            }
             if parse_key(&key).is_ok_and(|(r, _)| !self.engine.allowed(&r)) {
                 self.store()
                     .with(&key, |e| e.status = "out_of_scope".into());

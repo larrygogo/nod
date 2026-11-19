@@ -666,6 +666,27 @@ fn restart_requeues_unfinished() {
     assert_eq!(f.w().posts, vec!["COMMENT"]);
 }
 
+/// A review cut off by a restart (quitting Nod, saving settings) does not use up an attempt: an engine error after the
+/// restart still gets its retry.
+#[test]
+fn a_restart_mid_review_does_not_use_up_an_attempt() {
+    let (f, en, _d) = setup();
+    f.w().claude_fail = true;
+    en.store.with("o/r#1", |e| {
+        e.sha = HEAD.into();
+        e.status = "reviewing".into();
+        e.attempts = 1; // the run the restart cut off
+    });
+    let d = daemon(&en);
+    d.requeue_unfinished();
+    wait_for(|| e(&en).status == "retry");
+    assert_eq!(
+        (e(&en).status.as_str(), e(&en).attempts),
+        ("retry", 1),
+        "retries instead of giving up"
+    );
+}
+
 #[test]
 fn state_with_nulls_and_unknown_fields_loads() {
     let s = crate::engine::parse_state(r#"{"prs":{"a/b#1":{"status":"posted","reasons":null,"event":null,"future_field":1,
