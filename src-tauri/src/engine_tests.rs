@@ -20,6 +20,14 @@ use crate::util;
 
 const HEAD: &str = "aaaaaaa1";
 
+/// Tests that approve directly stop the running review of "o/r#1", and every fake PR is "o/r#1": the registry of
+/// running engine processes is shared by the whole test binary, so one test's approval would kill another test's
+/// review. These tests take turns.
+fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[derive(Default)]
 struct World {
     posts: Vec<String>,
@@ -352,6 +360,7 @@ fn always_approve_list_still_skips_your_own_pr() {
 /// "Approve" in the window: the worker approves exactly the commit the window showed, once.
 #[test]
 fn approve_from_the_window() {
+    let _one = one_at_a_time();
     let (f, en, dir) = setup();
     en.review_one(&f.pr()); // bad(): commented, not approved
     assert_eq!(f.w().posts, vec!["COMMENT"]);
@@ -711,6 +720,7 @@ fn no_ci_waits_from_when_the_commit_was_seen_and_not_in_a_repo_without_ci() {
 
 #[test]
 fn approving_directly_keeps_the_findings() {
+    let _one = one_at_a_time();
     let (f, en, _d) = setup();
     f.w().ci = "pending".into();
     f.w().verdict = Some(Verdict {
@@ -906,6 +916,7 @@ fn click(d: &Arc<Daemon>, who: &str) -> Result<Option<Value>> {
 
 #[test]
 fn click_during_checkout_stops_review() {
+    let _one = one_at_a_time();
     let (f, en, _d) = setup();
     f.w().checkout_delay_ms = 1000;
     let d = daemon(&en);
@@ -919,6 +930,7 @@ fn click_during_checkout_stops_review() {
 
 #[test]
 fn click_while_claude_runs_kills_it() {
+    let _one = one_at_a_time();
     let (f, en, _d) = setup();
     f.w().claude_proc = true;
     let d = daemon(&en);
@@ -939,6 +951,7 @@ fn click_while_claude_runs_kills_it() {
 
 #[test]
 fn double_click_approves_once() {
+    let _one = one_at_a_time();
     let (f, en, _d) = setup();
     en.store.with("o/r#1", |e| {
         e.sha = HEAD.into();
@@ -953,6 +966,7 @@ fn double_click_approves_once() {
 
 #[test]
 fn failed_approve_lets_review_continue() {
+    let _one = one_at_a_time();
     let (f, en, _d) = setup();
     f.w().post_fail = true;
     en.store.with("o/r#1", |e| {
@@ -971,6 +985,7 @@ fn failed_approve_lets_review_continue() {
 
 #[test]
 fn head_moved_or_own_pr_or_stranger_is_refused() {
+    let _one = one_at_a_time();
     let (f, en, _d) = setup();
     en.store.with("o/r#1", |e| {
         e.sha = HEAD.into();
@@ -991,6 +1006,7 @@ fn head_moved_or_own_pr_or_stranger_is_refused() {
 
 #[test]
 fn awaiting_ci_and_click_do_not_interleave() {
+    let _one = one_at_a_time();
     let (f, en, _d) = setup();
     en.store.with("o/r#1", |e| {
         e.sha = HEAD.into();
