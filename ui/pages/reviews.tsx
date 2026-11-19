@@ -29,14 +29,14 @@ export function findingsText(r: Row): { text: string; tone: string } | null {
   return { text: (n === 1 ? t("rv.one_finding") : t("rv.n_findings", { n })) + (worst ? " · " + worst : ""), tone: high ? "bad" : medium ? "warn" : "" };
 }
 
-export function ReviewRow({ r, onClick, selected }: { r: Row; onClick: () => void; selected?: boolean }) {
+export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () => void; selected?: boolean; flag?: string }) {
   const f = findingsText(r);
   return (
-    <button class={`review-row${selected ? " selected" : ""}`} onClick={onClick}>
+    <button class={`review-row${selected ? " selected" : ""}${flag ? " flagged" : ""}`} onClick={onClick}>
       <span class={`state-dot ${tone(r)}`} />
       <span class="grow">
         <span class="row-title ellipsis">{r.title || r.key}</span>
-        <span class="row-sub ellipsis">{r.key} · {r.author} · {ago(r.at)}</span>
+        <span class="row-sub ellipsis">{flag && <span class="row-flag">{flag}</span>}{r.key} · {r.author} · {ago(r.at)}</span>
       </span>
       <span class="row-right">
         <span class={`state-label ${tone(r)}`}>{statusLabel(r)}</span>

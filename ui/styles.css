@@ -284,12 +284,15 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .list-card { background: var(--surface); border: none; border-radius: var(--r-md); padding: 4px; display: flex; flex-direction: column; box-shadow: var(--shadow-card); }
 .list-card .review-row + .review-row { box-shadow: 0 -1px 0 var(--border); border-radius: 0; }
 .list-card .review-row:hover + .review-row, .list-card .review-row + .review-row:hover { box-shadow: none; }
-.list-card.attention { box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 28%, transparent), var(--shadow-card); }
 
 /* ---------------------------------------------------------------- reviews */
 .list { display: flex; flex-direction: column; }
 .review-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 12px; border: none; border-radius: var(--r-sm); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .review-row:hover { background: var(--surface-2); }
+.review-row.flagged { background: color-mix(in srgb, var(--warn) 7%, transparent); }
+.review-row.flagged:hover { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.row-flag { color: var(--warn); font-weight: var(--w-medium); margin-right: 6px; }
+.row-flag::after { content: " ·"; color: var(--text-3); font-weight: normal; }
 .review-row { transition: background 120ms var(--ease); }
 .review-row.selected { background: var(--raised); box-shadow: var(--shadow-raise); }
 .row-title { font-weight: var(--w-medium); }

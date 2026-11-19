@@ -16,7 +16,9 @@ export function OverviewPage() {
   const needs = ov.rows.filter((r) => r.status === "failed"
     || (r.event === "COMMENT" && r.findings.some((f) => f.severity === "high"))).slice(0, 5);
   const needKeys = new Set(needs.map((r) => `${r.account}/${r.key}`));
-  const recent = ov.rows.filter((r) => !needKeys.has(`${r.account}/${r.key}`)).slice(0, 8);
+  // One list, newest first: rows that need you are flagged in place instead of pinned above newer reviews.
+  const latest = ov.rows.slice(0, 8);
+  const recent = [...latest, ...needs.filter((r) => !latest.includes(r))].sort((a, b) => b.at - a.at);
   const forges = accounts(draft).filter((a) => a.enabled).map((a) => a.kind);
   const channels = activeChannels(draft);
   const problem = s.state === "error" || s.state === "paused";
@@ -66,22 +68,13 @@ export function OverviewPage() {
         <button class="link small" onClick={() => go("plugins")}>{t("ov.change")}</button>
       </div>
 
-      {needs.length > 0 && (
-        <section class="block">
-          <h2 class="block-title">{t("ov.needs_you")}</h2>
-          <div class="list-card attention">
-            {needs.map((r) => <ReviewRow r={r} onClick={() => go("reviews", `${r.account}/${r.key}`)} />)}
-          </div>
-        </section>
-      )}
-
       <section class="block">
         <header class="block-head">
           <h2 class="block-title">{t("ov.recent")}</h2>
           {ov.rows.length > 0 && <button class="link small" onClick={() => go("reviews")}>{t("btn.all_reviews")} <Icon name="chevron" size={14} /></button>}
         </header>
         {ov.rows.length === 0 ? <div class="list-card"><Empty icon="list">{t("ov.empty")}</Empty></div>
-          : recent.length > 0 && <div class="list-card">{recent.map((r) => <ReviewRow r={r} onClick={() => go("reviews", `${r.account}/${r.key}`)} />)}</div>}
+          : recent.length > 0 && <div class="list-card">{recent.map((r) => <ReviewRow r={r} flag={needKeys.has(`${r.account}/${r.key}`) ? t("ov.needs_you") : undefined} onClick={() => go("reviews", `${r.account}/${r.key}`)} />)}</div>}
       </section>
     </div>
   );
