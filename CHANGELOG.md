@@ -3,23 +3,6 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Added
-
-- *Approve now* in the Reviews detail pane (two clicks), like the Feishu card's button: approves exactly the commit
-  shown, as you; a newer push, your own PR or a closed one is refused, with the reason on the record.
-
-- *Review again* in the Reviews detail pane for any open PR that is not being reviewed: the current commit is
-  reviewed from scratch and its outcome posted again, whatever happened before (not only after a failure).
-- *Withdraw approval* in the Reviews detail pane (two clicks): dismisses the approvals Nod gave on the PR (its own and
-  *Approve now*), so it can no longer be merged on them. Approvals given on GitHub itself are left alone.
-
-### Changed
-
-- A record whose earlier approval (Nod's or yours) still counts on GitHub shows *Approved*; the overview flags it
-  when the latest commit did not pass.
-
 ## [0.1.0] - 2026-11-19
 
 First public release: a desktop app.
@@ -52,6 +35,14 @@ First public release: a desktop app.
 
 ### More in this release
 
+- *Approve now* in the Reviews detail pane (two clicks), like the Feishu card's button: approves exactly the commit
+  shown, as you; a newer push, your own PR or a closed one is refused, with the reason on the record.
+- *Review again* in the Reviews detail pane for any open PR that is not being reviewed: the current commit is
+  reviewed from scratch and its outcome posted again, whatever happened before (not only after a failure).
+- *Withdraw approval* in the Reviews detail pane (two clicks): dismisses the approvals Nod gave on the PR (its own and
+  *Approve now*), so it can no longer be merged on them. Approvals given on GitHub itself are left alone.
+- A record whose earlier approval (Nod's or yours) still counts on GitHub shows *Approved*; the overview flags it
+  when the latest commit did not pass.
 - Always approve (`[[approve.always]]` rules, Settings → Review; each a repository, an author, or both, which must
   then both match): matching PRs are approved
   whenever you are asked, whatever the review finds, without waiting for CI and even if the review fails; the
