@@ -20,7 +20,7 @@ use crate::config::Config;
 use crate::forge::{Forge, Pr, Remote};
 use crate::paths;
 use crate::review::Verdict;
-use crate::util::{run, run_raw, RunOpts};
+use crate::util::{now, run, run_raw, RunOpts};
 
 /// Where checkouts live: the data directory, or a separate one for dry runs (see [`Workspace::root`]).
 pub fn workspace_root(dry_run: bool) -> PathBuf {
@@ -295,20 +295,170 @@ pub struct Router {
     pub me: String,
 }
 
-impl Router {
-    pub fn engine(&self, cfg: &Config, pr: &Pr) -> Result<Box<dyn Engine>> {
-        let name = cfg.engine_for(&pr.repo, &self.me);
-        Ok(match name.as_str() {
-            "claude" => Box::new(claude::Claude),
-            "codex" => Box::new(codex::Codex),
-            "gemini" => Box::new(gemini::Gemini),
-            "api" => Box::new(api::Api),
-            n if n.starts_with("ext:") => {
-                Box::new(crate::plugins::ExternalEngine::new(cfg, &n[4..])?)
-            }
-            n => return Err(anyhow!("unknown review engine {n:?}")),
-        })
+/// The engine called `name`: built-in, or `ext:<plugin>`.
+pub fn engine_named(cfg: &Config, name: &str) -> Result<Box<dyn Engine>> {
+    Ok(match name {
+        "claude" => Box::new(claude::Claude),
+        "codex" => Box::new(codex::Codex),
+        "gemini" => Box::new(gemini::Gemini),
+        "api" => Box::new(api::Api),
+        n if n.starts_with("ext:") => Box::new(crate::plugins::ExternalEngine::new(cfg, &n[4..])?),
+        n => return Err(anyhow!("unknown review engine {n:?}")),
+    })
+}
+
+/// Run `primary`; when it cannot run at all (out of quota, signed out, not installed) and a fallback engine is set,
+/// run that instead. A wrong answer or a timeout says nothing about whether another engine would do better, and
+/// trying one would only double the wait. When both fail, the error carries both messages, the primary's first.
+pub fn with_fallback(
+    cfg: &Config,
+    key: &str,
+    primary: &str,
+    run: impl Fn(&str) -> Result<Verdict>,
+) -> Result<Verdict> {
+    let err = match run(primary) {
+        Ok(v) => return Ok(v),
+        Err(e) => e,
+    };
+    let fb = cfg.review.fallback.as_str();
+    if fb.is_empty() || fb == primary || classify(&format!("{err:#}"), now()) == Trouble::Other {
+        return Err(err);
     }
+    crate::warn!("{key}: {primary} cannot review now ({err:#}); using {fb} instead");
+    run(fb).map_err(|e2| {
+        anyhow!(
+            "{err:#}
+{fb} (fallback): {e2:#}"
+        )
+    })
+}
+
+/// Why an engine could not give a verdict, as far as its message tells.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Trouble {
+    /// Out of quota or rate limited: it will work again later, by itself. `until` = when, if the message says.
+    Quota { until: Option<f64> },
+    /// Cannot run here at all (not installed, signed out, a bad key) until someone fixes it.
+    Unavailable,
+    /// Anything else: a timeout, a malformed answer, a crash.
+    Other,
+}
+
+/// Sort an engine's error message (`now` in unix seconds, for "try again in 2 hours").
+pub fn classify(msg: &str, now: f64) -> Trouble {
+    use regex_lite::Regex;
+    let m = msg.to_lowercase();
+    let quota = [
+        "usage limit",
+        "rate limit",
+        "rate_limit",
+        "ratelimit",
+        "quota",
+        "credit balance",
+        "insufficient_quota",
+        "insufficient balance",
+        "resource_exhausted",
+        "hit your limit",
+        "limit reached",
+        "too many requests",
+        "out of credits",
+        "billing",
+        "余额不足",
+        "额度",
+        "限流",
+    ];
+    if quota.iter().any(|w| m.contains(w)) || Regex::new(r"\b429\b").unwrap().is_match(&m) {
+        return Trouble::Quota {
+            until: reset_time(&m, now),
+        };
+    }
+    let unavailable = [
+        "not found on path",
+        "no such file",
+        "not logged in",
+        "not signed in",
+        "please run /login",
+        "please log in",
+        "please login",
+        "invalid api key",
+        "invalid x-api-key",
+        "invalid_api_key",
+        "incorrect api key",
+        "authentication",
+        "unauthorized",
+        "api key not valid",
+        "oauth token has expired",
+    ];
+    if unavailable.iter().any(|w| m.contains(w)) || Regex::new(r"\b401\b").unwrap().is_match(&m) {
+        return Trouble::Unavailable;
+    }
+    Trouble::Other
+}
+
+/// The next time it is `h:min` on this machine's clock, after `now`.
+fn next_local(now: f64, h: u32, min: u32) -> Option<f64> {
+    use chrono::{Local, TimeZone};
+    let base = Local.timestamp_opt(now as i64, 0).single()?;
+    let mut day = base.date_naive();
+    for _ in 0..2 {
+        let t = day
+            .and_hms_opt(h, min, 0)?
+            .and_local_timezone(Local)
+            .earliest()?;
+        if t.timestamp() as f64 > now {
+            return Some(t.timestamp() as f64);
+        }
+        day = day.succ_opt()?;
+    }
+    None
+}
+
+/// When a quota message says the limit lifts: "…|1736280000" (Claude), "try again in 2 hours 5 minutes" (Codex),
+/// "retry in 23.5s" / "retry after 60 seconds" (Gemini, APIs). Kept within a minute and a day from now.
+fn reset_time(m: &str, now: f64) -> Option<f64> {
+    use regex_lite::Regex;
+    let at = if let Some(c) = Regex::new(r"\|(\d{10})\b").unwrap().captures(m) {
+        c[1].parse::<f64>().ok()?
+    } else if let Some(c) = Regex::new(r"resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)")
+        .unwrap()
+        .captures(m)
+    {
+        // Claude Code: "5-hour limit reached · resets 3pm (Asia/Shanghai)": the next 3 pm, in this machine's time
+        let h: u32 = c[1].parse().ok()?;
+        let min: u32 = c.get(2).map_or(Some(0), |x| x.as_str().parse().ok())?;
+        let h = h % 12 + if &c[3] == "pm" { 12 } else { 0 };
+        next_local(now, h, min)?
+    } else {
+        let c = Regex::new(
+            r"(?:try again|retry|resets?)\s+(?:in|after)\s+((?:[\d.]+\s*[a-z]+[\s,]*(?:and\s+)?)+)",
+        )
+        .unwrap()
+        .captures(m)?;
+        let mut secs = 0.0;
+        for p in Regex::new(r"([\d.]+)\s*([a-z]+)")
+            .unwrap()
+            .captures_iter(&c[1])
+        {
+            let n: f64 = p[1].parse().ok()?;
+            let unit = &p[2];
+            secs += n * if unit.starts_with('d') {
+                86400.0
+            } else if unit.starts_with('h') {
+                3600.0
+            } else if unit.starts_with("ms") {
+                0.001
+            } else if unit.starts_with('m') {
+                60.0
+            } else {
+                1.0
+            };
+        }
+        if secs <= 0.0 {
+            return None;
+        }
+        now + secs
+    };
+    Some(at.clamp(now + 60.0, now + 86400.0))
 }
 
 /// One review engine: turn a prompt and a checkout into a verdict.
@@ -337,8 +487,10 @@ impl Reviewer for Router {
         ctx: &Path,
         discussion: &str,
     ) -> Result<Verdict> {
-        self.engine(cfg, pr)?
-            .ask(cfg, pr, wt, ctx, discussion, self.platform)
+        let primary = cfg.engine_for(&pr.repo, &self.me);
+        with_fallback(cfg, &pr.key(), &primary, |name| {
+            engine_named(cfg, name)?.ask(cfg, pr, wt, ctx, discussion, self.platform)
+        })
     }
 
     fn cleanup(&self, pr: &Pr, wt: &Path) {
@@ -439,5 +591,121 @@ mod tests {
         .unwrap();
         assert!(!plain.contains_key("GIT_CONFIG_COUNT"));
         assert_eq!(plain["GIT_TERMINAL_PROMPT"], "0");
+    }
+
+    #[test]
+    fn engine_errors_are_sorted() {
+        let now = 1_000_000.0;
+        assert_eq!(
+            classify(
+                "Claude returned an error: \"Claude AI usage limit reached|1000900\"",
+                now
+            ),
+            Trouble::Quota { until: None } // not ten digits: no time
+        );
+        assert_eq!(
+            classify(
+                "Claude returned an error: \"Claude AI usage limit reached|1736280000\"",
+                1_736_270_000.0
+            ),
+            Trouble::Quota {
+                until: Some(1_736_280_000.0)
+            }
+        );
+        assert_eq!(
+            classify(
+                "Codex exited 1: You've hit your usage limit. Try again in 2 hours 5 minutes.",
+                now
+            ),
+            Trouble::Quota {
+                until: Some(now + 7500.0)
+            }
+        );
+        assert_eq!(
+            classify(
+                "Gemini exited 1: 429 RESOURCE_EXHAUSTED. Please retry in 30s.",
+                now
+            ),
+            Trouble::Quota {
+                until: Some(now + 60.0)
+            } // at least a minute
+        );
+        assert_eq!(
+            classify("HTTP 429 Too Many Requests", now),
+            Trouble::Quota { until: None }
+        );
+        // "resets 3pm": the next 3 pm on this machine, within a day
+        let Trouble::Quota { until: Some(t) } =
+            classify("You've hit your limit · resets 3pm (Asia/Shanghai)", now)
+        else {
+            panic!("no reset time")
+        };
+        use chrono::{Local, TimeZone, Timelike};
+        let lt = Local.timestamp_opt(t as i64, 0).unwrap();
+        assert!((lt.hour(), lt.minute()) == (15, 0) && t > now && t <= now + 86400.0);
+        assert_eq!(
+            classify("Your credit balance is too low", now),
+            Trouble::Quota { until: None }
+        );
+        assert_eq!(
+            classify("Claude Code (\"claude\") not found on PATH", now),
+            Trouble::Unavailable
+        );
+        assert_eq!(
+            classify("Invalid API key · Please run /login", now),
+            Trouble::Unavailable
+        );
+        assert_eq!(
+            classify("HTTP 401: unauthorized", now),
+            Trouble::Unavailable
+        );
+        assert_eq!(
+            classify("Claude did not finish within 20 minutes", now),
+            Trouble::Other
+        );
+        assert_eq!(
+            classify("Claude gave no structured verdict: line 1429", now),
+            Trouble::Other
+        );
+    }
+
+    #[test]
+    fn the_fallback_engine_steps_in_only_when_the_first_cannot_run() {
+        use std::cell::RefCell;
+        let mut cfg = Config::default();
+        let ran = RefCell::new(vec![]);
+        let run = |fail: &'static str| {
+            let ran = &ran;
+            move |name: &str| -> Result<Verdict> {
+                ran.borrow_mut().push(name.to_string());
+                if name == "claude" {
+                    anyhow::bail!("{fail}")
+                }
+                Ok(crate::review::tests::clean())
+            }
+        };
+        // none set: the error stands
+        assert!(with_fallback(&cfg, "k", "claude", run("usage limit reached")).is_err());
+        cfg.review.fallback = "codex".into();
+        // out of quota, signed out: the fallback reviews
+        for msg in [
+            "usage limit reached",
+            "Claude Code (\"claude\") not found on PATH",
+        ] {
+            ran.borrow_mut().clear();
+            assert!(with_fallback(&cfg, "k", "claude", run(msg)).is_ok());
+            assert_eq!(*ran.borrow(), ["claude", "codex"]);
+        }
+        // a timeout: no fallback
+        ran.borrow_mut().clear();
+        assert!(
+            with_fallback(&cfg, "k", "claude", run("did not finish within 20 minutes")).is_err()
+        );
+        assert_eq!(*ran.borrow(), ["claude"]);
+        // the fallback is the engine that failed: not run twice
+        ran.borrow_mut().clear();
+        cfg.review.fallback = "claude".into();
+        assert!(with_fallback(&cfg, "k", "claude", run("usage limit reached")).is_err());
+        assert_eq!(*ran.borrow(), ["claude"]);
     }
 }

@@ -116,6 +116,8 @@ struct Row {
     reasons: Vec<String>,
     review_url: Option<String>,
     error: Option<String>,
+    /// A retry waits for the engine's quota until this time (unix seconds); 0 = not waiting for quota.
+    wait_until: f64,
     at: f64,
 }
 
@@ -163,6 +165,7 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
         reasons: e.reasons.iter().map(|r| reason_text(lang, r)).collect(),
         review_url: e.review_url.clone(),
         error: e.error.clone(),
+        wait_until: if e.waits > 0 && e.status == "retry" { e.retry_at } else { 0.0 },
         at: e.posted_at.max(e.queued_at).max(e.direct_at),
     }
 }
@@ -678,7 +681,8 @@ async fn track_pr(pr: String) -> Result<String, String> {
         .append(true)
         .open(&p)
         .map_err(|e| e.to_string())?;
-    writeln!(f, "{key}").map_err(|e| e.to_string())?;
+    // "!": review it again if its last review of this commit failed or is waiting for the engine
+    writeln!(f, "{key}!").map_err(|e| e.to_string())?;
     // wake the account's worker now instead of at its next poll
     let _ = std::fs::write(crate::daemon::wake_file(&p), "");
     Ok(key)
@@ -978,8 +982,11 @@ mod tests {
 
     /// The Windows fix must open a console running exactly the command (regression: `start Nod …` ran a
     /// program called Nod instead).
+    /// Ignored by default: it really opens a console window, which pops up on the desktop at every `cargo test`.
+    /// Run it on purpose with `cargo test windows_terminal_runs_the_command -- --ignored`.
     #[cfg(windows)]
     #[test]
+    #[ignore = "opens a real console window"]
     fn windows_terminal_runs_the_command() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("ran.txt");

@@ -100,6 +100,7 @@ impl Daemon {
                 e.action_msg.clear();
                 e.attempts = 0;
                 e.post_attempts = 0;
+                e.waits = 0;
                 e.error = None;
                 e.reviewed_at = 0.0;
                 e.event = None;
@@ -108,6 +109,7 @@ impl Daemon {
             }
             e.sha = pr.head.clone();
             e.status = "queued".into();
+            e.retry_at = 0.0;
             e.queued_at = now();
             e.title = pr.title.clone();
             e.url = pr.url.clone();
@@ -133,8 +135,10 @@ impl Daemon {
         }
         self.engine.refresh(&key, None, false);
         self.engine.review_one(pr);
+        // A retry that has to wait (out of quota, or a pause after an error) is left as "retry"; the poll picks it
+        // up once its time comes.
         let retry = self.store().with(&key, |e| {
-            if e.status == "retry" {
+            if e.status == "retry" && !e.waiting() {
                 e.status = "queued".into();
                 true
             } else {
@@ -190,6 +194,12 @@ impl Daemon {
         if let Some(text) = text {
             let mut keep = vec![];
             for line in text.split_whitespace() {
+                // "o/r#1!" = the user asked for a review just now (the "Review" dialog): a failed or waiting review of
+                // the same commit starts over. The line is kept without the mark, so it happens once.
+                let (line, again) = match line.strip_suffix('!') {
+                    Some(l) => (l, true),
+                    None => (line, false),
+                };
                 let Ok((r, n)) = parse_key(line) else {
                     continue;
                 };
@@ -209,8 +219,13 @@ impl Daemon {
                     continue; // merged or closed: stop tracking
                 }
                 keep.push(line.to_string());
-                let e = self.store().get(&pr.key()).unwrap_or_default();
-                if !pr.draft && !(e.sha == pr.head && e.status != "retry") {
+                let mut e = self.store().get(&pr.key()).unwrap_or_default();
+                if again && e.sha == pr.head && ["failed", "retry"].contains(&e.status.as_str()) {
+                    info!("{line}: reviewing again on request");
+                    self.store().with(&pr.key(), |e| e.reset_for_retry());
+                    e.reset_for_retry();
+                }
+                if !pr.draft && !(e.sha == pr.head && (e.status != "retry" || e.waiting())) {
                     todo.push(pr);
                 }
             }
@@ -276,8 +291,8 @@ impl Daemon {
             let Some(e) = self.store().get(&key) else {
                 continue;
             };
-            if !["queued", "reviewing", "retry"].contains(&e.status.as_str()) {
-                continue;
+            if !["queued", "reviewing", "retry"].contains(&e.status.as_str()) || e.waiting() {
+                continue; // a waiting retry keeps its time; the poll picks it up then
             }
             if parse_key(&key).is_ok_and(|(r, _)| !self.engine.allowed(&r)) {
                 self.store()

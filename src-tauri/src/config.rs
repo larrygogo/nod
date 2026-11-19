@@ -37,6 +37,9 @@ pub struct Review {
     pub engine: String,
     /// Use another engine for some repositories (first match wins).
     pub per_repo: Vec<EngineRule>,
+    /// Review with this engine when the chosen one cannot run (out of quota, signed out, not installed); "" = none,
+    /// wait for it instead.
+    pub fallback: String,
     /// Claude Code (the original settings, kept at the top level of [review] for older files).
     pub claude: String,
     pub claude_config_dir: String,
@@ -128,6 +131,7 @@ impl Default for Review {
         Review {
             engine: "claude".into(),
             per_repo: vec![],
+            fallback: String::new(),
             claude: "claude".into(),
             claude_config_dir: String::new(),
             model: String::new(),
@@ -545,6 +549,12 @@ impl Config {
             errs.push(format!(
                 "review.engine must be one of {ENGINES:?}, got {:?}",
                 self.review.engine
+            ));
+        }
+        if !self.review.fallback.is_empty() && !engine_ok(&self.review.fallback) {
+            errs.push(format!(
+                "review.fallback must be empty or one of {ENGINES:?}, got {:?}",
+                self.review.fallback
             ));
         }
         for rule in &self.review.per_repo {

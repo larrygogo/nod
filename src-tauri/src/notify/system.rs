@@ -50,11 +50,14 @@ impl SystemNotifier {
             (_, Some("APPROVE")) => ("approve", t(l, "sys.approved")),
             (_, Some(_)) => ("comment", t(l, "sys.commented")),
             ("failed", _) => ("failed", t(l, "sys.failed")),
+            // once per commit: the engine is out of quota and Nod waits for it
+            ("retry", _) if e.waits > 0 => ("wait", t(l, "sys.waiting")),
             _ => return None,
         };
         let sig = format!("{kind}:{}", e.sha);
         let body = match (&e.verdict, e.error.as_deref()) {
             (_, Some(err)) if kind == "failed" => crate::util::truncate(err, 160),
+            _ if kind == "wait" => e.note.as_ref().map(|n| n.text.clone()).unwrap_or_default(),
             (Some(v), _) => crate::util::truncate(&v.summary, 160),
             _ => String::new(),
         };

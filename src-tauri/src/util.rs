@@ -337,6 +337,19 @@ pub fn hhmm(ts: f64) -> String {
         .unwrap_or_default()
 }
 
+/// A local time for a message: "15:30" today, "11-20 15:30" on another day.
+pub fn clock(ts: f64) -> String {
+    use chrono::TimeZone;
+    let Some(t) = chrono::Local.timestamp_opt(ts as i64, 0).single() else {
+        return String::new();
+    };
+    if t.date_naive() == chrono::Local::now().date_naive() {
+        t.format("%H:%M").to_string()
+    } else {
+        t.format("%m-%d %H:%M").to_string()
+    }
+}
+
 pub fn which(name: &str) -> Option<std::path::PathBuf> {
     let p = Path::new(name);
     if p.components().count() > 1 {

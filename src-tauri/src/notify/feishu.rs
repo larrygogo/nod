@@ -148,6 +148,7 @@ pub fn headline(lang: &str, e: &Entry, st: Option<&PrStatus>) -> (String, &'stat
         (Some("closed"), _) if !posted => (t(lang, "status.closed"), "grey"),
         (_, "direct_approved") => (t(lang, "status.direct"), "green"),
         (_, "queued" | "") => (t(lang, "status.queued"), "blue"),
+        (_, "retry") if e.waits > 0 => (t(lang, "status.waiting"), "orange"),
         (_, "reviewing" | "reviewed" | "retry") => (t(lang, "status.reviewing"), "blue"),
         (_, "awaiting_ci") => (t(lang, "status.awaiting_ci"), "blue"),
         (_, "out_of_scope") => (t(lang, "status.out_of_scope"), "grey"),
@@ -287,6 +288,7 @@ pub fn render(
             &tf(lang, "card.queued", &[("since", &since(e.queued_at))]),
             "normal",
         )),
+        "retry" if e.waits > 0 => {} // the note below says what it waits for
         "reviewing" | "reviewed" | "retry" => els.push(md(
             &tf(
                 lang,
@@ -350,6 +352,11 @@ pub fn render(
         };
         els.push(md(
             &format!("<font color='red'>{}</font>", truncate(&text, 400)),
+            "normal",
+        ));
+    } else if note.kind == "wait" && e.status == "retry" {
+        els.push(md(
+            &format!("<font color='orange'>{}</font>", note.text),
             "normal",
         ));
     } else if let Some((_, extra)) = note.text.split_once('\n') {

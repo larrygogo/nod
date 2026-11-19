@@ -200,10 +200,14 @@ export function PluginsPage() {
   } else if (current.startsWith("engine:")) {
     const p = engines.find((e) => `engine:${e.id}` === current);
     const isDefault = draft.review.engine === p?.id;
+    const isFallback = !isDefault && draft.review.fallback === p?.id;
     pane = p && (
-      <Pane key={p.id} p={p}
-        control={isDefault ? <Badge tone="good">{t("pl.default")}</Badge>
-          : <Button onClick={() => edit((c) => { c.review.engine = p.id; })}>{t("pl.use_default")}</Button>}
+      <Pane key={p.id} p={p} sub={isFallback ? t("pl.fallback_help") : undefined}
+        control={isDefault ? <Badge tone="good">{t("pl.default")}</Badge> : <>
+          <Button kind="quiet" title={t("pl.fallback_help")}
+            onClick={() => edit((c) => { c.review.fallback = isFallback ? "" : p.id; })}>{t(isFallback ? "pl.no_fallback" : "pl.use_fallback")}</Button>
+          <Button onClick={() => edit((c) => { c.review.engine = p.id; if (c.review.fallback === p.id) c.review.fallback = ""; })}>{t("pl.use_default")}</Button>
+        </>}
         onCheck={() => api.checkPlugin(draft, "engine", p.id, cleared)}>
         {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName} />}
       </Pane>
@@ -243,7 +247,8 @@ export function PluginsPage() {
           </Group>
           <Group title={t("pl.engines")} help={t("pl.engines_help")}>
             {engines.map((p) => <Item key={p.id} icon={p.icon} name={p.name}
-              state={draft.review.engine === p.id ? <span class="onoff on">{t("pl.default")}</span> : undefined}
+              state={draft.review.engine === p.id ? <span class="onoff on">{t("pl.default")}</span>
+                : draft.review.fallback === p.id ? <span class="onoff">{t("pl.fallback")}</span> : undefined}
               selected={isSel(`engine:${p.id}`)} onClick={() => pick(`engine:${p.id}`)} />)}
             <Item icon="rules" name={t("pl.per_repo")}
               sub={rules.length ? rules.map((r) => `${r.repo || "…"} → ${name(r.engine)}`).join(", ") : t("pl.rules_none")}

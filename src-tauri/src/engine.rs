@@ -56,6 +56,12 @@ pub struct Entry {
     pub note: Option<Note>,
     pub attempts: u32,
     pub post_attempts: u32,
+    /// Times the engine said it is out of quota (or rate limited) for this commit. These do not use up attempts.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub waits: u32,
+    /// A retry waits until this time (unix seconds); 0 = may run now.
+    #[serde(skip_serializing_if = "is_zero_f")]
+    pub retry_at: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub queued_at: f64,
@@ -93,7 +99,31 @@ pub struct Entry {
     pub extra: HashMap<String, Value>,
 }
 
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+fn is_zero_f(n: &f64) -> bool {
+    *n == 0.0
+}
+
 impl Entry {
+    /// A retry that is still waiting (out of quota, or a pause after an error).
+    pub fn waiting(&self) -> bool {
+        self.status == "retry" && self.retry_at > now()
+    }
+
+    /// Start over on the same commit: the user asked for another review of a failed or waiting one.
+    pub fn reset_for_retry(&mut self) {
+        self.attempts = 0;
+        self.post_attempts = 0;
+        self.waits = 0;
+        self.retry_at = 0.0;
+        self.error = None;
+        self.note = None;
+        self.status = "retry".into();
+    }
+
     /// The PR was merged or closed. Reasons computed for a review that was never posted (e.g. while waiting for
     /// CI) no longer explain anything, and would read as if Nod blocked an approval; replace or drop them.
     pub fn mark_closed(&mut self) {
@@ -207,6 +237,14 @@ pub fn card_kind(event: &str, reasons: &[String]) -> &'static str {
     } else {
         "comment"
     }
+}
+
+/// Pause before trying again after an ordinary error, so a passing hiccup does not use up both attempts at once.
+pub const RETRY_PAUSE_S: f64 = 60.0;
+
+/// Wait after the `n`th "out of quota" without a reset time: 15 minutes, doubling, at most 6 hours.
+pub fn quota_backoff(n: u32) -> f64 {
+    (900.0 * 2f64.powi(n.saturating_sub(1).min(10) as i32)).min(6.0 * 3600.0)
 }
 
 const RECALL: [&str; 5] = ["posted", "stale", "direct_approved", "aborted", "retry"];
@@ -390,7 +428,7 @@ impl Engine {
                 if now() - e.started_at < (self.cfg.review.timeout_min + 10.0) * 60.0 {
                     continue;
                 }
-            } else if same && DONE_FOR_SHA.contains(&e.status.as_str()) {
+            } else if same && (DONE_FOR_SHA.contains(&e.status.as_str()) || e.waiting()) {
                 continue;
             }
             if !same && ["posted", "direct_approved", "aborted"].contains(&e.status.as_str()) {
@@ -459,6 +497,12 @@ impl Engine {
                     }
                     e.verdict = Some(v);
                     e.verdict_sha = pr.head.clone();
+                    e.waits = 0;
+                    e.retry_at = 0.0;
+                    e.error = None;
+                    if e.note.as_ref().is_some_and(|n| n.kind == "wait") {
+                        e.note = None;
+                    }
                     e.status = "reviewed".into();
                     e.reviewed_at = now();
                     true
@@ -491,25 +535,42 @@ impl Engine {
                     return;
                 }
                 error!("{key}: review failed: {err:#}");
-                let (failed, note) = self.store.with(&key, |e| {
-                    e.error = Some(truncate(&format!("{err:#}"), 800));
-                    if e.attempts >= self.cfg.review.max_attempts {
-                        e.status = "failed".into();
-                        (true, self.stale_approve_note(e))
-                    } else {
+                let text = format!("{err:#}");
+                let trouble = crate::reviewer::classify(&text, now());
+                let (failed, first_wait, note) = self.store.with(&key, |e| {
+                    e.error = Some(truncate(&text, 800));
+                    if let crate::reviewer::Trouble::Quota { until } = trouble {
+                        // The engine will work again by itself: wait for it, without using up an attempt.
+                        e.attempts = e.attempts.saturating_sub(1);
+                        e.waits += 1;
+                        e.retry_at = until.unwrap_or_else(|| now() + quota_backoff(e.waits));
                         e.status = "retry".into();
-                        (false, String::new())
+                        (false, e.waits == 1, String::new())
+                    } else if e.attempts >= self.cfg.review.max_attempts {
+                        e.status = "failed".into();
+                        (true, false, self.stale_approve_note(e))
+                    } else {
+                        e.retry_at = now() + RETRY_PAUSE_S;
+                        e.status = "retry".into();
+                        (false, false, String::new())
                     }
                 });
                 self.store.save();
+                if first_wait {
+                    let engine = review::engine_name(&self.cfg.engine_for(&pr.repo, &self.me));
+                    let until = self.store.get(&key).map(|e| e.retry_at).unwrap_or_default();
+                    let msg = tf(
+                        self.lang(),
+                        "note.quota_wait",
+                        &[("engine", &engine), ("at", &util::clock(until))],
+                    );
+                    self.note(&key, "wait", &msg, None);
+                }
                 if failed {
                     let msg = tf(
                         self.lang(),
                         "note.review_failed",
-                        &[
-                            ("n", &attempts.to_string()),
-                            ("err", &truncate(&format!("{err:#}"), 400)),
-                        ],
+                        &[("n", &attempts.to_string()), ("err", &truncate(&text, 400))],
                     );
                     self.note(&key, "manual", &(msg + &note), None);
                 }

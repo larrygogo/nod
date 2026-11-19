@@ -7,7 +7,15 @@ import { ago, has, t, type Key } from "../i18n";
 import { Badge, Button, Dialog, Empty, Note, Segmented, TextInput, errText } from "../ui";
 
 /** Nod's review result. The PR's own state (merged, closed) is shown apart, by prState. */
+/** "15:30" today, "11-20 15:30" another day. */
+export function clock(ts: number): string {
+  const d = new Date(ts * 1000), now = new Date();
+  const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  return d.toDateString() === now.toDateString() ? hm : `${d.getMonth() + 1}-${d.getDate()} ${hm}`;
+}
+
 export function statusLabel(r: Row): string {
+  if (r.status === "retry" && r.wait_until > 0) return t("st.waiting");
   const k = (r.status === "posted" || r.status === "closed") && r.event ? `st.posted.${r.event}`
     : r.status === "closed" ? "st.not_posted" : `st.${r.status}`;
   return has(k) ? t(k) : r.status;
@@ -21,6 +29,7 @@ export function prState(r: Row): { text: string; tone: string } | null {
 export function tone(r: Row): string {
   if (r.status === "direct_approved" || r.event === "APPROVE") return "good";
   if (r.status === "failed") return "bad";
+  if (r.status === "retry" && r.wait_until > 0) return "warn";
   if (["queued", "reviewing", "awaiting_ci", "retry"].includes(r.status)) return "busy";
   if (r.event === "COMMENT") return "warn";
   return "muted";
@@ -109,7 +118,15 @@ export function ReviewsPage() {
 }
 
 export function Detail({ r }: { r: Row }) {
-  const { catalog } = useStore();
+  const { catalog, toast, refresh } = useStore();
+  const [busy, setBusy] = useState(false);
+  const waiting = r.status === "retry" && r.wait_until > 0;
+  const again = async () => {
+    setBusy(true);
+    try { await api.track(r.url || r.key); toast(t("rv.again_started")); setTimeout(refresh, 800); }
+    catch (e) { toast(errText(e), "bad"); }
+    finally { setBusy(false); }
+  };
   const pname = (id: string) => catalog.find((p) => p.id === id)?.name ?? id;
   const engineIcon = catalog.find((p) => p.id === r.engine)?.icon ?? "plugin";
   return (
@@ -128,11 +145,14 @@ export function Detail({ r }: { r: Row }) {
         <div class="detail-actions">
           {r.url && <Button small icon="external" onClick={() => api.url(r.url)}>{t("btn.open_pr")}</Button>}
           {r.review_url && <Button small icon="external" onClick={() => api.url(r.review_url!)}>{t("btn.open_review")}</Button>}
+          {(r.status === "failed" || waiting) && r.pr_state !== "merged" && r.pr_state !== "closed"
+            && <Button small icon="refresh" disabled={busy} onClick={again}>{t("rv.again")}</Button>}
         </div>
       </header>
       {r.summary && <p class="summary">{r.summary}</p>}
       {!r.summary && !r.error && tone(r) === "busy" && <p class="muted">{t("rv.waiting")}</p>}
-      {r.error && <Note tone="bad">{r.error}</Note>}
+      {waiting && <Note tone="warn">{t("rv.quota_wait", { at: clock(r.wait_until) })}</Note>}
+      {r.error && (waiting ? <p class="muted small" style={{ wordBreak: "break-word" }}>{r.error}</p> : <Note tone="bad">{r.error}</Note>)}
       {r.reasons.length > 0 && (
         <section><h3>{t("rv.blocked")}</h3><ul class="reasons">{r.reasons.map((x) => <li>{x}</li>)}</ul></section>
       )}

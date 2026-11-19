@@ -14,7 +14,8 @@ claude = "claude"            # Claude Code executable
 claude_config_dir = ""       # CLAUDE_CONFIG_DIR for a non-default Claude Code profile
 model = ""                   # empty = Claude Code's default model
 timeout_min = 25
-max_attempts = 2
+max_attempts = 2             # tries per commit before giving up; "out of quota" / rate limits do not count
+fallback = ""                # engine to use when the chosen one is out of quota, signed out or not installed
 ci_wait_max_min = 60         # a clean verdict waits this long for running CI before posting
 ci_none_grace_min = 10       # a repository with no checks at all is treated as passing after this long
 rereview_days = 14           # re-review PRs you already reviewed when new commits arrive, for this many days

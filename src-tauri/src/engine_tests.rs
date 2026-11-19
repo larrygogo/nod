@@ -38,6 +38,8 @@ struct World {
     dismissed: Vec<u64>,
     updates: Vec<(String, String)>,
     claude_fail: bool,
+    /// The engine's error when `claude_fail` (default "boom").
+    fail_msg: String,
 }
 
 #[derive(Clone)]
@@ -140,12 +142,12 @@ impl Reviewer for Fake {
         Ok(("wt".into(), "ctx".into()))
     }
     fn ask(&self, _: &Config, pr: &Pr, _: &Path, _: &Path, _: &str) -> Result<Verdict> {
-        let (proc_, fail) = {
+        let (proc_, fail, msg) = {
             let w = self.w();
-            (w.claude_proc, w.claude_fail)
+            (w.claude_proc, w.claude_fail, w.fail_msg.clone())
         };
         if fail {
-            bail!("boom");
+            bail!("{}", if msg.is_empty() { "boom" } else { &msg });
         }
         if proc_ {
             // a real child process, so "Approve now" has something to kill
@@ -258,6 +260,119 @@ fn failure_retries_then_notifies() {
     assert_eq!(e(&en).status, "failed");
     assert_eq!(f.w().updates.last().unwrap().1, "manual");
     assert!(f.w().posts.is_empty());
+}
+
+#[test]
+fn an_ordinary_failure_pauses_before_the_retry() {
+    let (f, en, _d) = setup();
+    f.w().claude_fail = true;
+    en.review_one(&f.pr());
+    let x = e(&en);
+    assert!(
+        x.waiting() && x.retry_at > util::now() + 30.0,
+        "retries after a pause"
+    );
+    assert_eq!(
+        en.collect_todo().unwrap().len(),
+        0,
+        "not picked up while it waits"
+    );
+}
+
+#[test]
+fn out_of_quota_waits_without_using_up_attempts() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        w.claude_fail = true;
+        w.fail_msg =
+            "Claude returned an error: \"Claude AI usage limit reached|9999999999\"".into();
+        w.requested = vec![("o/r".into(), 1)];
+    }
+    for _ in 0..4 {
+        en.review_one(&f.pr());
+    }
+    let x = e(&en);
+    assert_eq!(
+        (x.status.as_str(), x.attempts, x.waits),
+        ("retry", 0, 4),
+        "never gives up on a quota"
+    );
+    assert!(
+        x.waiting() && x.retry_at <= util::now() + 86400.0 + 1.0,
+        "waits, at most a day"
+    );
+    assert_eq!(x.note.as_ref().unwrap().kind, "wait");
+    assert!(f.w().posts.is_empty(), "nothing approved while it waits");
+    assert_eq!(en.collect_todo().unwrap().len(), 0);
+
+    // the time comes: picked up again, and a good review clears the wait
+    en.store.with("o/r#1", |e| e.retry_at = util::now() - 1.0);
+    assert_eq!(en.collect_todo().unwrap().len(), 1);
+    f.w().claude_fail = false;
+    en.review_one(&f.pr());
+    let x = e(&en);
+    assert_eq!(
+        (x.status.as_str(), x.waits, x.note.unwrap().kind.as_str()),
+        ("posted", 0, "comment")
+    );
+}
+
+#[test]
+fn quota_backoff_doubles_up_to_six_hours() {
+    use crate::engine::quota_backoff;
+    assert_eq!(quota_backoff(1), 900.0);
+    assert_eq!(quota_backoff(2), 1800.0);
+    assert_eq!(quota_backoff(10), 6.0 * 3600.0);
+    assert_eq!(quota_backoff(u32::MAX), 6.0 * 3600.0);
+}
+
+/// "Review" in the window on a PR whose review of this commit failed starts it over, once.
+#[test]
+fn reviewing_a_failed_pr_again_on_request() {
+    let (f, en, dir) = setup();
+    f.w().claude_fail = true;
+    en.review_one(&f.pr());
+    en.review_one(&f.pr());
+    assert_eq!(e(&en).status, "failed");
+    let track = dir.path().join("track.txt");
+    let en2 = Engine {
+        cfg: en.cfg.clone(),
+        store: en.store.clone(),
+        me: en.me.clone(),
+        forge: en.forge.clone(),
+        reviewer: en.reviewer.clone(),
+        notifier: en.notifier.clone(),
+    };
+    let d = Daemon::with_track("github", en2, track.clone());
+    std::fs::write(
+        &track, "o/r#1
+",
+    )
+    .unwrap();
+    d.poll_once().unwrap();
+    assert_eq!(
+        e(&en).status,
+        "failed",
+        "only following it does not review the same commit again"
+    );
+    std::fs::write(
+        &track, "o/r#1!
+",
+    )
+    .unwrap();
+    d.poll_once().unwrap();
+    let x = e(&en);
+    assert_eq!(
+        (x.status.as_str(), x.attempts),
+        ("queued", 0),
+        "asked again: starts over"
+    );
+    let text = std::fs::read_to_string(&track).unwrap();
+    assert!(
+        text.contains("o/r#1") && !text.contains('!'),
+        "once: {text}"
+    );
 }
 
 #[test]

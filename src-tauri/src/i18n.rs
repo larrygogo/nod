@@ -80,6 +80,7 @@ const TABLE: &[(&str, &str, &str)] = &[
         "审查内容疑似包含凭据（{kinds}），已拦截，没有发到 GitHub，也没有 approve。",
         "The review text looked like it contained credentials ({kinds}); it was not posted and the PR was not approved.",
     ),
+    ("note.quota_wait", "{engine} 额度用完或被限流，{at} 左右自动重试；恢复前不会 approve。", "{engine} is out of quota or rate limited; Nod tries again around {at} and does not approve until then."),
     ("note.system_failed", "自动审查整轮失败，没有审查任何 PR。原因：{err}", "A whole polling round failed; no PR was reviewed. Error: {err}"),
     // direct approve feedback
     ("direct.working", "⏳ 正在直接通过…", "⏳ Approving…"),
@@ -103,6 +104,7 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("status.approved", "已 approve", "Approved"),
     ("status.ready", "可以通过", "Looks good"),
     ("status.issues", "有问题", "Has issues"),
+    ("status.waiting", "等待引擎额度", "Waiting for engine quota"),
     ("status.manual", "需人工处理", "Needs attention"),
     ("status.out_of_scope", "不在审查范围", "Out of scope"),
     ("card.pr", "PR", "PR"),
@@ -160,6 +162,7 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("card.test_title", "Nod 连通测试", "Nod connectivity test"),
     ("sys.approved", "已 approve", "Approved"),
     ("sys.commented", "已评论", "Commented"),
+    ("sys.waiting", "引擎额度用完，稍后重试", "Engine out of quota; will retry"),
     ("sys.failed", "审查失败", "Review failed"),
     ("sys.direct", "已直接通过", "Approved directly"),
     ("robot.test_body", "能看到这条消息，说明机器人配置正确。", "If you can read this, the robot is configured correctly."),
