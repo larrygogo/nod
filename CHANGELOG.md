@@ -10,6 +10,8 @@ project uses [Semantic Versioning](https://semver.org/).
 - *Approve now* in the Reviews detail pane (two clicks), like the Feishu card's button: approves exactly the commit
   shown, as you; a newer push, your own PR or a closed one is refused, with the reason on the record.
 
+- *Review again* in the Reviews detail pane for any open PR that is not being reviewed: the current commit is
+  reviewed from scratch and its outcome posted again, whatever happened before (not only after a failure).
 - *Withdraw approval* in the Reviews detail pane (two clicks): dismisses the approvals Nod gave on the PR (its own and
   *Approve now*), so it can no longer be merged on them. Approvals given on GitHub itself are left alone.
 

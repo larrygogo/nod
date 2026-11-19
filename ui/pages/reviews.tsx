@@ -126,7 +126,7 @@ export function Detail({ r }: { r: Row }) {
   const waiting = r.status === "retry" && r.wait_until > 0;
   const again = async () => {
     setBusy(true);
-    try { await api.track(r.url || r.key); toast(t("rv.again_started")); setTimeout(refresh, 800); }
+    try { await api.track(r.url || r.key, true); toast(t("rv.again_started")); [800, 3000].forEach((ms) => setTimeout(refresh, ms)); }
     catch (e) { toast(errText(e), "bad"); }
     finally { setBusy(false); }
   };
@@ -178,7 +178,7 @@ export function Detail({ r }: { r: Row }) {
               {arming === "withdraw" ? t("rv.withdraw_confirm") : t("rv.withdraw")}
             </Button>
           )}
-          {(r.status === "failed" || waiting) && r.pr_state !== "merged" && r.pr_state !== "closed"
+          {open && r.pr_state !== "draft" && !["queued", "reviewing"].includes(r.status)
             && <Button small icon="refresh" disabled={busy} onClick={again}>{t("rv.again")}</Button>}
         </div>
       </header>

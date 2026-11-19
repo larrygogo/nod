@@ -406,6 +406,41 @@ fn approve_from_the_window() {
     assert!(!e(&en).action_msg.is_empty() && !e(&en).direct_busy);
 }
 
+/// "Review again": a commit that was already reviewed and posted is reviewed and posted once more, from scratch.
+#[test]
+fn review_again_starts_over_whatever_happened() {
+    let (f, en, dir) = setup();
+    en.review_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
+    let track = dir.path().join("track.txt");
+    let d = Daemon::with_track("github", with_cfg(&en, |_| {}), track.clone());
+    std::fs::write(
+        &track, "o/r#1!
+",
+    )
+    .unwrap();
+    d.poll_once().unwrap();
+    assert_eq!(
+        e(&en).status,
+        "posted",
+        "the Review dialog alone does not redo a posted review"
+    );
+    std::fs::write(
+        &track, "o/r#1!!
+",
+    )
+    .unwrap();
+    d.poll_once().unwrap();
+    let x = e(&en);
+    assert_eq!(
+        (x.status.as_str(), x.verdict.is_none(), x.event.is_none()),
+        ("queued", true, true)
+    );
+    f.w().verdict = Some(clean());
+    en.review_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["COMMENT", "APPROVE"]);
+}
+
 #[test]
 fn clean_pr_is_approved_and_remembered() {
     let (f, en, _d) = setup();

@@ -728,7 +728,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn track_pr(pr: String) -> Result<String, String> {
+async fn track_pr(pr: String, again: Option<bool>) -> Result<String, String> {
     let c = config::load_from(&paths::config_file(), false).map_err(|e| format!("{e:#}"))?;
     let (acc, r, n) = crate::forge::resolve(&c, &pr).map_err(|e| format!("{e:#}"))?;
     let key = format!("{r}#{n}");
@@ -776,8 +776,10 @@ async fn track_pr(pr: String) -> Result<String, String> {
         .append(true)
         .open(&p)
         .map_err(|e| e.to_string())?;
-    // "!": review it again if its last review of this commit failed or is waiting for the engine
-    writeln!(f, "{key}!").map_err(|e| e.to_string())?;
+    // "!": review it again if its last review of this commit failed or is waiting for the engine;
+    // "!!" ("Review again"): review this commit from scratch whatever happened before
+    let mark = if again == Some(true) { "!!" } else { "!" };
+    writeln!(f, "{key}{mark}").map_err(|e| e.to_string())?;
     // wake the account's worker now instead of at its next poll
     let _ = std::fs::write(crate::daemon::wake_file(&p), "");
     Ok(key)

@@ -236,10 +236,14 @@ impl Daemon {
             let mut keep = vec![];
             for line in text.split_whitespace() {
                 // "o/r#1!" = the user asked for a review just now (the "Review" dialog): a failed or waiting review of
-                // the same commit starts over. The line is kept without the mark, so it happens once.
-                let (line, again) = match line.strip_suffix('!') {
-                    Some(l) => (l, true),
-                    None => (line, false),
+                // the same commit starts over. "o/r#1!!" = "Review again": start over whatever happened before. The
+                // line is kept without the mark, so it happens once.
+                let (line, again, force) = if let Some(l) = line.strip_suffix("!!") {
+                    (l, true, true)
+                } else if let Some(l) = line.strip_suffix('!') {
+                    (l, true, false)
+                } else {
+                    (line, false, false)
                 };
                 let Ok((r, n)) = parse_key(line) else {
                     continue;
@@ -261,7 +265,15 @@ impl Daemon {
                 }
                 keep.push(line.to_string());
                 let mut e = self.store().get(&pr.key()).unwrap_or_default();
-                if again && e.sha == pr.head && ["failed", "retry"].contains(&e.status.as_str()) {
+                let busy = ["queued", "reviewing"].contains(&e.status.as_str());
+                if force && e.sha == pr.head && !busy {
+                    info!("{line}: reviewing again from scratch on request");
+                    self.store().with(&pr.key(), |e| e.reset_for_rereview());
+                    e.reset_for_rereview();
+                } else if again
+                    && e.sha == pr.head
+                    && ["failed", "retry"].contains(&e.status.as_str())
+                {
                     info!("{line}: reviewing again on request");
                     self.store().with(&pr.key(), |e| e.reset_for_retry());
                     e.reset_for_retry();

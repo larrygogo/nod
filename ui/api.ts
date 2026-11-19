@@ -59,7 +59,7 @@ export const api = {
   pause: (paused: boolean) => invoke<void>("set_paused", { paused }),
   restart: () => invoke<void>("restart_worker"),
   autostart: (on: boolean) => invoke<void>("set_autostart", { on }),
-  track: (pr: string) => invoke<string>("track_pr", { pr }),
+  track: (pr: string, again = false) => invoke<string>("track_pr", { pr, again }),
   importOld: () => invoke<string[]>("import_old"),
   open: (which: "config" | "data" | "log" | "plugins") => invoke<void>("open_location", { which }),
   url: (url: string) => invoke<void>("open_url", { url }).catch(() => {}),

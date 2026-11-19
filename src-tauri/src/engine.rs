@@ -130,6 +130,22 @@ impl Entry {
         self.status = "retry".into();
     }
 
+    /// "Review again" in the window: forget this commit's verdict and outcome and review it from scratch, whatever
+    /// happened before. Approvals already given stay on record (they can still be withdrawn).
+    pub fn reset_for_rereview(&mut self) {
+        self.reset_for_retry();
+        self.verdict = None;
+        self.verdict_sha.clear();
+        self.event = None;
+        self.reasons.clear();
+        self.comment_sha.clear();
+        self.ci_deadline = 0.0;
+        self.aborted = false;
+        self.aborted_review = false;
+        self.action_msg.clear();
+        self.card_final = false;
+    }
+
     /// The PR was merged or closed. Reasons computed for a review that was never posted (e.g. while waiting for
     /// CI) no longer explain anything, and would read as if Nod blocked an approval; replace or drop them.
     pub fn mark_closed(&mut self) {
