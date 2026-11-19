@@ -19,10 +19,10 @@ use crate::util::now;
 
 /// Client ID of the Nod GitHub App on github.com. GitHub Enterprise accounts register their own App and set the
 /// account's `client_id` setting.
-pub const DEFAULT_CLIENT_ID: &str = "";
+pub const DEFAULT_CLIENT_ID: &str = "Iv23lip8CKp47wxADecL";
 
 /// URL name (slug) of the Nod GitHub App on github.com, for the "install it on more accounts" link.
-pub const DEFAULT_APP_SLUG: &str = "";
+pub const DEFAULT_APP_SLUG: &str = "nod-review";
 
 /// Refresh this long before the access token expires.
 const REFRESH_MARGIN: f64 = 300.0;
@@ -839,6 +839,35 @@ mod tests {
         // the waiting message must not read as a network problem
         let e = "another Nod process is still renewing the GitHub sign-in; it will be tried again shortly";
         assert!(!crate::supervisor::is_network(e));
+    }
+
+    /// Real GitHub, run by hand: `cargo test live_device_flow -- --ignored --nocapture`, then authorize the printed
+    /// code at github.com/login/device. Tokens stay in the in-memory test keychain.
+    #[test]
+    #[ignore]
+    fn live_device_flow() {
+        crate::secrets::use_fake();
+        let hosts = Hosts::new("");
+        let d = start(&hosts, DEFAULT_CLIENT_ID).unwrap();
+        println!("USER_CODE={} URI={}", d.user_code, d.verification_uri);
+        let until = std::time::Instant::now() + Duration::from_secs(d.expires_in.min(600));
+        let mut wait = d.interval;
+        let t = loop {
+            assert!(std::time::Instant::now() < until, "not authorized in time");
+            std::thread::sleep(Duration::from_secs(wait));
+            match poll(&hosts, DEFAULT_CLIENT_ID, &d.device_code).unwrap() {
+                Poll::Pending => {}
+                Poll::SlowDown(i) => wait = i,
+                Poll::Done(t) => break t,
+                Poll::Failed(m) => panic!("{m}"),
+            }
+        };
+        println!("EXPIRES_IN_H={:.1} HAS_REFRESH={}", (t.expires_at - now()) / 3600.0, !t.refresh.is_empty());
+        save("live", &t.bind(&hosts, DEFAULT_CLIENT_ID)).unwrap();
+        let gh = crate::forge::github::Gh { session: std::sync::Arc::new(Session::new("live", hosts, DEFAULT_CLIENT_ID)) };
+        println!("LOGIN={}", crate::forge::Forge::current_user(&gh).unwrap());
+        println!("INSTALLATIONS={:?}", gh.installations().unwrap());
+        println!("REQUESTED={:?}", crate::forge::Forge::requested_prs(&gh, false).map_err(|e| e.to_string()));
     }
 
     #[test]
