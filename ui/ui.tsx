@@ -1,6 +1,7 @@
 // Small building blocks shared by every page.
 import type { ComponentChildren, JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { createPortal } from "preact/compat";
 import { Icon } from "./icons";
 import { t } from "./i18n";
 
@@ -308,7 +309,8 @@ export function Note({ tone = "info", children }: { tone?: "info" | "good" | "wa
 export function Dialog({ title, onClose, children, footer }: {
   title: string; onClose: () => void; children: ComponentChildren; footer?: ComponentChildren;
 }) {
-  return (
+  // drawn at the page root: a dialog opened inside a pane must not pick up the pane's styles or be clipped by it
+  return createPortal(
     <div class="overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
       <div class="dialog" role="dialog" aria-label={title}>
@@ -316,7 +318,8 @@ export function Dialog({ title, onClose, children, footer }: {
         <div class="dialog-body">{children}</div>
         {footer && <footer>{footer}</footer>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
