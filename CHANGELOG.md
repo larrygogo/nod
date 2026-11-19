@@ -3,6 +3,18 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- *Approve now* in the Reviews detail pane (two clicks), like the Feishu card's button: approves exactly the commit
+  shown, as you; a newer push, your own PR or a closed one is refused, with the reason on the record.
+
+### Changed
+
+- A record whose earlier approval (Nod's or yours) still counts on GitHub shows *Approved*; the overview flags it
+  when the latest commit did not pass.
+
 ## [0.1.0] - 2026-11-19
 
 First public release: a desktop app.

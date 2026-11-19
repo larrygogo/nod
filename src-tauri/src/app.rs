@@ -135,8 +135,12 @@ struct Row {
     error: Option<String>,
     /// A retry waits for the engine's quota until this time (unix seconds); 0 = not waiting for quota.
     wait_until: f64,
-    /// The commit this record is about (short).
+    /// The commit this record is about (short), and in full (what "Approve" in the window approves).
     sha: String,
+    head: String,
+    /// The outcome of the last "Approve now" (an error, or why it was refused), and whether one is running.
+    action_msg: String,
+    direct_busy: bool,
     /// This commit was not approved, but an earlier approval of yours (Nod's, or "Approve now") still counts on the
     /// code host, so the PR can be merged on it.
     earlier_approved: bool,
@@ -191,6 +195,9 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
         error: e.error.clone(),
         wait_until: if e.waits > 0 && e.status == "retry" { e.retry_at } else { 0.0 },
         sha: e.sha.chars().take(7).collect(),
+        head: e.sha.clone(),
+        action_msg: e.action_msg.clone(),
+        direct_busy: e.direct_busy,
         earlier_approved: e.event.as_deref() != Some("APPROVE")
             && e.status != "direct_approved"
             && (!e.approve_ids.is_empty() || e.direct_approve_id.is_some())
@@ -663,6 +670,30 @@ fn set_autostart(app: AppHandle, on: bool) -> Result<(), String> {
 
 /// Review a PR nobody asked you to review (a link handed over in chat): checked here so a mistake shows at once,
 /// then queued for the account's worker, which wakes up for it and applies the usual approval rules.
+/// "Approve" in the window: approve exactly `sha` of `key` as you, like the button on the Feishu card. The account's
+/// worker does it (it owns the PR's record) and is woken at once; the outcome shows on the record.
+#[tauri::command]
+fn approve_pr(account: String, key: String, sha: String) -> Result<(), String> {
+    let ok = |c: char| c.is_ascii_alphanumeric() || "-_.#/".contains(c);
+    if key.is_empty()
+        || !key.chars().all(ok)
+        || sha.len() < 7
+        || !sha.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return Err("bad PR or commit".into());
+    }
+    let track = crate::daemon::track_file(&account);
+    let _ = std::fs::create_dir_all(paths::data_dir());
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(crate::daemon::approve_file(&track))
+        .map_err(|e| e.to_string())?;
+    writeln!(f, "{key} {sha}").map_err(|e| e.to_string())?;
+    let _ = std::fs::write(crate::daemon::wake_file(&track), "");
+    Ok(())
+}
+
 #[tauri::command]
 fn update_status() -> crate::update::State {
     crate::update::state()
@@ -924,6 +955,7 @@ pub fn run(hidden: bool) {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            approve_pr,
             update_status,
             check_update,
             install_update,

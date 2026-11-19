@@ -13,7 +13,7 @@ export interface Finding { severity: string; title: string; path: string; line: 
 export interface Row {
   account: string; platform: string; engine: string;
   key: string; title: string; url: string; author: string; status: string; pr_state: string; event: string | null;
-  summary: string | null; findings: Finding[]; reasons: string[]; review_url: string | null; error: string | null; wait_until: number; sha: string; earlier_approved: boolean; commented: boolean; at: number;
+  summary: string | null; findings: Finding[]; reasons: string[]; review_url: string | null; error: string | null; wait_until: number; sha: string; head: string; action_msg: string; direct_busy: boolean; earlier_approved: boolean; commented: boolean; at: number;
 }
 export interface Overview {
   version: string; configured: boolean; status: Status; rows: Row[]; legacy: string[]; old_install: boolean; autostart: boolean;
@@ -67,6 +67,7 @@ export const api = {
   githubLoginStart: (account: Account) => invoke<DeviceCode>("github_login_start", { account }),
   githubLoginPoll: (account: Account, deviceCode: string) => invoke<GithubPoll>("github_login_poll", { account, deviceCode }),
   githubLogout: (account: Account) => invoke<void>("github_logout", { account }),
+  approve: (account: string, key: string, sha: string) => invoke<void>("approve_pr", { account, key, sha }),
   updateStatus: () => invoke<UpdateState>("update_status"),
   checkUpdate: () => invoke<UpdateState>("check_update"),
   installUpdate: () => invoke<void>("install_update"),

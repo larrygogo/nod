@@ -130,6 +130,23 @@ export function Detail({ r }: { r: Row }) {
     catch (e) { toast(errText(e), "bad"); }
     finally { setBusy(false); }
   };
+  // "Approve" as you, like the Feishu card's button: two clicks, since it posts to GitHub in your name
+  const [arming, setArming] = useState(false);
+  const [sent, setSent] = useState(false);
+  useEffect(() => { setArming(false); setSent(false); }, [r.key, r.head]);
+  useEffect(() => { if (!arming) return; const id = setTimeout(() => setArming(false), 5000); return () => clearTimeout(id); }, [arming]);
+  const canApprove = !!r.head && r.pr_state !== "merged" && r.pr_state !== "closed" && r.pr_state !== "draft"
+    && r.status !== "direct_approved" && !(r.event === "APPROVE" && r.status === "posted");
+  const approve = async () => {
+    if (!arming) { setArming(true); return; }
+    setArming(false);
+    try {
+      await api.approve(r.account, r.key, r.head);
+      setSent(true);
+      toast(t("rv.approve_sent"));
+      [800, 2500, 6000].forEach((ms) => setTimeout(refresh, ms));
+    } catch (e) { toast(errText(e), "bad"); }
+  };
   const pname = (id: string) => catalog.find((p) => p.id === id)?.name ?? id;
   const engineIcon = catalog.find((p) => p.id === r.engine)?.icon ?? "plugin";
   return (
@@ -149,6 +166,11 @@ export function Detail({ r }: { r: Row }) {
           {r.url && <Button small icon="external" onClick={() => api.url(r.url)}>{t("btn.open_pr")}</Button>}
           {r.review_url && <Button small icon="external" onClick={() => api.url(r.review_url!)}>
             {t(r.status === "closed" && !r.event ? "btn.open_last_review" : "btn.open_review")}</Button>}
+          {canApprove && (
+            <Button small kind={arming ? "primary" : "ghost"} icon="check" busy={r.direct_busy || (sent && !r.action_msg)} onClick={approve}>
+              {arming ? t("rv.approve_confirm", { sha: r.sha }) : t("rv.approve")}
+            </Button>
+          )}
           {(r.status === "failed" || waiting) && r.pr_state !== "merged" && r.pr_state !== "closed"
             && <Button small icon="refresh" disabled={busy} onClick={again}>{t("rv.again")}</Button>}
         </div>
@@ -157,6 +179,7 @@ export function Detail({ r }: { r: Row }) {
       {r.status === "closed" && !r.event && r.summary && (
         <Note>{t(r.commented ? "rv.closed_commented" : r.earlier_approved ? "rv.not_posted_earlier" : "rv.not_posted", { sha: r.sha })}</Note>
       )}
+      {r.action_msg && !r.direct_busy && r.status !== "direct_approved" && <Note tone="warn">{r.action_msg}</Note>}
       {r.summary && <p class="summary">{r.summary}</p>}
       {!r.summary && !r.error && tone(r) === "busy" && <p class="muted">{t("rv.waiting")}</p>}
       {waiting && <Note tone="warn">{t("rv.quota_wait", { at: clock(r.wait_until) })}</Note>}

@@ -349,6 +349,43 @@ fn always_approve_list_still_skips_your_own_pr() {
     assert_eq!(f.w().posts, vec!["COMMENT"]);
 }
 
+/// "Approve" in the window: the worker approves exactly the commit the window showed, once.
+#[test]
+fn approve_from_the_window() {
+    let (f, en, dir) = setup();
+    en.review_one(&f.pr()); // bad(): commented, not approved
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
+    let track = dir.path().join("track.txt");
+    let d = Daemon::with_track("github", with_cfg(&en, |_| {}), track.clone());
+    std::fs::write(
+        crate::daemon::approve_file(&track),
+        format!(
+            "o/r#1 {HEAD}
+"
+        ),
+    )
+    .unwrap();
+    d.take_approvals();
+    assert_eq!(f.w().posts, vec!["COMMENT", "APPROVE"]);
+    assert_eq!(e(&en).status, "direct_approved");
+    d.take_approvals(); // handled once
+    assert_eq!(f.w().posts.len(), 2);
+
+    // a commit the window showed before a new push: refused, and the record says why
+    f.w().pr_head = "bbbbbbb2".into();
+    std::fs::write(
+        crate::daemon::approve_file(&track),
+        format!(
+            "o/r#1 {HEAD}
+"
+        ),
+    )
+    .unwrap();
+    d.take_approvals();
+    assert_eq!(f.w().posts.len(), 2);
+    assert!(!e(&en).action_msg.is_empty() && !e(&en).direct_busy);
+}
+
 #[test]
 fn clean_pr_is_approved_and_remembered() {
     let (f, en, _d) = setup();

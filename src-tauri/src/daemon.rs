@@ -169,7 +169,40 @@ impl Daemon {
             .unwrap();
     }
 
+    /// "Approve" in the window: `repo#n sha` lines the window drops in `approve_file`. Each is approved like the
+    /// Feishu card's button, for exactly that commit (a newer push, your own PR or a closed one is refused, and the
+    /// reason shows on the record).
+    pub fn take_approvals(&self) {
+        let path = approve_file(&self.track);
+        let taken = path.with_extension("taking");
+        if !(taken.exists() || fs::rename(&path, &taken).is_ok()) {
+            return;
+        }
+        let text = fs::read_to_string(&taken).unwrap_or_default();
+        let _ = fs::remove_file(&taken);
+        for line in text.lines() {
+            let mut it = line.split_whitespace();
+            let (Some(key), Some(sha)) = (it.next(), it.next()) else {
+                continue;
+            };
+            if self.store().get(key).is_none() {
+                warn!("{key}: approve from the window for an unknown PR; ignored");
+                continue;
+            }
+            info!(
+                "{key}: approve from the window @{}",
+                &sha[..8.min(sha.len())]
+            );
+            self.store().with(key, |e| {
+                e.direct_busy = true;
+                e.action_msg = t(&self.engine.cfg.language, "direct.working");
+            });
+            self.engine.direct_approve(key, sha);
+        }
+    }
+
     pub fn poll_once(&self) -> Result<()> {
+        self.take_approvals();
         for key in self.store().keys() {
             let Some(e) = self.store().get(&key) else {
                 continue;
@@ -420,6 +453,11 @@ pub fn wait_for_work(track: &std::path::Path, every: Duration) {
         }
         thread::sleep(tick);
     }
+}
+
+/// Where the window asks for approvals ("repo#n sha" per line), next to the track file.
+pub fn approve_file(track: &std::path::Path) -> std::path::PathBuf {
+    track.with_extension("approve")
 }
 
 /// The state file of an account: the original GitHub account keeps `state.json`.
