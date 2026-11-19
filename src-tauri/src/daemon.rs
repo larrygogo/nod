@@ -182,6 +182,14 @@ impl Daemon {
         let _ = fs::remove_file(&taken);
         for line in text.lines() {
             let mut it = line.split_whitespace();
+            if line.starts_with("withdraw ") {
+                // "withdraw repo#n": dismiss the approvals Nod gave on it
+                if let Some(key) = it.nth(1).filter(|k| self.store().get(k).is_some()) {
+                    self.store().with(key, |e| e.direct_busy = true);
+                    self.engine.withdraw_approvals(key);
+                }
+                continue;
+            }
             let (Some(key), Some(sha)) = (it.next(), it.next()) else {
                 continue;
             };

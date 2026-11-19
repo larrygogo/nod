@@ -141,6 +141,8 @@ struct Row {
     /// The outcome of the last "Approve now" (an error, or why it was refused), and whether one is running.
     action_msg: String,
     direct_busy: bool,
+    /// Approvals Nod gave on this PR (its own or "Approve now") that "Withdraw approval" can dismiss.
+    my_approvals: bool,
     /// This commit was not approved, but an earlier approval of yours (Nod's, or "Approve now") still counts on the
     /// code host, so the PR can be merged on it.
     earlier_approved: bool,
@@ -198,6 +200,7 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
         head: e.sha.clone(),
         action_msg: e.action_msg.clone(),
         direct_busy: e.direct_busy,
+        my_approvals: !e.approve_ids.is_empty() || e.direct_approve_id.is_some(),
         earlier_approved: e.event.as_deref() != Some("APPROVE")
             && e.status != "direct_approved"
             && (!e.approve_ids.is_empty() || e.direct_approve_id.is_some())
@@ -682,14 +685,29 @@ fn approve_pr(account: String, key: String, sha: String) -> Result<(), String> {
     {
         return Err("bad PR or commit".into());
     }
-    let track = crate::daemon::track_file(&account);
+    hand_to_worker(&account, &format!("{key} {sha}"))
+}
+
+/// "Withdraw approval" in the window: dismiss the approvals Nod gave on `key` (its own and "Approve now").
+#[tauri::command]
+fn withdraw_approval(account: String, key: String) -> Result<(), String> {
+    let ok = |c: char| c.is_ascii_alphanumeric() || "-_.#/".contains(c);
+    if key.is_empty() || !key.chars().all(ok) {
+        return Err("bad PR".into());
+    }
+    hand_to_worker(&account, &format!("withdraw {key}"))
+}
+
+/// One request for the account's worker (see `Daemon::take_approvals`), and wake it.
+fn hand_to_worker(account: &str, line: &str) -> Result<(), String> {
+    let track = crate::daemon::track_file(account);
     let _ = std::fs::create_dir_all(paths::data_dir());
     let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(crate::daemon::approve_file(&track))
         .map_err(|e| e.to_string())?;
-    writeln!(f, "{key} {sha}").map_err(|e| e.to_string())?;
+    writeln!(f, "{line}").map_err(|e| e.to_string())?;
     let _ = std::fs::write(crate::daemon::wake_file(&track), "");
     Ok(())
 }
@@ -956,6 +974,7 @@ pub fn run(hidden: bool) {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             approve_pr,
+            withdraw_approval,
             update_status,
             check_update,
             install_update,

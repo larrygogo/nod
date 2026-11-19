@@ -13,7 +13,7 @@ export interface Finding { severity: string; title: string; path: string; line: 
 export interface Row {
   account: string; platform: string; engine: string;
   key: string; title: string; url: string; author: string; status: string; pr_state: string; event: string | null;
-  summary: string | null; findings: Finding[]; reasons: string[]; review_url: string | null; error: string | null; wait_until: number; sha: string; head: string; action_msg: string; direct_busy: boolean; earlier_approved: boolean; commented: boolean; at: number;
+  summary: string | null; findings: Finding[]; reasons: string[]; review_url: string | null; error: string | null; wait_until: number; sha: string; head: string; action_msg: string; direct_busy: boolean; my_approvals: boolean; earlier_approved: boolean; commented: boolean; at: number;
 }
 export interface Overview {
   version: string; configured: boolean; status: Status; rows: Row[]; legacy: string[]; old_install: boolean; autostart: boolean;
@@ -68,6 +68,7 @@ export const api = {
   githubLoginPoll: (account: Account, deviceCode: string) => invoke<GithubPoll>("github_login_poll", { account, deviceCode }),
   githubLogout: (account: Account) => invoke<void>("github_logout", { account }),
   approve: (account: string, key: string, sha: string) => invoke<void>("approve_pr", { account, key, sha }),
+  withdraw: (account: string, key: string) => invoke<void>("withdraw_approval", { account, key }),
   updateStatus: () => invoke<UpdateState>("update_status"),
   checkUpdate: () => invoke<UpdateState>("check_update"),
   installUpdate: () => invoke<void>("install_update"),

@@ -131,19 +131,21 @@ export function Detail({ r }: { r: Row }) {
     finally { setBusy(false); }
   };
   // "Approve" as you, like the Feishu card's button: two clicks, since it posts to GitHub in your name
-  const [arming, setArming] = useState(false);
+  const [arming, setArming] = useState<"" | "approve" | "withdraw">("");
   const [sent, setSent] = useState(false);
-  useEffect(() => { setArming(false); setSent(false); }, [r.key, r.head]);
-  useEffect(() => { if (!arming) return; const id = setTimeout(() => setArming(false), 5000); return () => clearTimeout(id); }, [arming]);
+  useEffect(() => { setArming(""); setSent(false); }, [r.key, r.head, r.status]);
+  useEffect(() => { if (!arming) return; const id = setTimeout(() => setArming(""), 5000); return () => clearTimeout(id); }, [arming]);
+  const open = r.pr_state !== "merged" && r.pr_state !== "closed";
+  const canWithdraw = open && r.my_approvals;
   const canApprove = !!r.head && r.pr_state !== "merged" && r.pr_state !== "closed" && r.pr_state !== "draft"
     && r.status !== "direct_approved" && !(r.event === "APPROVE" && r.status === "posted");
-  const approve = async () => {
-    if (!arming) { setArming(true); return; }
-    setArming(false);
+  const act = async (what: "approve" | "withdraw") => {
+    if (arming !== what) { setArming(what); return; }
+    setArming("");
     try {
-      await api.approve(r.account, r.key, r.head);
+      if (what === "approve") await api.approve(r.account, r.key, r.head); else await api.withdraw(r.account, r.key);
       setSent(true);
-      toast(t("rv.approve_sent"));
+      toast(t(what === "approve" ? "rv.approve_sent" : "rv.withdraw_sent"));
       [800, 2500, 6000].forEach((ms) => setTimeout(refresh, ms));
     } catch (e) { toast(errText(e), "bad"); }
   };
@@ -167,8 +169,13 @@ export function Detail({ r }: { r: Row }) {
           {r.review_url && <Button small icon="external" onClick={() => api.url(r.review_url!)}>
             {t(r.status === "closed" && !r.event ? "btn.open_last_review" : "btn.open_review")}</Button>}
           {canApprove && (
-            <Button small kind={arming ? "primary" : "ghost"} icon="check" busy={r.direct_busy || (sent && !r.action_msg)} onClick={approve}>
-              {arming ? t("rv.approve_confirm", { sha: r.sha }) : t("rv.approve")}
+            <Button small kind={arming === "approve" ? "primary" : "ghost"} icon="check" busy={r.direct_busy || (sent && !r.action_msg)} onClick={() => act("approve")}>
+              {arming === "approve" ? t("rv.approve_confirm", { sha: r.sha }) : t("rv.approve")}
+            </Button>
+          )}
+          {canWithdraw && (
+            <Button small kind={arming === "withdraw" ? "danger" : "ghost"} icon="x" busy={r.direct_busy} onClick={() => act("withdraw")}>
+              {arming === "withdraw" ? t("rv.withdraw_confirm") : t("rv.withdraw")}
             </Button>
           )}
           {(r.status === "failed" || waiting) && r.pr_state !== "merged" && r.pr_state !== "closed"

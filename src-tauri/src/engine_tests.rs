@@ -371,6 +371,26 @@ fn approve_from_the_window() {
     d.take_approvals(); // handled once
     assert_eq!(f.w().posts.len(), 2);
 
+    // "Withdraw approval": the approval is dismissed and the record says so
+    f.w().reviews = vec![(2, "APPROVED".into())];
+    std::fs::write(
+        crate::daemon::approve_file(&track),
+        "withdraw o/r#1
+",
+    )
+    .unwrap();
+    d.take_approvals();
+    assert_eq!(f.w().dismissed, vec![2]);
+    let x = e(&en);
+    assert_eq!(
+        (x.status.as_str(), x.direct_approve_id, x.approve_ids.len()),
+        ("withdrawn", None, 0)
+    );
+    assert!(
+        en.collect_todo().unwrap().is_empty(),
+        "the same commit is not reviewed again"
+    );
+
     // a commit the window showed before a new push: refused, and the record says why
     f.w().pr_head = "bbbbbbb2".into();
     std::fs::write(

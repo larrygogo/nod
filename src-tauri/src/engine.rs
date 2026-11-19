@@ -256,8 +256,16 @@ pub fn quota_backoff(n: u32) -> f64 {
     (900.0 * 2f64.powi(n.saturating_sub(1).min(10) as i32)).min(6.0 * 3600.0)
 }
 
-const RECALL: [&str; 5] = ["posted", "stale", "direct_approved", "aborted", "retry"];
-const DONE_FOR_SHA: [&str; 7] = [
+const RECALL: [&str; 6] = [
+    "posted",
+    "stale",
+    "direct_approved",
+    "aborted",
+    "retry",
+    "withdrawn",
+];
+const DONE_FOR_SHA: [&str; 8] = [
+    "withdrawn",
     "posted",
     "failed",
     "awaiting_ci",
@@ -960,6 +968,71 @@ impl Engine {
     }
 
     // ------------------------------------------------------------ direct approval from a notification
+
+    /// "Withdraw approval" in the window: dismiss every approval Nod gave on this PR (its own and "Approve now"),
+    /// so the PR can no longer be merged on them. Approvals given elsewhere (on GitHub itself) are not Nod's to undo.
+    pub fn withdraw_approvals(&self, key: &str) {
+        let lock = self.store.pr_lock(key);
+        let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let lang = self.lang().to_string();
+        let res: Result<usize> = (|| {
+            let e = self.store.get(key).unwrap_or_default();
+            let mine: Vec<u64> = e
+                .approve_ids
+                .iter()
+                .copied()
+                .chain(e.direct_approve_id)
+                .collect();
+            let (r, n) = parse_key(key)?;
+            let pr = self.forge.fetch_pr(&r, n)?;
+            let live: Vec<u64> = self
+                .forge
+                .list_reviews(&pr)?
+                .into_iter()
+                .filter(|(id, st)| mine.contains(id) && st == "APPROVED")
+                .map(|x| x.0)
+                .collect();
+            for id in &live {
+                self.forge
+                    .dismiss_review(&pr, *id, &t(&lang, "review.withdrawn_msg"))?;
+                info!("{key}: withdrew approval {id} on request");
+            }
+            Ok(live.len())
+        })();
+        let msg = match res {
+            Ok(_) => {
+                self.store.with(key, |e| {
+                    e.approve_ids.clear();
+                    e.direct_approve_id = None;
+                    if e.event.as_deref() == Some("APPROVE") || e.status == "direct_approved" {
+                        e.event = None;
+                    }
+                    if e.status != "closed" {
+                        e.status = "withdrawn".into();
+                    }
+                    if let Some(st) = e.last_pr_status.as_mut() {
+                        st.decision = String::new(); // until the next refresh says what the code host thinks now
+                    }
+                });
+                String::new()
+            }
+            Err(err) => {
+                error!("{key}: withdrawing approval failed: {err:#}");
+                tf(
+                    &lang,
+                    "withdraw.failed",
+                    &[("err", &truncate(&format!("{err:#}"), 200))],
+                )
+            }
+        };
+        self.store.with(key, |e| {
+            e.action_msg = msg;
+            e.direct_busy = false;
+        });
+        self.store.save();
+        drop(_g);
+        self.refresh(key, None, true);
+    }
 
     /// Approve exactly `sha` as the user. Only after GitHub accepted it is the running review stopped.
     pub fn direct_approve(&self, key: &str, sha: &str) {

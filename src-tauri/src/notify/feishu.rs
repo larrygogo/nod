@@ -147,6 +147,7 @@ pub fn headline(lang: &str, e: &Entry, st: Option<&PrStatus>) -> (String, &'stat
         (Some("merged"), _) if !posted => (t(lang, "status.merged"), "violet"),
         (Some("closed"), _) if !posted => (t(lang, "status.closed"), "grey"),
         (_, "direct_approved") => (t(lang, "status.direct"), "green"),
+        (_, "withdrawn") => (t(lang, "status.withdrawn"), "grey"),
         (_, "queued" | "") => (t(lang, "status.queued"), "blue"),
         (_, "retry") if e.waits > 0 => (t(lang, "status.waiting"), "orange"),
         (_, "reviewing" | "reviewed" | "retry") => (t(lang, "status.reviewing"), "blue"),
