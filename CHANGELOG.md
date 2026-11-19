@@ -3,26 +3,6 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Added
-
-- Always approve (`[[approve.always]]` rules, Settings → Review; each a repository, an author, or both, which must
-  then both match): matching PRs are approved
-  whenever you are asked, whatever the review finds, without waiting for CI and even if the review fails; the
-  findings are still posted as comments. Your own PRs, drafts and closed PRs are still never approved.
-
-### Changed
-
-- An approval says why ("every approval rule passed" or "on the always-approve list"); the review signature no
-  longer lists the rules, which was incomplete. Settings spell out every approval rule.
-- Robot webhook addresses are shown as you type them (still kept in the keychain once saved); other secrets have an
-  eye to show what was typed.
-- A PR merged or closed before a new commit's verdict could go up says so ("merged before posting", with the
-  reason), and its review link is labelled as the last review, instead of a bare "not posted".
-- Overview flags every open PR that was only commented on, with the reason it was not approved, not only those with a
-  high-severity issue.
-
 ## [0.1.0] - 2026-11-19
 
 First public release: a desktop app.
@@ -55,6 +35,18 @@ First public release: a desktop app.
 
 ### More in this release
 
+- Always approve (`[[approve.always]]` rules, Settings → Review; each a repository, an author, or both, which must
+  then both match): matching PRs are approved
+  whenever you are asked, whatever the review finds, without waiting for CI and even if the review fails; the
+  findings are still posted as comments. Your own PRs, drafts and closed PRs are still never approved.
+- An approval says why ("every approval rule passed" or "on the always-approve list"); the review signature no
+  longer lists the rules, which was incomplete. Settings spell out every approval rule.
+- Robot webhook addresses are shown as you type them (still kept in the keychain once saved); other secrets have an
+  eye to show what was typed.
+- A PR merged or closed before a new commit's verdict could go up says so ("merged before posting", with the
+  reason), and its review link is labelled as the last review, instead of a bare "not posted".
+- Overview flags every open PR that was only commented on, with the reason it was not approved, not only those with a
+  high-severity issue.
 - Updates: Nod checks GitHub for a newer release at start and every 6 hours and offers it in the window and the tray
   menu; one click downloads it, checks its signature and restarts into it. The deb package is updated by hand.
 - Comments go up as soon as the review is done; the approval follows as a review of its own once CI passes (before,
