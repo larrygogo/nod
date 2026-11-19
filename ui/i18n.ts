@@ -46,6 +46,10 @@ const zh = {
   "btn.docs": "说明",
   "btn.open_folder": "打开插件目录",
   "btn.close": "关闭",
+  "win.minimize": "最小化",
+  "win.maximize": "最大化",
+  "win.restore": "还原",
+  "win.close": "关闭",
 
   "ov.title": "概览",
   "ov.today": "今天",
@@ -286,6 +290,10 @@ const en: typeof zh = {
   "btn.docs": "Guide",
   "btn.open_folder": "Open plugins folder",
   "btn.close": "Close",
+  "win.minimize": "Minimize",
+  "win.maximize": "Maximize",
+  "win.restore": "Restore",
+  "win.close": "Close",
 
   "ov.title": "Overview",
   "ov.today": "Today",

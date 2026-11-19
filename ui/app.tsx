@@ -115,11 +115,13 @@ export function App() {
   };
 
   if (!ov.configured) {
-    return <StoreCtx.Provider value={store}><Setup /></StoreCtx.Provider>;
+    return <StoreCtx.Provider value={store}><div class="frame"><TitleBar /><div class="frame-body"><Setup /></div></div></StoreCtx.Provider>;
   }
 
   return (
     <StoreCtx.Provider value={store}>
+      <div class="frame">
+      <TitleBar sidebar />
       <div class="shell">
         <Sidebar />
         <main class="main">
@@ -131,7 +133,47 @@ export function App() {
         {dirty && <SaveBar />}
         {toastMsg && <div class={`toast ${toastMsg.tone}`} role="status">{toastMsg.text}</div>}
       </div>
+      </div>
     </StoreCtx.Provider>
+  );
+}
+
+const isMac = /Mac/.test(navigator.userAgent);
+
+/** The window's own title bar: the system frame is off (see show_main in app.rs). Its empty parts move the window
+ *  and maximize on double-click; on Windows and Linux it carries the window buttons, on macOS it leaves room for the
+ *  traffic lights. With `sidebar`, the left part continues the sidebar so the two read as one column. */
+function TitleBar({ sidebar = false }: { sidebar?: boolean }) {
+  const [max, setMax] = useState(false);
+  useEffect(() => {
+    const w = getCurrentWindow();
+    const sync = () => w.isMaximized().then(setMax).catch(() => {});
+    sync();
+    let off: (() => void) | undefined;
+    w.onResized(sync).then((f) => (off = f)).catch(() => {});
+    return () => off?.();
+  }, []);
+  const w = () => getCurrentWindow();
+  return (
+    <header class={`titlebar${isMac ? " mac" : ""}`} data-tauri-drag-region>
+      <div class={`tb-brand${sidebar ? " side" : ""}`} data-tauri-drag-region><img src="./logo.svg" alt="" />Nod</div>
+      <div class="tb-fill" data-tauri-drag-region />
+      {!isMac && (
+        <div class="tb-controls">
+          <button class="tb-btn" aria-label={t("win.minimize")} title={t("win.minimize")} onClick={() => w().minimize()}>
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5.5h10" stroke="currentColor" /></svg>
+          </button>
+          <button class="tb-btn" aria-label={t(max ? "win.restore" : "win.maximize")} title={t(max ? "win.restore" : "win.maximize")} onClick={() => w().toggleMaximize()}>
+            {max
+              ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><path d="M2.5 2.5V.5h7v7h-2" /><rect x=".5" y="2.5" width="7" height="7" /></svg>
+              : <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="9" height="9" /></svg>}
+          </button>
+          <button class="tb-btn close" aria-label={t("win.close")} title={t("win.close")} onClick={() => w().close()}>
+            <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor"><path d="M.5.5l9 9M9.5.5l-9 9" /></svg>
+          </button>
+        </div>
+      )}
+    </header>
   );
 }
 
@@ -145,7 +187,6 @@ function Sidebar() {
   ];
   return (
     <aside class="sidebar">
-      <div class="brand"><img src="./logo.svg" alt="" />Nod</div>
       <nav>
         {items.map(([id, icon, label]) => (
           <button class={`nav${page === id ? " active" : ""}`} onClick={() => go(id)}>

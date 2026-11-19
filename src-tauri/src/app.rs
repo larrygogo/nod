@@ -40,7 +40,18 @@ pub fn show_main(app: &AppHandle) {
             let Some(conf) = app.config().app.windows.iter().find(|w| w.label == "main") else {
                 return;
             };
-            match tauri::WebviewWindowBuilder::from_config(app, conf).and_then(|b| b.build()) {
+            // The window draws its own title bar (ui/app.tsx TitleBar). macOS keeps its traffic lights over the
+            // page; Windows and Linux get no system frame and use the window's own buttons.
+            let built = tauri::WebviewWindowBuilder::from_config(app, conf).and_then(|b| {
+                #[cfg(target_os = "macos")]
+                let b = b
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true);
+                #[cfg(not(target_os = "macos"))]
+                let b = b.decorations(false);
+                b.build()
+            });
+            match built {
                 Ok(w) => w,
                 Err(e) => {
                     crate::error!("cannot open the window: {e}");
