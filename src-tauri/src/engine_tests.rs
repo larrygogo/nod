@@ -642,6 +642,20 @@ fn merged_while_waiting_for_ci_does_not_claim_ci_blocked_it() {
     assert_eq!(e(&en).reasons, vec!["closed_while_waiting"]);
 }
 
+/// Merged while the new commit was being reviewed: the record says the verdict never went up, instead of nothing.
+#[test]
+fn merged_during_the_review_says_the_verdict_was_not_posted() {
+    let (f, en, _d) = setup();
+    f.w().verdict = Some(clean());
+    f.w().pr_state = "merged".into();
+    en.review_one(&f.pr());
+    assert!(f.w().posts.is_empty());
+    assert_eq!(
+        (e(&en).status.as_str(), e(&en).reasons.as_slice()),
+        ("closed", &["closed_before_posting".to_string()][..])
+    );
+}
+
 #[test]
 fn closing_keeps_reasons_of_a_posted_review() {
     let mut x = Entry {

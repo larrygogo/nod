@@ -17,6 +17,7 @@ export function clock(ts: number): string {
 export function statusLabel(r: Row): string {
   if (r.status === "retry" && r.wait_until > 0) return t("st.waiting");
   const k = (r.status === "posted" || r.status === "closed") && r.event ? `st.posted.${r.event}`
+    : r.status === "closed" && r.summary ? (r.pr_state === "merged" ? "st.merged_first" : "st.closed_first")
     : r.status === "closed" ? "st.not_posted" : `st.${r.status}`;
   return has(k) ? t(k) : r.status;
 }
@@ -144,7 +145,8 @@ export function Detail({ r }: { r: Row }) {
         </div>
         <div class="detail-actions">
           {r.url && <Button small icon="external" onClick={() => api.url(r.url)}>{t("btn.open_pr")}</Button>}
-          {r.review_url && <Button small icon="external" onClick={() => api.url(r.review_url!)}>{t("btn.open_review")}</Button>}
+          {r.review_url && <Button small icon="external" onClick={() => api.url(r.review_url!)}>
+            {t(r.status === "closed" && !r.event ? "btn.open_last_review" : "btn.open_review")}</Button>}
           {(r.status === "failed" || waiting) && r.pr_state !== "merged" && r.pr_state !== "closed"
             && <Button small icon="refresh" disabled={busy} onClick={again}>{t("rv.again")}</Button>}
         </div>
@@ -154,7 +156,7 @@ export function Detail({ r }: { r: Row }) {
       {waiting && <Note tone="warn">{t("rv.quota_wait", { at: clock(r.wait_until) })}</Note>}
       {r.error && (waiting ? <p class="muted small" style={{ wordBreak: "break-word" }}>{r.error}</p> : <Note tone="bad">{r.error}</Note>)}
       {r.reasons.length > 0 && (
-        <section><h3>{t("rv.blocked")}</h3><ul class="reasons">{r.reasons.map((x) => <li>{x}</li>)}</ul></section>
+        <section><h3>{t(r.status === "closed" ? "rv.closed_note" : "rv.blocked")}</h3><ul class="reasons">{r.reasons.map((x) => <li>{x}</li>)}</ul></section>
       )}
       {(r.summary || r.findings.length > 0) && (
         <section>

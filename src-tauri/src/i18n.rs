@@ -18,6 +18,7 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("reason.ci_failed", "CI 失败", "CI failed"),
     ("reason.ci_pending", "CI 还没跑完", "CI still running"),
     ("reason.ci_none_wait", "还没有 CI 结果", "no CI result yet"),
+    ("reason.closed_before_posting", "审完时 PR 已经合并或关闭，这次提交的结论没有发到 GitHub", "the PR was merged or closed before this commit's verdict could be posted"),
     ("reason.closed_while_waiting", "等 CI 期间 PR 已合并或关闭，没有再发评审", "the PR was merged or closed while waiting for CI; no review was posted"),
     ("reason.own_pr", "这是你自己的 PR，GitHub 不允许 approve", "this is your own PR; GitHub does not allow approving it"),
     ("reason.not_open", "PR 不是打开的非草稿状态", "PR is not open or is a draft"),
@@ -184,9 +185,10 @@ const TABLE: &[(&str, &str, &str)] = &[
 ];
 
 /// Reasons that say nothing about code quality: the code looks fine, the rules just do not allow auto-approval.
-pub const NON_QUALITY_REASONS: [&str; 8] = [
+pub const NON_QUALITY_REASONS: [&str; 9] = [
     "engine_no_approve",
     "closed_while_waiting",
+    "closed_before_posting",
     "ci_pending",
     "ci_none_wait",
     "own_pr",

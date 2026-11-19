@@ -136,6 +136,9 @@ impl Entry {
         if self.event.is_none() {
             self.reasons = if self.status == "awaiting_ci" {
                 vec!["closed_while_waiting".into()]
+            } else if self.verdict.is_some() && self.verdict_sha == self.sha {
+                // reviewed, but merged or closed before the verdict could go up
+                vec!["closed_before_posting".into()]
             } else {
                 vec![]
             };

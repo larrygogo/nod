@@ -18,6 +18,8 @@ project uses [Semantic Versioning](https://semver.org/).
   longer lists the rules, which was incomplete. Settings spell out every approval rule.
 - Robot webhook addresses are shown as you type them (still kept in the keychain once saved); other secrets have an
   eye to show what was typed.
+- A PR merged or closed before a new commit's verdict could go up says so ("merged before posting", with the
+  reason), and its review link is labelled as the last review, instead of a bare "not posted".
 - Overview flags every open PR that was only commented on, with the reason it was not approved, not only those with a
   high-severity issue.
 
