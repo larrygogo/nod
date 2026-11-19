@@ -47,7 +47,7 @@ function BrandMark({ icon, size }: { icon: string; size: number }) {
   const m = brandMarks[icon];
   const color = inkBrands.has(icon) ? "var(--text)" : m.color;
   const glyph = (s: number) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill={color} aria-hidden="true"><path d={m.path} /></svg>
+    <svg width={s} height={s} viewBox={m.viewBox ?? "0 0 24 24"} fill={color} fill-rule="evenodd" aria-hidden="true"><path d={m.path} /></svg>
   );
   if (size < 24) return <span class="brand-mark" style={{ width: size, height: size }}>{glyph(Math.round(size * 0.9))}</span>;
   return (
