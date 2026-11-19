@@ -50,9 +50,13 @@ const neutral = new Set(["github", "bell", "webhook", "plugin", "rules"]);
 
 export function Tile({ icon, size = 32 }: { icon: string; size?: number }) {
   const [c, txt] = brands[icon] ?? brands.plugin;
-  const style = { "--c": c, width: size, height: size, fontSize: txt.length > 2 ? size * 0.3 : size * 0.4, borderRadius: Math.round(size * 0.26) } as unknown as JSX.CSSProperties;
+  // Below 24px a pale tile with same-hue ink drops under ~8px text and reads as a broken placeholder:
+  // small tiles switch to a solid fill with white ink and a larger letter, like a favicon.
+  const small = size < 24;
+  const ratio = small ? [0.62, 0.48, 0.36][Math.min(txt.length, 3) - 1] ?? 0.36 : txt.length > 2 ? 0.3 : 0.4;
+  const style = { "--c": c, width: size, height: size, fontSize: size * ratio, borderRadius: Math.round(size * (small ? 0.28 : 0.26)) } as unknown as JSX.CSSProperties;
   return (
-    <span class={`tile${neutral.has(icon) || !brands[icon] ? " neutral" : ""}`} style={style}>
+    <span class={`tile${neutral.has(icon) || !brands[icon] ? " neutral" : ""}${small ? " sm" : ""}`} style={style}>
       {icon === "bell" || icon === "rules" ? <Icon name={icon} size={size * 0.55} /> : txt}
     </span>
   );
