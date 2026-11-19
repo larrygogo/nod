@@ -1,9 +1,9 @@
-//! Signing in to GitHub through Nod's GitHub App with the device flow, and keeping the user access token fresh.
+//! Signing in to GitHub with Nod's OAuth App and the device flow, the way the GitHub CLI signs in.
 //!
-//! The device flow needs only the App's client ID (public, no client secret), and GitHub lets a token obtained this
-//! way be refreshed without a secret as well, so nothing confidential ships in the binary. The token acts as the user:
-//! reviews are posted in their name and "review requested from me" keeps its meaning. It reaches only repositories
-//! where the App is installed.
+//! The device flow needs only the OAuth App's client ID (public; no client secret ships in the binary). The token acts
+//! as the user, so reviews are posted in their name and "review requested from me" keeps its meaning, and it reaches
+//! every repository the user can reach (an organization that restricts third-party apps approves Nod once). Nod's
+//! App issues tokens that do not expire; expiring ones (an Enterprise App may use them) are refreshed.
 //!
 //! Tokens are kept in the system keychain as one JSON value per account, so the window (which signs in) and the
 //! background worker (which uses the token) share them.
@@ -17,12 +17,13 @@ use serde_json::Value;
 
 use crate::util::now;
 
-/// Client ID of the Nod GitHub App on github.com. GitHub Enterprise accounts register their own App and set the
-/// account's `client_id` setting.
-pub const DEFAULT_CLIENT_ID: &str = "Iv23lip8CKp47wxADecL";
+/// Client ID of Nod's OAuth App on github.com. GitHub Enterprise accounts register their own OAuth App (with Device
+/// Flow enabled) and set the account's `client_id` setting.
+pub const DEFAULT_CLIENT_ID: &str = "Ov23lioqzt9nK9eX5hoC";
 
-/// URL name (slug) of the Nod GitHub App on github.com, for the "install it on more accounts" link.
-pub const DEFAULT_APP_SLUG: &str = "nod-review";
+/// What Nod asks for: `repo` to read code and post reviews on private repositories, `read:org` to see review requests
+/// made to your teams.
+pub const SCOPES: &str = "repo read:org";
 
 /// Refresh this long before the access token expires.
 const REFRESH_MARGIN: f64 = 300.0;
@@ -78,16 +79,6 @@ impl Hosts {
             web: base.into(),
             api: base.into(),
             graphql: format!("{base}/graphql"),
-        }
-    }
-
-    /// The page where the App is installed on more accounts or organizations (without a known App: the list of
-    /// installed Apps).
-    pub fn install_url(&self, app_slug: &str) -> String {
-        if app_slug.is_empty() {
-            format!("{}/settings/installations", self.web)
-        } else {
-            format!("{}/apps/{app_slug}/installations/new", self.web)
         }
     }
 }
@@ -254,7 +245,7 @@ fn post_form(url: &str, form: &[(&str, &str)]) -> Result<Value> {
 
 fn client_id_or_err(client_id: &str) -> Result<&str> {
     if client_id.trim().is_empty() {
-        bail!("{SIGNIN_REQUIRED}: no GitHub App client ID is configured for this account");
+        bail!("{SIGNIN_REQUIRED}: no OAuth App client ID is configured for this account");
     }
     Ok(client_id.trim())
 }
@@ -274,7 +265,7 @@ pub fn start(hosts: &Hosts, client_id: &str) -> Result<DeviceCode> {
     let cid = client_id_or_err(client_id)?;
     let v = post_form(
         &format!("{}/login/device/code", hosts.web),
-        &[("client_id", cid)],
+        &[("client_id", cid), ("scope", SCOPES)],
     )?;
     if let Some(err) = v["error"].as_str() {
         bail!("{}", describe_error(err, &v));
@@ -306,10 +297,10 @@ pub enum Poll {
 fn describe_error(err: &str, v: &Value) -> String {
     match err {
         "device_flow_disabled" => {
-            "the GitHub App does not have Device Flow enabled (App settings → Enable Device Flow)"
+            "the OAuth App does not have Device Flow enabled (App settings → Enable Device Flow)"
                 .into()
         }
-        "incorrect_client_credentials" => "the GitHub App client ID is wrong".into(),
+        "incorrect_client_credentials" => "the OAuth App client ID is wrong".into(),
         _ => v["error_description"].as_str().unwrap_or(err).to_string(),
     }
 }
@@ -535,10 +526,6 @@ mod tests {
                 "https://api.octo.ghe.com/graphql"
             )
         );
-        assert_eq!(
-            e.install_url("nod"),
-            "https://git.corp.example/apps/nod/installations/new"
-        );
     }
 
     #[test]
@@ -551,7 +538,11 @@ mod tests {
         let h = Hosts::at(&f.url);
         let d = start(&h, "Iv1.x").unwrap();
         assert_eq!((d.user_code.as_str(), d.interval), ("ABCD-1234", 5));
-        assert!(f.seen.lock().unwrap()[0].body.contains("client_id=Iv1.x"));
+        let sent = f.seen.lock().unwrap()[0].body.clone();
+        assert!(
+            sent.contains("client_id=Iv1.x") && sent.contains("scope=repo+read%3Aorg"),
+            "{sent}"
+        );
         assert!(start(&h, " ")
             .unwrap_err()
             .to_string()
@@ -862,12 +853,20 @@ mod tests {
                 Poll::Failed(m) => panic!("{m}"),
             }
         };
-        println!("EXPIRES_IN_H={:.1} HAS_REFRESH={}", (t.expires_at - now()) / 3600.0, !t.refresh.is_empty());
+        println!(
+            "EXPIRES_IN_H={:.1} HAS_REFRESH={}",
+            (t.expires_at - now()) / 3600.0,
+            !t.refresh.is_empty()
+        );
         save("live", &t.bind(&hosts, DEFAULT_CLIENT_ID)).unwrap();
-        let gh = crate::forge::github::Gh { session: std::sync::Arc::new(Session::new("live", hosts, DEFAULT_CLIENT_ID)) };
+        let gh = crate::forge::github::Gh {
+            session: std::sync::Arc::new(Session::new("live", hosts, DEFAULT_CLIENT_ID)),
+        };
         println!("LOGIN={}", crate::forge::Forge::current_user(&gh).unwrap());
-        println!("INSTALLATIONS={:?}", gh.installations().unwrap());
-        println!("REQUESTED={:?}", crate::forge::Forge::requested_prs(&gh, false).map_err(|e| e.to_string()));
+        println!(
+            "REQUESTED={:?}",
+            crate::forge::Forge::requested_prs(&gh, false).map_err(|e| e.to_string())
+        );
     }
 
     #[test]

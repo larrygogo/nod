@@ -270,7 +270,7 @@ fn github_account(account: Value) -> Result<crate::config::ForgeAccount, String>
 struct GithubSession {
     signed_in: bool,
     login: String,
-    /// The account has a GitHub App client ID (its own, or Nod's).
+    /// The account has an OAuth App client ID (its own, or Nod's).
     has_client_id: bool,
 }
 
@@ -521,11 +521,6 @@ fn quote_arg(s: &str) -> String {
 pub fn fix_target(action: &str, cfg: &Config) -> Option<Fix> {
     let zh = cfg.language != "en";
     Some(match action {
-        // offered only for Nod's own App on github.com (see doctor::github_check)
-        doctor::FIX_GITHUB_INSTALL => Fix::Url(
-            crate::forge::github_auth::Hosts::new("")
-                .install_url(crate::forge::github_auth::DEFAULT_APP_SLUG),
-        ),
         doctor::FIX_CLAUDE_LOGIN => {
             let dir = crate::review::expand_path(&cfg.review.claude_config_dir);
             let env = if dir.is_empty() {
@@ -932,9 +927,6 @@ mod tests {
     #[test]
     fn fix_actions() {
         let mut c = Config::default();
-        assert!(
-            matches!(fix_target(doctor::FIX_GITHUB_INSTALL, &c), Some(Fix::Url(u)) if u.starts_with("https://github.com/"))
-        );
         assert_eq!(
             fix_target(doctor::FIX_CLAUDE_LOGIN, &c),
             Some(Fix::Terminal("claude".into(), vec![]))

@@ -270,7 +270,7 @@ export function PluginsPage() {
 
 // ------------------------------------------------------------------ GitHub sign-in (device flow)
 
-/** Sign in through Nod's GitHub App: show a one-time code, open github.com/login/device, poll until the user approves.
+/** Sign in with Nod's OAuth App: show a one-time code, open github.com/login/device, poll until the user approves.
  *  Same flow as GitHub Desktop and the GitHub CLI; nothing to paste back into Nod. */
 function GithubSignIn({ account }: { account: Account }) {
   const [session, setSession] = useState<GithubSession | null>(null);

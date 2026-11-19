@@ -1,4 +1,4 @@
-//! GitHub (and GitHub Enterprise) over its REST and GraphQL APIs, signed in through Nod's GitHub App
+//! GitHub (and GitHub Enterprise) over its REST and GraphQL APIs, signed in with Nod's OAuth App
 //! (see `github_auth`). Acts as the signed-in user; reaches the repositories where the App is installed.
 
 use std::time::Duration;
@@ -66,8 +66,10 @@ impl Gh {
                 }
                 Err(ureq::Error::Status(code, resp)) => {
                     let text = resp.into_string().unwrap_or_default();
-                    let hint = if matches!(code, 403 | 404) && url.contains("/repos/") {
-                        " (if this repository's owner has not installed the Nod GitHub App, Nod cannot see it)"
+                    let hint = if text.contains("OAuth App access restrictions") {
+                        " (this organization restricts third-party apps: request access for Nod under GitHub → Settings → Applications → Authorized OAuth Apps → Nod, and an owner approves it)"
+                    } else if matches!(code, 403 | 404) && url.contains("/repos/") {
+                        " (no access: check the repository, or whether its organization restricts third-party apps)"
                     } else {
                         ""
                     };
@@ -116,15 +118,6 @@ impl Gh {
             out.extend(list.as_array().cloned().unwrap_or_default());
         }
         Ok(out)
-    }
-
-    /// Accounts and organizations where the signed-in user can use the App (empty = it sees no repository).
-    pub fn installations(&self) -> Result<Vec<String>> {
-        Ok(self
-            .get_all("user/installations?per_page=100", Some("installations"))?
-            .iter()
-            .filter_map(|i| i["account"]["login"].as_str().map(str::to_string))
-            .collect())
     }
 
     fn graphql(&self, query: &str, vars: Value) -> Result<Value> {
@@ -273,7 +266,7 @@ impl Forge for Gh {
         // "Could not resolve to a Repository" reads like a DNS failure to the network classifier: say what it means
         let not_found = || {
             anyhow!(
-                "{repo}#{number} not found (is the Nod GitHub App installed for this repository?)"
+                "{repo}#{number} not found (no access: check the repository, or whether its organization restricts third-party apps)"
             )
         };
         let data = self
@@ -635,10 +628,7 @@ mod tests {
         ]);
         let g = gh(&f, "t5");
         let e = g.fetch_pr("o/r", 3).unwrap_err().to_string();
-        assert!(
-            e.contains("HTTP 404") && e.contains("Nod GitHub App"),
-            "{e}"
-        );
+        assert!(e.contains("HTTP 404") && e.contains("no access"), "{e}");
         let e = g.current_user().unwrap_err().to_string();
         assert!(e.contains(SIGNIN_REQUIRED), "{e}");
         assert!(!e.contains("ghu_tok"));
@@ -651,19 +641,6 @@ mod tests {
                 .filter(|r| r.path == "/user")
                 .count(),
             2
-        );
-    }
-
-    #[test]
-    fn installations() {
-        let f = fake::serve(vec![(
-            "GET /user/installations",
-            200,
-            json!({"total_count": 2, "installations": [{"account": {"login": "me"}}, {"account": {"login": "ReverseGame"}}]}).to_string(),
-        )]);
-        assert_eq!(
-            gh(&f, "t7").installations().unwrap(),
-            vec!["me", "ReverseGame"]
         );
     }
 

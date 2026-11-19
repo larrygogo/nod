@@ -343,7 +343,7 @@ pub struct ForgeAccount {
     /// Web address for self-hosted instances / GitHub Enterprise (empty = the public service).
     pub url: String,
     pub enabled: bool,
-    /// Stored in the system keychain; only kept here when the keychain is unavailable. (GitHub signs in through the Nod GitHub App instead; see forge::github_auth.)
+    /// Stored in the system keychain; only kept here when the keychain is unavailable. (GitHub signs in with Nod's OAuth App instead; see forge::github_auth.)
     pub token: String,
     /// Settings of an external plugin.
     #[serde(skip_serializing_if = "toml::Table::is_empty")]

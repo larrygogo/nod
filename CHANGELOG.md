@@ -7,9 +7,8 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- GitHub signs in through the Nod GitHub App (device flow) from the GitHub plugin page; the GitHub CLI (`gh`) is no
-  longer needed or used. Nod acts as you and sees the repositories where the App is installed. GitHub Enterprise
-  accounts can set their own App's client ID.
+- GitHub signs in with an OAuth device-flow login from the GitHub plugin page (the way the GitHub CLI does); `gh`
+  is no longer needed or used. GitHub Enterprise accounts can set their own OAuth App's client ID.
 - **Review** (Reviews and Overview pages) is one real review of a PR someone sent you directly, under the usual
   approval rules; *Track* and *Dry run* are gone. Pasted links are recognized with surrounding spaces, inside a
   sentence, or ending in `/files`, `/changes`, `/commits/…`, and the review starts at once.

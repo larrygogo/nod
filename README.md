@@ -49,7 +49,7 @@ later one has problems, it dismisses its own approval (never one you gave by han
 
 | | |
 |---|---|
-| A code host | GitHub: click *Sign in to GitHub* on the GitHub plugin page (the Nod GitHub App must be installed on the accounts or organizations whose repositories you review); Gitee / Gitea: an access token, see [docs/forges.md](docs/forges.md) |
+| A code host | GitHub: click *Sign in to GitHub* on the GitHub plugin page; Gitee / Gitea: an access token, see [docs/forges.md](docs/forges.md) |
 | A review engine (any one) | [Claude Code](https://claude.com/claude-code), [Codex CLI](https://developers.openai.com/codex/cli) or [Gemini CLI](https://geminicli.com), signed in; or an OpenAI-compatible endpoint and key (a local Ollama works) |
 | git | installed |
 | Windows 10 1809+, macOS 12+, or Linux with a desktop | the Linux tray needs AppIndicator support (on GNOME, the AppIndicator extension) |

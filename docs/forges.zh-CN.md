@@ -2,7 +2,7 @@
 
 [English](forges.md)
 
-GitHub：在插件页的 GitHub 里点「登录 GitHub」，Nod 会显示一次性验证码并打开 GitHub，粘贴验证码后授权即可。Nod 以你的身份工作，只能看到装了 Nod GitHub App 的仓库（组织需要安装一次，不是组织管理员的话请管理员批准）。GitHub Enterprise 要在自己的实例上注册一个 App，并在同一页填写它的 Client ID。Gitee 和 Gitea / Forgejo 都要提供一个访问令牌。Nod 把令牌存在系统钥匙串里，配置文件里不会出现。
+GitHub：在插件页的 GitHub 里点「登录 GitHub」，Nod 会显示一次性验证码并打开 GitHub，粘贴验证码后授权即可。Nod 以你的身份工作，能访问你有权限的仓库。如果组织限制了第三方应用，在授权页（或之后在 设置 → Applications）为 Nod 申请访问，由组织管理员批准一次。GitHub Enterprise 需要在自己的实例上注册一个开启 Device Flow 的 OAuth App，并在同一页填写它的 Client ID。Gitee 和 Gitea / Forgejo 都要提供一个访问令牌。Nod 把令牌存在系统钥匙串里，配置文件里不会出现。
 
 在 Nod 里打开「插件 → 代码平台 → 添加账号」，选择平台，填写令牌（Gitea 还要填地址），然后点「自检」确认能登录。可以同时连接多个账号，比如公司的 Gitee 加上个人的 GitHub。
 

@@ -38,7 +38,7 @@ Nod（托盘里常驻） ──► 通知「审查中」（飞书卡片 / Webhoo
 
 | | |
 |---|---|
-| 代码平台 | GitHub：在插件页的 GitHub 里点「登录 GitHub」（要审查的仓库所在的账号或组织需要安装 Nod GitHub App）；Gitee / Gitea：一个访问令牌，见 [docs/forges.zh-CN.md](docs/forges.zh-CN.md) |
+| 代码平台 | GitHub：在插件页点「登录 GitHub」；Gitee / Gitea：一个访问令牌，见 [docs/forges.zh-CN.md](docs/forges.zh-CN.md) |
 | 审查引擎（任选） | [Claude Code](https://claude.com/claude-code)、[Codex CLI](https://developers.openai.com/codex/cli)、[Gemini CLI](https://geminicli.com) 已登录；或一个 OpenAI 兼容接口的地址和密钥（本地 Ollama 也行） |
 | git | 已安装 |
 | Windows 10 1809 及以上、macOS 12 及以上，或带桌面环境的 Linux | Linux 托盘需要 AppIndicator 支持（GNOME 要装 AppIndicator 扩展） |

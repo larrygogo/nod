@@ -42,7 +42,7 @@ With these overrides the app also leaves an installed command-line edition's bac
 | `src-tauri/src/osnotify.rs` | desktop notifications that open a link when clicked |
 | `src-tauri/src/legacy.rs` | removes the command-line edition's background service |
 | `src-tauri/src/config.rs`, `paths.rs` | configuration file and locations |
-| `src-tauri/src/forge/` | `Forge` trait; GitHub (REST + GraphQL, signed in through the Nod GitHub App in `github_auth.rs`), Gitee and Gitea (REST, `http.rs` + a fake server for tests) |
+| `src-tauri/src/forge/` | `Forge` trait; GitHub (REST + GraphQL, signed in with an OAuth device-flow login in `github_auth.rs`), Gitee and Gitea (REST, `http.rs` + a fake server for tests) |
 | `src-tauri/src/reviewer/` | `Reviewer`/`Engine`, the shared checkout, Claude Code, Codex, Gemini, OpenAI-compatible API |
 | `src-tauri/src/plugins/` | the plugin catalog the window builds its forms from; external plugins (JSON-RPC host and adapters) |
 | `src-tauri/src/secrets.rs` | system keychain for tokens and secrets |

@@ -113,14 +113,14 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
     let mut v = vec![
         // ------------------------------------------------------------ code hosts
         p("github", "forge", "GitHub",
-          l.t("一键登录，以你的身份审查。只能看到装了 Nod GitHub App 的仓库。支持 GitHub Enterprise。",
-              "Sign in to GitHub from Nod with one click: no other tool, no token to paste. Nod reviews as you and sees the repositories where the Nod GitHub App is installed. GitHub Enterprise works too."),
+          l.t("一键登录，以你的身份审查，不用装 gh。支持 GitHub Enterprise。",
+              "One-click sign-in; Nod reviews as you. No gh needed. GitHub Enterprise works too."),
           "github",
           vec![
               f("url", l.t("GitHub Enterprise 地址（github.com 留空）", "GitHub Enterprise address (empty for github.com)"), "text").ph("https://github.example.com"),
-              f("settings.client_id", l.t("GitHub App Client ID（仅 Enterprise 需要填）", "GitHub App client ID (empty for Nod's own App; GitHub Enterprise needs an App registered on your instance)"), "text").ph("Iv23li…"),
+              f("settings.client_id", l.t("OAuth App Client ID（仅 Enterprise 需要填）", "OAuth App client ID (Enterprise only)"), "text").ph("Ov23li…"),
           ],
-          vec![b("info", l.t("GitHub App 登录", "GitHub App sign-in"))], "https://docs.github.com/en/apps/using-github-apps/installing-a-github-app-from-a-third-party"),
+          vec![b("info", l.t("OAuth 登录", "OAuth sign-in"))], "https://docs.github.com/en/apps/oauth-apps/using-oauth-apps/authorizing-oauth-apps"),
         p("gitee", "forge", "Gitee",
           l.t("需要私人令牌。Gitee 不支持撤销已给出的通过。", "Gitee (gitee.com). Needs a personal access token. Gitee does not let a reviewer withdraw an approval."),
           "gitee",

@@ -11,7 +11,6 @@ use crate::util::{run_raw, which, RunOpts};
 
 /// What the "fix" button does. The window maps these to actions (open a terminal running a login, open a page…).
 pub const FIX_INSTALL_GIT: &str = "install_git";
-pub const FIX_GITHUB_INSTALL: &str = "github_install";
 pub const FIX_INSTALL_CLAUDE: &str = "install_claude";
 pub const FIX_CLAUDE_LOGIN: &str = "claude_login";
 pub const FIX_SETTINGS: &str = "settings";
@@ -123,8 +122,7 @@ fn git_check(c: &mut Ctx) {
     }
 }
 
-/// A GitHub account: signed in through Nod's GitHub App, the sign-in still accepted, and the App installed somewhere
-/// (without an installation the token sees no repository at all).
+/// A GitHub account: signed in with Nod's OAuth App, and the sign-in still accepted.
 fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
     let lang = c.lang;
     let name = ("GitHub 登录", "GitHub sign-in");
@@ -136,8 +134,8 @@ fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
             false,
             l(
                 lang,
-                "没有配置 GitHub App 的 Client ID",
-                "no GitHub App client ID is configured",
+                "没有配置 OAuth App 的 Client ID",
+                "no OAuth App client ID is configured",
             ),
             Some((
                 (
@@ -201,44 +199,14 @@ fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
             return;
         }
     };
-    let signed_in = l(lang, "已登录：", "signed in as ") + &me;
-    match gh.installations() {
-        Ok(v) if v.is_empty() => {
-            // the install page is known only for Nod's own App on github.com; an Enterprise App is installed from
-            // the instance where it was registered
-            let ours = gh.session.hosts == crate::forge::github_auth::Hosts::new("")
-                && gh.session.client_id == crate::forge::github_auth::DEFAULT_CLIENT_ID
-                && !crate::forge::github_auth::DEFAULT_APP_SLUG.is_empty();
-            let ch = c.push(
-                "github",
-                name,
-                true,
-                signed_in,
-                Some((
-                    (
-                        "GitHub App 还没装到任何账号或组织，看不到仓库",
-                        "The GitHub App is not installed on any account or organization yet, so no repository is visible. Install it where the repositories you review live",
-                    ),
-                    FIX_GITHUB_INSTALL,
-                )),
-            );
-            ch.warn = true;
-            if !ours {
-                ch.action = None;
-            }
-            ch.detail_account(&acc.id);
-        }
-        Ok(v) => {
-            let on = l(lang, " · App 已安装到 ", " · App installed on ") + &v.join(", ");
-            c.push("github", name, true, signed_in + &on, None)
-                .detail_account(&acc.id);
-        }
-        // the list is a convenience; failing to read it is not a failure of the sign-in
-        Err(_) => {
-            c.push("github", name, true, signed_in, None)
-                .detail_account(&acc.id);
-        }
-    }
+    c.push(
+        "github",
+        name,
+        true,
+        l(lang, "已登录：", "signed in as ") + &me,
+        None,
+    )
+    .detail_account(&acc.id);
 }
 fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
     let lang = c.lang;
