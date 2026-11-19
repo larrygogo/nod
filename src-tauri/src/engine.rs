@@ -93,6 +93,21 @@ pub struct Entry {
     pub extra: HashMap<String, Value>,
 }
 
+impl Entry {
+    /// The PR was merged or closed. Reasons computed for a review that was never posted (e.g. while waiting for
+    /// CI) no longer explain anything, and would read as if Nod blocked an approval; replace or drop them.
+    pub fn mark_closed(&mut self) {
+        if self.event.is_none() {
+            self.reasons = if self.status == "awaiting_ci" {
+                vec!["closed_while_waiting".into()]
+            } else {
+                vec![]
+            };
+        }
+        self.status = "closed".into();
+    }
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct StateData {
     #[serde(default)]
@@ -355,7 +370,7 @@ impl Engine {
             let e = self.store.get(&key).unwrap_or_default();
             if pr.state != "open" {
                 if self.store.get(&key).is_some() {
-                    self.store.with(&key, |e| e.status = "closed".into());
+                    self.store.with(&key, |e| e.mark_closed());
                 }
                 continue;
             }
@@ -555,7 +570,7 @@ impl Engine {
         let pr = self.forge.fetch_pr(&r, n)?;
         let e = self.store.get(key).unwrap_or_default();
         if pr.state != "open" {
-            self.store.with(key, |e| e.status = "closed".into());
+            self.store.with(key, |e| e.mark_closed());
             info!("{key} is {}, not posting", pr.state);
             return Ok(());
         }

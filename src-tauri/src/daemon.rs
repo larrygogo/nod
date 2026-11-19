@@ -289,9 +289,7 @@ impl Daemon {
                     info!("{key}: re-queued after restart");
                     self.enqueue(pr);
                 }
-                Ok(pr) if pr.state != "open" => {
-                    self.store().with(&key, |e| e.status = "closed".into())
-                }
+                Ok(pr) if pr.state != "open" => self.store().with(&key, |e| e.mark_closed()),
                 // A draft, or the code host could not be reached (often the case right after sign-in): leave it to a
                 // later poll. "queued" would count as handled for this commit, and the PR would wait for a new push.
                 // "retry" is picked up again by every path: still requested, reviewed before (recalled), tracked.

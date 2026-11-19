@@ -31,6 +31,7 @@ struct World {
     pr_head: String,
     pr_author: String,
     pr_draft: bool,
+    pr_state: String,
     ci: String,
     requested: Vec<(String, u64)>,
     reviews: Vec<(u64, String)>,
@@ -57,7 +58,11 @@ impl Fake {
             head: w.pr_head.clone(),
             base: "main".into(),
             draft: w.pr_draft,
-            state: "open".into(),
+            state: if w.pr_state.is_empty() {
+                "open".into()
+            } else {
+                w.pr_state.clone()
+            },
             body: String::new(),
         }
     }
@@ -281,6 +286,45 @@ fn clean_waits_for_ci() {
     f.w().ci = "success".into();
     en.finish_safe("o/r#1");
     assert_eq!(f.w().posts, vec!["APPROVE"]);
+}
+
+#[test]
+fn merged_while_waiting_for_ci_does_not_claim_ci_blocked_it() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        w.verdict = Some(clean());
+        w.ci = "pending".into();
+    }
+    en.review_one(&f.pr());
+    assert_eq!(e(&en).reasons, vec!["ci_pending"]);
+    f.w().pr_state = "merged".into();
+    en.finish_safe("o/r#1");
+    assert!(f.w().posts.is_empty());
+    assert_eq!(e(&en).status, "closed");
+    assert_eq!(e(&en).reasons, vec!["closed_while_waiting"]);
+}
+
+#[test]
+fn closing_keeps_reasons_of_a_posted_review() {
+    let mut x = Entry {
+        status: "posted".into(),
+        event: Some("COMMENT".into()),
+        reasons: vec!["high".into()],
+        ..Default::default()
+    };
+    x.mark_closed();
+    assert_eq!(
+        (x.status.as_str(), x.reasons.clone()),
+        ("closed", vec!["high".to_string()])
+    );
+    let mut y = Entry {
+        status: "reviewed".into(),
+        reasons: vec!["ci_failed".into()],
+        ..Default::default()
+    };
+    y.mark_closed();
+    assert!(y.reasons.is_empty());
 }
 
 #[test]
