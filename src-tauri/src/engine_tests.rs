@@ -288,11 +288,30 @@ fn with_cfg(en: &Engine, f: impl FnOnce(&mut Config)) -> Engine {
     }
 }
 
-/// [approve] always_authors: approved whatever the review finds and without waiting for CI; the findings still go up.
+/// [approve] always_authors: a high-severity finding still blocks the approval.
+#[test]
+fn always_approve_list_still_stops_at_a_high_severity_issue() {
+    let (f, en, _d) = setup(); // bad() has a high-severity finding
+    let en = with_cfg(&en, |c| c.approve.always_authors = vec!["alice".into()]);
+    en.review_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
+    assert_eq!(e(&en).reasons, vec!["high"]);
+}
+
+/// [approve] always_authors: approved without the other rules and without waiting for CI; the findings still go up.
 #[test]
 fn always_approve_list_approves_whatever_the_review_says() {
     let (f, en, _d) = setup();
-    f.w().ci = "pending".into(); // bad() has a high-severity finding
+    {
+        let mut w = f.w();
+        w.ci = "pending".into();
+        // medium issues introduced by the PR, and the reviewer advises against approving
+        w.verdict = Some(Verdict {
+            approve_recommended: false,
+            findings: vec![finding("medium", true, 1)],
+            ..clean()
+        });
+    }
     let en = with_cfg(&en, |c| {
         c.approve.always_authors = vec!["alice".into()];
         c.approve.mode = "never".into(); // independent of the auto-approve switch

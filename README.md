@@ -150,7 +150,7 @@ authors = ["dependabot[bot]"]
 *Approve now* on a Feishu card is your own action and is not limited by `[approve]`. The approve lists only **narrow**
 auto-approval: the quality rules (no high-severity issue, CI not failing, …) always apply. The one exception is
 `always_authors` / `always_repos` (*Always approve* in Settings): those PRs are approved whenever you are asked,
-whatever the review finds and without waiting for CI; the comments are still posted.
+without the other rules or waiting for CI; only a high-severity finding stops it. The comments are still posted.
 
 Tokens, app secrets, API keys and robot webhook addresses live in the system keychain, not in the file (only if the
 keychain is unavailable do they stay in the file, and the app tells you). The Feishu and webhook secrets can also come

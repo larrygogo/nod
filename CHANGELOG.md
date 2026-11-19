@@ -8,8 +8,8 @@ project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Always approve (`approve.always_authors` / `always_repos`, Settings → Review): PRs on these lists are approved
-  whenever you are asked, whatever the review finds, without waiting for CI and even if the review fails; the
-  findings are still posted as comments. Your own PRs, drafts and closed PRs are still never approved.
+  whenever you are asked, without the other rules, without waiting for CI and even if the review fails; only a
+  high-severity finding stops it. The findings are still posted as comments. Your own PRs, drafts and closed PRs are still never approved.
 
 ### Changed
 

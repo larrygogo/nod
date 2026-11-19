@@ -118,7 +118,7 @@ exclude_repos = ["my-org/legacy"]
 authors = ["dependabot[bot]"]
 ```
 
-飞书卡片上的「直接通过」是你本人的操作，不受 `[approve]` 限制。approve 名单只会**收紧**自动 approve：质量规则（没有高风险问题、CI 没失败等）始终有效。唯一的例外是 `always_authors` / `always_repos`（设置里的「无条件 approve」）：名单里的 PR 只要请你审查就 approve，不看审查结果、不等 CI，评论照常发。
+飞书卡片上的「直接通过」是你本人的操作，不受 `[approve]` 限制。approve 名单只会**收紧**自动 approve：质量规则（没有高风险问题、CI 没失败等）始终有效。唯一的例外是 `always_authors` / `always_repos`（设置里的「无条件 approve」）：名单里的 PR 只要请你审查就 approve，不看其他规则、不等 CI，只有审出高风险问题才会拦下；评论照常发。
 
 令牌、App Secret、API 密钥和机器人 Webhook 地址都存在系统钥匙串里，配置文件里没有明文（钥匙串不可用时才退回写进文件，并提示你）。飞书和 Webhook 的密钥也可以用环境变量提供：`NOD_FEISHU_APP_SECRET`、`NOD_WEBHOOK_SECRET`。
 
