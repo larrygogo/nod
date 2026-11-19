@@ -4,7 +4,7 @@ import { activeChannels, api, getPath, setPath, type Check, type Config, type Pl
 import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
 import { lang, setLang, t } from "../i18n";
-import { Badge, Button, Note, Select, Switch, TextInput, errText } from "../ui";
+import { Badge, Button, Note, SecretInput, Select, Switch, TextInput, errText, isAddress } from "../ui";
 
 function Checks({ checks }: { checks: Check[] }) {
   return (
@@ -49,8 +49,10 @@ function FieldList({ p, get, set }: { p: Plugin; get: (k: string) => unknown; se
           <span class="field-label">{f.label}</span>
           {f.kind === "bool" ? <Switch on={!!get(f.key)} onChange={(v) => set(f.key, v)} />
             : f.kind === "select" ? <Select value={String(get(f.key) ?? "")} options={f.options} onChange={(v) => set(f.key, v)} />
-              : <TextInput type={f.kind === "password" ? "password" : f.kind === "number" ? "number" : "text"} mono
-                value={(get(f.key) as string) ?? ""} placeholder={f.placeholder} onInput={(v) => set(f.key, f.kind === "number" ? Number(v) : v)} />}
+              : f.kind === "password"
+                ? <SecretInput value={String(get(f.key) ?? "")} placeholder={f.placeholder} onInput={(v) => set(f.key, v)} address={isAddress(f)} />
+                : <TextInput type={f.kind === "number" ? "number" : "text"} mono
+                  value={(get(f.key) as string) ?? ""} placeholder={f.placeholder} onInput={(v) => set(f.key, f.kind === "number" ? Number(v) : v)} />}
           {f.help && <span class="muted small">{f.help}</span>}
         </label>
       ))}

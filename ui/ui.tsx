@@ -77,6 +77,30 @@ export function TextInput(p: {
   );
 }
 
+/** A secret that is an address (a robot's webhook URL): shown as typed. */
+export function isAddress(f: { key: string; placeholder?: string | null }): boolean {
+  return /(^|\.)url$/.test(f.key) || /^https?:\/\//.test(f.placeholder ?? "");
+}
+
+/** A secret typed by hand: hidden by default, with an eye to check what was typed or pasted. A secret that is an
+ *  address (a robot's webhook URL) is shown as typed: you need to see it to know it is the right one, and it is still
+ *  kept in the keychain once saved. */
+export function SecretInput({ value, onInput, placeholder, address }: {
+  value: string; onInput: (v: string) => void; placeholder?: string; address?: boolean;
+}) {
+  const [shown, setShown] = useState(false);
+  if (address) return <TextInput mono value={value} placeholder={placeholder} onInput={onInput} />;
+  return (
+    <div class="secret-input">
+      <TextInput mono type={shown ? "text" : "password"} value={value} placeholder={placeholder} onInput={onInput} />
+      {value !== "" && (
+        <button type="button" class="icon-btn" aria-label={t(shown ? "btn.hide" : "btn.show")} title={t(shown ? "btn.hide" : "btn.show")}
+          onClick={() => setShown(!shown)}><Icon name={shown ? "eye-off" : "eye"} size={15} /></button>
+      )}
+    </div>
+  );
+}
+
 /** A repository pattern as the backend accepts it (config.rs is_repo_pattern): owner/repo, owner/*, any-owner/repo, a lone star,
  *  @me/*. A pasted link becomes owner/repo. Returns null when it is not one. */
 export function cleanRepo(raw: string): string | null {

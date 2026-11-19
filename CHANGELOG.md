@@ -15,6 +15,8 @@ project uses [Semantic Versioning](https://semver.org/).
 
 - An approval says why ("every approval rule passed" or "on the always-approve list"); the review signature no
   longer lists the rules, which was incomplete. Settings spell out every approval rule.
+- Robot webhook addresses are shown as you type them (still kept in the keychain once saved); other secrets have an
+  eye to show what was typed.
 - Overview flags every open PR that was only commented on, with the reason it was not approved, not only those with a
   high-severity issue.
 

@@ -164,6 +164,10 @@ textarea.input { height: auto; padding: 6px 10px; resize: vertical; line-height:
 .select-menu li[aria-selected="true"] { color: var(--accent-fg); font-weight: var(--w-medium); }
 .select-menu li .icon { flex: none; color: var(--accent-fg); }
 .input::placeholder { color: var(--text-3); }
+/* SecretInput (ui.tsx): the eye sits inside the field, on the right */
+.secret-input { position: relative; flex: 1; min-width: 0; }
+.secret-input .input { padding-right: 34px; }
+.secret-input .icon-btn { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); width: 26px; height: 24px; }
 /* TagInput (ui.tsx): chips inside an input-looking box; the box takes the focus ring of its inner input */
 .tags-wrap { position: relative; min-width: 0; flex: auto; width: 100%; }
 .row-control .tags-wrap .input.tags { width: 100%; }

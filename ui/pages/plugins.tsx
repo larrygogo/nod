@@ -6,7 +6,7 @@ import { accounts, activeChannels, api, getPath, setPath, type Account, type Che
 import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
 import { t } from "../i18n";
-import { Badge, Button, Empty, Note, Select, Switch, TextInput, errText } from "../ui";
+import { Badge, Button, Empty, Note, SecretInput, Select, Switch, TextInput, errText, isAddress } from "../ui";
 
 // ------------------------------------------------------------------ shared pieces
 
@@ -19,12 +19,12 @@ function FieldInput({ f, value, onChange, secretName }: {
   if (f.kind === "select") return <Select value={String(value ?? "")} options={f.options} onChange={onChange} />;
   const saved = !!(f.secret && secretName && loaded.secrets[secretName]);
   const clearing = !!secretName && cleared.includes(secretName);
-  const input = (
-    <TextInput type={f.kind === "password" ? "password" : f.kind === "number" ? "number" : "text"} mono={f.kind !== "number"}
-      value={(value as string | number) ?? ""}
-      placeholder={clearing ? t("pl.will_clear") : saved ? t("pl.saved_secret") : f.placeholder}
-      onInput={(v) => { if (clearing) setCleared(secretName!, false); onChange(f.kind === "number" ? Number(v) : v); }} />
-  );
+  const placeholder = clearing ? t("pl.will_clear") : saved ? t("pl.saved_secret") : f.placeholder;
+  const typed = (v: string) => { if (clearing) setCleared(secretName!, false); onChange(f.kind === "number" ? Number(v) : v); };
+  const input = f.kind === "password"
+    ? <SecretInput value={String(value ?? "")} placeholder={placeholder} onInput={typed} address={isAddress(f)} />
+    : <TextInput type={f.kind === "number" ? "number" : "text"} mono={f.kind !== "number"}
+      value={(value as string | number) ?? ""} placeholder={placeholder} onInput={typed} />;
   if (!saved) return input;
   return (
     <div class="secret-row">
