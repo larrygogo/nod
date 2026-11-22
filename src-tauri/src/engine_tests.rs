@@ -210,6 +210,13 @@ fn bad() -> Verdict {
     v
 }
 
+/// Nothing blocks approval, but there is something to say: a low-severity finding.
+fn minor() -> Verdict {
+    let mut v = clean();
+    v.findings = vec![finding("low", true, 1)];
+    v
+}
+
 fn setup() -> (Fake, Arc<Engine>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let f = Fake(Arc::new(Mutex::new(World {
@@ -455,7 +462,7 @@ fn review_again_starts_over_whatever_happened() {
 fn every_review_is_a_round_of_its_own() {
     let (f, en, _d) = setup();
     f.w().ci = "pending".into();
-    f.w().verdict = Some(clean());
+    f.w().verdict = Some(minor());
     en.review_one(&f.pr()); // comments now, approval after CI
     f.w().ci = "success".into();
     en.finish_safe("o/r#1");
@@ -639,7 +646,7 @@ fn clean_waits_for_ci() {
     let (f, en, _d) = setup();
     {
         let mut w = f.w();
-        w.verdict = Some(clean());
+        w.verdict = Some(minor());
         w.ci = "pending".into();
     }
     en.review_one(&f.pr());
@@ -647,7 +654,10 @@ fn clean_waits_for_ci() {
     // the comments go up at once; the approval waits for CI
     assert_eq!(f.w().posts, vec!["COMMENT"]);
     let first = f.w().bodies[0]["body"].as_str().unwrap().to_string();
-    assert!(first.contains("CI 通过后会 approve"), "{first}");
+    assert!(
+        first.contains("没有阻塞问题，CI 通过后 approve") && !first.contains("未 approve"),
+        "{first}"
+    );
     en.finish_safe("o/r#1"); // still pending: nothing new
     assert_eq!(f.w().posts, vec!["COMMENT"]);
     f.w().ci = "success".into();
@@ -664,12 +674,35 @@ fn clean_waits_for_ci() {
     );
 }
 
+/// Nothing blocks and nothing to say: no "not approved" comment while CI runs, just one approval after it.
+#[test]
+fn clean_without_findings_posts_only_the_approval_after_ci() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        w.verdict = Some(clean());
+        w.ci = "pending".into();
+    }
+    en.review_one(&f.pr());
+    assert_eq!(e(&en).status, "awaiting_ci");
+    assert!(f.w().posts.is_empty());
+    let updates = f.w().updates.len();
+    en.finish_safe("o/r#1"); // still pending: no repeat notification either
+    assert!(f.w().posts.is_empty());
+    assert_eq!(f.w().updates.len(), updates);
+    f.w().ci = "success".into();
+    en.finish_safe("o/r#1");
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
+    let body = f.w().bodies[0]["body"].as_str().unwrap().to_string();
+    assert!(body.contains("结论：Approve"), "{body}");
+}
+
 #[test]
 fn ci_failing_after_the_comments_says_why_without_repeating_them() {
     let (f, en, _d) = setup();
     {
         let mut w = f.w();
-        w.verdict = Some(clean());
+        w.verdict = Some(minor());
         w.ci = "pending".into();
     }
     en.review_one(&f.pr());
@@ -698,7 +731,7 @@ fn no_ci_waits_from_when_the_commit_was_seen_and_not_in_a_repo_without_ci() {
     en.store
         .with("o/r#1", |e| e.queued_at = util::now() - 11.0 * 60.0);
     en.finish_safe("o/r#1");
-    assert_eq!(f.w().posts, vec!["COMMENT", "APPROVE"]);
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
 
     // a second PR in the same repository: it had no CI before, so no wait
     let (f2, en2, _d2) = setup();
@@ -758,7 +791,7 @@ fn merged_while_waiting_for_ci_does_not_claim_ci_blocked_it() {
     let (f, en, _d) = setup();
     {
         let mut w = f.w();
-        w.verdict = Some(clean());
+        w.verdict = Some(minor());
         w.ci = "pending".into();
     }
     en.review_one(&f.pr());
