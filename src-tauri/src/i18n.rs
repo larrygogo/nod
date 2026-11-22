@@ -33,7 +33,7 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("review.rules_passed", "approve 的规则全部通过。", "Every approval rule passed."),
     ("review.always", "按无条件 approve 名单 approve，审查意见仅供参考。", "Approved: on the always-approve list; the findings are for reference."),
     ("review.always_failed", "**Approve。** 按无条件 approve 名单 approve；自动审查没有完成：{err}", "**Approve.** On the always-approve list; the automated review did not finish: {err}"),
-    ("review.after_ci", "没有阻塞问题，CI 通过后会 approve。", "No blocking issues; Nod approves once CI passes."),
+    ("review.after_ci", "**结论：没有阻塞问题，CI 通过后 approve。** {summary}", "**Verdict: no blocking issues; Nod approves once CI passes.** {summary}"),
     ("review.approve_after_ci", "**CI 已通过，Approve。** 审查意见见上一条评审。", "**CI passed: Approve.** See the previous review for the findings."),
     ("review.no_approve_after_ci", "**未 approve。** 卡在：{reasons}", "**Not approved.** Blocked by: {reasons}"),
     ("review.direct_note", "_由本人直接通过。_", "_Approved directly by the reviewer._"),

@@ -58,7 +58,9 @@ First public release: a desktop app.
 - Updates: Nod checks GitHub for a newer release at start and every 6 hours and offers it in the window and the tray
   menu; one click downloads it, checks its signature and restarts into it. The deb package is updated by hand.
 - Comments go up as soon as the review is done; the approval follows as a review of its own once CI passes (before,
-  both waited for CI together). If CI fails, a short review says why it was not approved. *Approve directly* posts
+  both waited for CI together). That early review is headed "no blocking issues; approves once CI passes", not "not
+  approved", and a review with no findings posts nothing early: just the approval after CI. If CI fails, a short
+  review says why it was not approved. *Approve directly* posts
   the findings with the approval when they are not on GitHub yet, instead of dropping them.
 - No CI: the wait for checks to appear counts from when Nod first saw the commit, and is skipped in repositories
   whose earlier PRs never had CI. The card says until when it waits.

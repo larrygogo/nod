@@ -808,14 +808,14 @@ impl Engine {
             && only_ci
             && waited < self.cfg.review.ci_wait_max_min
         {
-            // Nothing blocks but CI. The comments go up now, so the author can act on them; the approval follows
-            // as a review of its own once CI passes.
+            // Nothing blocks but CI. Findings go up now, so the author can act on them; the approval follows as a
+            // review of its own once CI passes. With nothing to say there is no early comment: one approval after CI.
             let deadline = if ci == "none_wait" {
                 grace_end
             } else {
                 e.reviewed_at + self.cfg.review.ci_wait_max_min * 60.0
             };
-            if !commented && !self.cfg.dry_run {
+            if !commented && !self.cfg.dry_run && !verdict.findings.is_empty() {
                 let body = review::build_review(
                     self.lang(),
                     &pr,
@@ -843,7 +843,7 @@ impl Engine {
                 e.ci_deadline = deadline;
             });
             info!("{key}: clean, waiting for CI ({waited:.0} min so far)");
-            if !commented {
+            if e.status != "awaiting_ci" {
                 self.refresh(key, None, true);
             }
             return Ok(());

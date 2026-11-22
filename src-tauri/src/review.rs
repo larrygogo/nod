@@ -306,16 +306,17 @@ pub fn build_review(
             outside.push(format!("**{head}**{loc}\n\n{}", f.body));
         }
     }
+    // Posted ahead of the approval, which waits only for CI: the verdict is "approve after CI", not "not approved".
+    let only_ci = reasons == ["ci_pending"] || reasons == ["ci_none_wait"];
     let key = if event == "APPROVE" {
         "review.approve"
+    } else if only_ci {
+        "review.after_ci"
     } else {
         "review.comment"
     };
     let mut lines = vec![tf(lang, key, &[("summary", &v.summary)])];
-    if event != "APPROVE" && (reasons == ["ci_pending"] || reasons == ["ci_none_wait"]) {
-        // posted ahead of the approval, which waits only for CI
-        lines.push(t(lang, "review.after_ci"));
-    } else if event != "APPROVE" && !reasons.is_empty() {
+    if event != "APPROVE" && !only_ci && !reasons.is_empty() {
         let rs: Vec<String> = reasons.iter().map(|r| reason_text(lang, r)).collect();
         lines.push(tf(
             lang,
