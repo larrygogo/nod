@@ -106,12 +106,18 @@ function Digest() {
   const { ov, go } = useStore();
   const needs = ov.rows.filter(needsYou);
   const reviewing = ov.rows.filter((r) => r.status === "reviewing" || r.status === "queued");
+  // after an error the rows may be stale: do not claim that nothing waits on you
+  const stale = ov.status.state === "error";
   const ci = ov.rows.filter((r) => r.status === "awaiting_ci");
   const w = week(ov.rows);
+  // English needs the singular for one; Chinese counts the same either way
+  const n = (k: number, one: string, many: string) => (lang() === "en" ? `${k} ${k === 1 ? one : many}` : String(k));
   const sentence = !w.prs ? t("ov.week_none")
-    : t("ov.week", { prs: w.prs, rounds: w.rounds, ok: w.approved }) + (w.held ? t("ov.week_held", { n: w.held }) : "") + t("ov.week_end");
-  const lead = !ov.rows.length ? t("ov.lead_new") : needs.length ? t(needs.length === 1 ? "ov.lead_need_one" : "ov.lead_need", { n: needs.length }) : t("ov.lead_clear");
-  const tone = !ov.rows.length ? "" : needs.length ? "warn" : "good";
+    : t("ov.week", { prs: n(w.prs, "PR", "PRs"), rounds: n(w.rounds, "round", "rounds"), ok: w.approved })
+      + (w.held ? t("ov.week_held", { n: w.held }) : "") + t("ov.week_end");
+  const lead = !ov.rows.length ? t("ov.lead_new") : needs.length ? t(needs.length === 1 ? "ov.lead_need_one" : "ov.lead_need", { n: needs.length })
+    : stale ? t("ov.lead_stale") : t("ov.lead_clear");
+  const tone = !ov.rows.length || (stale && !needs.length) ? "" : needs.length ? "warn" : "good";
   return (
     <section class="digest">
       <div class="grow">
@@ -128,11 +134,12 @@ function Digest() {
                 <b class="mono">{short(r.key)}</b><span class="ellipsis">{needWhy(r).text}</span>
               </button>
             ))}
-            {needs.length > 3 && <button class="chip" onClick={() => go("reviews")}>{t("ov.more_needs", { n: needs.length - 3 })}</button>}
-            {reviewing.map((r) => (
+            {needs.length > 3 && <button class="chip" onClick={() => go("reviews", "__filter:commented")}>{t("ov.more_needs", { n: needs.length - 3 })}</button>}
+            {reviewing.slice(0, 2).map((r) => (
               <button class="chip busy" onClick={() => go("reviews", id(r))}><span class="spinner" />
                 <span class="ellipsis">{t(r.status === "queued" ? "ov.now_queued" : "ov.now_reviewing", { k: short(r.key) })}</span></button>
             ))}
+            {reviewing.length > 2 && <button class="chip busy" onClick={() => go("reviews", "__filter:active")}><span class="ellipsis">{t("ov.more_active", { n: reviewing.length - 2 })}</span></button>}
             {ci.length > 0 && <button class="chip busy" onClick={() => go("reviews", id(ci[0]))}><Icon name="check" size={12} />
               <span class="ellipsis">{t("ov.now_ci", { n: ci.length })}</span></button>}
           </div>

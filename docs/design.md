@@ -16,9 +16,10 @@ with a detail pane). What we took and why:
 
 - **Overview** — one status line under the title (and a banner with the fix only when something is wrong), then the
   digest: one sentence that answers "does anything wait on me?" (open PRs Nod did not approve, or whose review failed,
-  with up to three of them as shortcuts and what is reviewing or waiting for CI right now), one sentence on the week
-  ("reviewed 8 PRs in 39 rounds, approved 6, held back 1 with a high-severity issue"), and the last seven days drawn
-  next to it. Then the plugins in use as a short chain and the latest reviews grouped by day, newest first; rows that
+  with up to three of them as shortcuts and what is reviewing or waiting for CI right now), one sentence on the last
+  seven days — rolling, not the calendar week, so a Monday is not empty — ("reviewed 8 PRs in 39 rounds, approved 6,
+  held back 1 with a high-severity issue"), and those seven days drawn next to it. A reason is never invented: a
+  review with no recorded reason says so, and after an error the digest does not claim that nothing waits on you. Then the plugins in use as a short chain and the latest reviews grouped by day, newest first; rows that
   wait on you are flagged in place, never pinned. No strip of today's counters: most days it read "0 0 0 0".
 - **Reviews** — every review: search, filter by outcome (approved / not approved / in progress / failed), detail pane
   with verdict, reasons and findings. A PR reviewed more than once shows its rounds as small stacked columns (one per

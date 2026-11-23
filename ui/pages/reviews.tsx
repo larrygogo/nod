@@ -82,7 +82,11 @@ export function ReviewsPage() {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [hand, setHand] = useState(review === "__hand__");
-  useEffect(() => { if (review === "__hand__") { setHand(true); go("reviews", null as unknown as string); } }, [review]);
+  useEffect(() => {
+    if (review === "__hand__") { setHand(true); go("reviews", null as unknown as string); }
+    // the overview's "N more" opens the list filtered
+    if (review?.startsWith("__filter:")) { setFilter(review.slice(9) as Filter); go("reviews", null as unknown as string); }
+  }, [review]);
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -143,7 +147,9 @@ type Round = Row["rounds"][number];
 /** Several reviews of one PR, drawn: one column per review, oldest first, stacked by severity, so "fewer issues each
  *  round" (or not) is seen at a glance. The sentence says the same in words, counting high and medium. */
 function RoundTrend({ rounds }: { rounds: Round[] }) {
-  const xs = [...rounds].reverse();
+  // a round with no summary was not reviewed (e.g. approved directly before Nod got to it): it says nothing about issues
+  const xs = [...rounds].reverse().filter((x) => x.summary || x.findings.length > 0);
+  if (xs.length < 2) return null;
   const max = Math.max(1, ...xs.map((x) => x.findings.length));
   const serious = (x: Round) => { const c = sevCounts(x.findings); return c.high + c.medium; };
   const first = serious(xs[0]), last = serious(xs[xs.length - 1]);
@@ -167,7 +173,7 @@ function RoundTrend({ rounds }: { rounds: Round[] }) {
           );
         })}
       </div>
-      <div class="trend-legend">{(["high", "medium", "low"] as const).map((s) => <span><i class={s} />{t(`sev.${s}` as Key)}</span>)}
+      <div class="trend-legend">{(["high", "medium", "low", "nit"] as const).map((s) => <span><i class={s} />{t(`sev.${s}` as Key)}</span>)}
         <span><Icon name="check" size={11} />{t("rd.approved")}</span></div>
     </figure>
   );

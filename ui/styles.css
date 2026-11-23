@@ -454,7 +454,7 @@ details.round > summary:hover { background: var(--surface-2); border-radius: var
 .trend-stack .seg.high, .trend-legend i.high { background: var(--bad-fill); }
 .trend-stack .seg.medium, .trend-legend i.medium { background: var(--warn-fill); }
 .trend-stack .seg.low, .trend-legend i.low { background: color-mix(in srgb, var(--busy) 70%, var(--surface)); }
-.trend-stack .seg.nit { background: var(--border-strong); }
+.trend-stack .seg.nit, .trend-legend i.nit { background: var(--border-strong); }
 .trend-stack .seg.none { height: 3px; background: var(--border-strong); }
 .trend-n { display: grid; place-items: center; height: 14px; font-size: 10.5px; line-height: 1; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .trend-n.good { color: var(--good); }

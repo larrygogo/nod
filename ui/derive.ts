@@ -15,7 +15,7 @@ export const isApproved = (r: Row) => r.event === "APPROVE" || r.status === "dir
 /** The review went up (comments always do) but Nod did not approve. Comments and approval are not exclusive: this is
  *  "commented and not approved", the only case where the comment is the whole outcome. */
 export const isNotApproved = (r: Row) => !isApproved(r)
-  && (r.event === "COMMENT" || (r.status === "closed" && r.commented));
+  && (r.event === "COMMENT" || (r.status === "closed" && r.commented) || r.status === "withdrawn");
 
 /** An open PR that waits on you: the review failed, or Nod commented and did not approve, so approving is your call. */
 export const needsYou = (r: Row) => isOpen(r) && (r.status === "failed" || (r.status === "posted" && r.event === "COMMENT"));
@@ -38,20 +38,22 @@ export function allRounds(rows: Row[]) {
   return rows.flatMap((r) => r.rounds.map((x) => ({ ...x, row: r })));
 }
 
-/** The last `days` days, oldest first: how many reviews went up each day, split by whether Nod approved. */
+/** The last `days` days, oldest first: how many reviews went up each day, split by whether Nod approved. A withdrawn
+ *  approval does not count as one; a round still waiting for CI (comments up, no outcome yet) counts as neither. */
 export function daily(rows: Row[], days: number, now = Date.now() / 1000) {
   const today = dayStart(now);
   const out = Array.from({ length: days }, (_, i) => ({ day: today - (days - 1 - i) * DAY, approved: 0, commented: 0 }));
   for (const x of allRounds(rows)) {
     const i = Math.round((dayStart(x.at) - out[0].day) / DAY);
     if (i < 0 || i >= days) continue;
-    if (x.event === "APPROVE") out[i].approved++;
-    else if (x.event === "COMMENT" || x.comment_url) out[i].commented++;
+    if (x.event === "APPROVE" && !x.withdrawn) out[i].approved++;
+    else if (x.event === "COMMENT") out[i].commented++;
   }
   return out;
 }
 
-/** The week in numbers: PRs reviewed, review rounds, PRs Nod approved, PRs held back with a high-severity issue. */
+/** The last seven days (today and the six before, not the calendar week) in numbers: PRs reviewed, review rounds, PRs
+ *  Nod approved, PRs held back with a high-severity issue. */
 export function week(rows: Row[], now = Date.now() / 1000) {
   const from = dayStart(now) - 6 * DAY;
   const rounds = allRounds(rows).filter((x) => x.at >= from);
