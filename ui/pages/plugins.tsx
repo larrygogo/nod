@@ -35,20 +35,38 @@ function FieldInput({ f, value, onChange, secretName }: {
   );
 }
 
-function Fields({ fields, get, set, secretName }: {
+/** `fold`: put the optional fields under one line (GitHub: Enterprise and a token are for a few people), open when
+ *  one of them is already in use. Decided once, so clearing the last character there does not fold it away. */
+function Fields({ fields, get, set, secretName, fold }: {
   fields: Field[]; get: (k: string) => unknown; set: (k: string, v: unknown) => void; secretName: (k: string) => string;
+  fold?: { label: string; open: boolean };
 }) {
+  const [openAtFirst] = useState(() => !!fold?.open);
   if (!fields.length) return null;
-  return (
+  const list = (fs: Field[]) => (
     <div class="fields">
-      {fields.map((f) => (
-        <label class={`field${f.kind === "bool" ? " inline" : ""}`}>
+      {fs.map((f) => (
+        <label key={f.key} class={`field${f.kind === "bool" ? " inline" : ""}`}>
           <span class="field-label">{f.label}</span>
           <FieldInput f={f} value={get(f.key)} onChange={(v) => set(f.key, v)} secretName={secretName(f.key)} />
           {f.help && <span class="muted small">{f.help}</span>}
         </label>
       ))}
     </div>
+  );
+  if (!fold) return list(fields);
+  const need = fields.filter((f) => !f.optional);
+  const opt = fields.filter((f) => f.optional);
+  return (
+    <>
+      {need.length > 0 && list(need)}
+      {opt.length > 0 && (
+        <details class="more-opts" open={openAtFirst}>
+          <summary><Icon name="chevron" size={12} />{fold.label}</summary>
+          {list(opt)}
+        </details>
+      )}
+    </>
   );
 }
 
@@ -110,7 +128,9 @@ function Pane({ p, sub, control, children, onCheck, testLabel, extra, account, h
           </div>
           {err && <Note tone="bad">{err}</Note>}
           {typeof result === "string" && <Note tone="good">{t("btn.sent")}</Note>}
-          {Array.isArray(result) && !trouble && <Checks checks={result} />}
+          {/* a clean result the page found by itself is only shown where nothing above says it already (GitHub's
+              account section says who is signed in); one the user asked for is always shown */}
+          {Array.isArray(result) && !trouble && (ran !== null || !account) && <Checks checks={result} />}
         </section>
       )}
       {extra}
@@ -237,7 +257,9 @@ export function PluginsPage() {
         {p.fields.length > 0 && <Fields fields={p.fields}
           get={(k) => getPath(a, k)}
           set={(k, v) => edit((c) => { materialize(c); setPath(c.forges![i], k, v); })}
-          secretName={(k) => (k === "token" ? `forge.${a.id}.token` : k.startsWith("settings.") ? `forge.${a.id}.${k}` : "")} />}
+          secretName={(k) => (k === "token" ? `forge.${a.id}.token` : k.startsWith("settings.") ? `forge.${a.id}.${k}` : "")}
+          fold={a.kind === "github" ? { label: t("ob.gh_more"), open: !!a.url || !!getPath(a, "settings.client_id") || !!a.token
+            || (!!loaded.secrets[`forge.${a.id}.token`] && !cleared.includes(`forge.${a.id}.token`)) } : undefined} />}
       </Pane>
     );
   } else if (current.startsWith("engine:")) {

@@ -33,7 +33,9 @@ with a detail pane). What we took and why:
   third-party plugins; each line shows its state (On / Off / Default) so the list is also the summary. The pane shows
   the selected one: what it is, what it can see/do, its settings and its self-test. Opening the page checks every
   account and engine in use with the saved settings and no model call; a broken one says "Not working" (or "Needs a
-  look") in the list instead of "On", and its pane leads with the problem and the fix, above the settings. Narrow windows show the list, then
+  look") in the list instead of "On", and its pane leads with the problem and the fix, above the settings. A clean result the page found by itself
+  is not repeated where the pane already says it (GitHub's account section names who is signed in). GitHub's
+  Enterprise and token fields fold under one line, as in Setup, open when one is in use. Narrow windows show the list, then
   the pane with a back link.
 - **Settings** — one group at a time behind a segmented control: general (language, theme, start at sign-in),
   review (which PRs are reviewed and which are approved: each opens with one sentence that reads the lists back — "Nod reviews only PRs in my-org/*, except those by renovate[bot]" — then the four lists as a repository/author by only/never grid, so empty fields no longer have to be decoded as "everything"; automatic approval with its fixed rules listed one per line, the always-approve
