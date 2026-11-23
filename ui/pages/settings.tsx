@@ -8,24 +8,46 @@ import { Card, TagInput, cleanLogin, cleanRepo, Note, Row, Section, Segmented, S
 
 /** One side of an always-approve rule: typed freely, checked and tidied (a pasted link becomes owner/repo) when the
  *  field is left. Empty means "any". */
-function RuleField({ value, kind, placeholder, list, onChange }: {
-  value: string; kind: "repo" | "login"; placeholder: string; list: string; onChange: (v: string) => void;
+function RuleField({ value, kind, placeholder, suggest, onChange }: {
+  value: string; kind: "repo" | "login"; placeholder: string; suggest: string[]; onChange: (v: string) => void;
 }) {
   const [text, setText] = useState(value);
   const [bad, setBad] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const [hi, setHi] = useState(-1);
   useEffect(() => { setText(value); }, [value]);
-  const commit = () => {
-    const raw = text.trim();
+  // the app's own suggestion menu, like TagInput's: the system <datalist> popup cannot be styled in the web view
+  const q = text.trim().toLowerCase();
+  const options = focus ? suggest.filter((x) => x.toLowerCase() !== q && (!q || x.toLowerCase().includes(q))).slice(0, 6) : [];
+  const commit = (raw0 = text) => {
+    const raw = raw0.trim();
+    setHi(-1);
     if (!raw) { setBad(false); onChange(""); return; }
     const c = (kind === "repo" ? cleanRepo : cleanLogin)(raw);
     setBad(!c);
     if (c) { setText(c); onChange(c); }
   };
+  const key = (e: KeyboardEvent) => {
+    if (e.key === "ArrowDown" && options.length) { e.preventDefault(); setHi((i) => Math.min(i + 1, options.length - 1)); }
+    else if (e.key === "ArrowUp" && options.length) { e.preventDefault(); setHi((i) => Math.max(i - 1, -1)); }
+    else if (e.key === "Escape") { setHi(-1); setFocus(false); }
+    else if (e.key === "Enter") { e.preventDefault(); const o = hi >= 0 ? options[hi] : undefined; if (o) setText(o); commit(o ?? text); }
+  };
   return (
-    <input class={`input mono${bad ? " invalid" : ""}`} value={text} placeholder={placeholder} list={list} spellcheck={false}
-      title={bad ? t(kind === "repo" ? "tag.bad_repo" : "tag.bad_login", { x: text }) : undefined}
-      onInput={(e) => { setText((e.target as HTMLInputElement).value); setBad(false); }}
-      onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} />
+    <div class="tags-wrap">
+      <input class={`input mono${bad ? " invalid" : ""}`} value={text} placeholder={placeholder} spellcheck={false}
+        title={bad ? t(kind === "repo" ? "tag.bad_repo" : "tag.bad_login", { x: text }) : undefined}
+        onInput={(e) => { setText((e.target as HTMLInputElement).value); setBad(false); setHi(-1); }}
+        onFocus={() => setFocus(true)} onBlur={() => { setFocus(false); commit(); }} onKeyDown={key} />
+      {options.length > 0 && (
+        <ul class="select-menu tags-menu" role="listbox">
+          {options.map((o, i) => (
+            <li role="option" aria-selected={false} class={i === hi ? "hi" : ""} onMouseEnter={() => setHi(i)}
+              onMouseDown={(e) => { e.preventDefault(); setText(o); setFocus(false); commit(o); }}><span class="mono ellipsis">{o}</span></li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -36,16 +58,14 @@ function AlwaysRules({ repoHints, loginHints }: { repoHints: string[]; loginHint
   const set = (i: number, k: "repo" | "author", v: string) => edit((c) => { c.approve.always![i][k] = v; });
   return (
     <div class="always">
-      <datalist id="always-repos">{repoHints.map((r) => <option value={r} />)}</datalist>
-      <datalist id="always-authors">{loginHints.map((r) => <option value={r} />)}</datalist>
       {rules.length > 0 && (
         <div class="always-row head muted small"><span>{t("set.always.repo")}</span><span /><span>{t("set.always.author")}</span><span /></div>
       )}
       {rules.map((r, i) => (
         <div class="always-row">
-          <RuleField kind="repo" value={r.repo} placeholder={t("set.always.any_repo")} list="always-repos" onChange={(v) => set(i, "repo", v)} />
+          <RuleField kind="repo" value={r.repo} placeholder={t("set.always.any_repo")} suggest={repoHints} onChange={(v) => set(i, "repo", v)} />
           <span class="muted small">{t("set.always.and")}</span>
-          <RuleField kind="login" value={r.author} placeholder={t("set.always.any_author")} list="always-authors" onChange={(v) => set(i, "author", v)} />
+          <RuleField kind="login" value={r.author} placeholder={t("set.always.any_author")} suggest={loginHints} onChange={(v) => set(i, "author", v)} />
           <button class="icon-btn" aria-label={t("btn.remove")} onClick={() => edit((c) => { c.approve.always!.splice(i, 1); })}><Icon name="trash" /></button>
         </div>
       ))}
