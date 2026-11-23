@@ -112,9 +112,11 @@ function Digest() {
   const w = week(ov.rows);
   // English needs the singular for one; Chinese counts the same either way
   const n = (k: number, one: string, many: string) => (lang() === "en" ? `${k} ${k === 1 ? one : many}` : String(k));
-  const sentence = !w.prs ? t("ov.week_none")
-    : t("ov.week", { prs: n(w.prs, "PR", "PRs"), rounds: n(w.rounds, "round", "rounds"), ok: w.approved })
-      + (w.held ? t("ov.week_held", { n: w.held }) : "") + t("ov.week_end");
+  // two clauses that wrap between each other, never leaving two characters alone on the last line
+  const sentence = !w.prs ? t("ov.week_none") : <>
+    <span class="clause">{t("ov.week", { prs: n(w.prs, "PR", "PRs"), rounds: n(w.rounds, "round", "rounds") })}</span>
+    <span class="clause">{t("ov.week_ok", { ok: w.approved }) + (w.held ? t("ov.week_held", { n: w.held }) : "") + t("ov.week_end")}</span>
+  </>;
   const lead = !ov.rows.length ? t("ov.lead_new") : needs.length ? t(needs.length === 1 ? "ov.lead_need_one" : "ov.lead_need", { n: needs.length })
     : stale ? t("ov.lead_stale") : t("ov.lead_clear");
   const tone = !ov.rows.length || (stale && !needs.length) ? "" : needs.length ? "warn" : "good";
@@ -154,7 +156,8 @@ function Digest() {
 function WeekBars({ rows }: { rows: Row[] }) {
   const d = daily(rows, 7);
   const max = Math.max(1, ...d.map((x) => x.approved + x.commented));
-  const wd = (ts: number) => new Date(ts * 1000).toLocaleDateString(lang(), { weekday: "narrow" });
+  // "周一" / "Mon", not the one-letter form: a lone "一" reads as a dash
+  const wd = (ts: number) => new Date(ts * 1000).toLocaleDateString(lang(), { weekday: "short" });
   return (
     <figure class="week" aria-label={t("ov.week_chart")}>
       <div class="week-bars">

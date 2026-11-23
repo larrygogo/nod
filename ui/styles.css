@@ -334,6 +334,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .digest-lead.warn .icon { color: var(--warn); }
 .digest-lead.good .icon { color: var(--good); }
 .digest-sub { color: var(--text-2); margin: 4px 0 0; }
+.digest-sub .clause { display: inline-block; }
 .digest-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; max-width: 100%; padding: 0 10px; border: none; border-radius: 999px;
   background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; transition: background 120ms var(--ease), transform 220ms var(--spring); }
@@ -346,7 +347,8 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .chip.busy { background: var(--busy-bg); }
 .chip.busy .ellipsis, .chip.busy .icon { color: var(--busy); }
 .chip .spinner { width: 10px; height: 10px; border-width: 1.5px; color: var(--busy); }
-.week { flex: none; width: 168px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+/* 196px: seven "周一" labels fit; the legend wraps between its items, never inside one */
+.week { flex: none; width: 196px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .week-bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; height: 64px; }
 .week-col { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
 .week-stack { flex: 1; width: 100%; max-width: 14px; display: flex; flex-direction: column-reverse; gap: 2px; }
@@ -354,9 +356,9 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .week-stack .seg.good { background: var(--good-fill); }
 .week-stack .seg.warn { background: var(--warn-fill); }
 .week-stack .seg.none { height: 3px; background: var(--border-strong); }
-.week-day { font-size: 10.5px; line-height: 1; color: var(--text-3); }
+.week-day { font-size: 10.5px; line-height: 1; color: var(--text-3); white-space: nowrap; }
 .week-day.today { color: var(--text); font-weight: var(--w-semibold); }
-.week-legend { display: flex; gap: 10px; justify-content: center; font-size: 11px; color: var(--text-2); }
+.week-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; justify-content: center; font-size: 11px; color: var(--text-2); white-space: nowrap; }
 .week-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .week-legend i { width: 7px; height: 7px; border-radius: 2px; }
 .week-legend i.good { background: var(--good-fill); }
