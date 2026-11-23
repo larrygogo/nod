@@ -17,7 +17,9 @@ export function clock(ts: number): string {
 
 export function statusLabel(r: Row): string {
   if (r.status === "retry" && r.wait_until > 0) return t("st.waiting");
-  const k = (r.status === "posted" || r.status === "closed") && r.earlier_approved ? "st.posted.APPROVE"
+  // approved by you after Nod held back: say so, or its reasons below read like Nod approved despite them
+  const k = (r.status === "posted" || r.status === "closed") && r.direct ? "st.direct_approved"
+    : (r.status === "posted" || r.status === "closed") && r.earlier_approved ? "st.posted.APPROVE"
     : (r.status === "posted" || r.status === "closed") && r.event ? `st.posted.${r.event}`
     : r.status === "closed" && r.commented ? "st.posted.COMMENT"
     : r.status === "closed" && r.summary ? (r.pr_state === "merged" ? "st.merged_first" : "st.closed_first")
@@ -374,7 +376,7 @@ export function Detail({ r }: { r: Row }) {
           {r.summary && <p class="summary">{r.summary}</p>}
           {!r.summary && !r.error && tone(r) === "busy" && <p class="muted">{t("rv.waiting")}</p>}
           {r.reasons.length > 0 && !(r.status === "closed" && !r.event && r.summary) && (
-            <div class="sub"><h4>{t(r.status === "closed" ? "rv.closed_note" : "rv.blocked")}</h4><ul class="reasons">{r.reasons.map((x) => <li>{x}</li>)}</ul></div>
+            <div class="sub"><h4>{t(r.direct ? "rv.direct_why" : r.status === "closed" ? "rv.closed_note" : "rv.blocked")}</h4><ul class="reasons">{r.reasons.map((x) => <li>{x}</li>)}</ul></div>
           )}
           {(r.summary || r.findings.length > 0) && (
             <div class="sub"><h4>{t("rv.findings")} <span class="muted">{r.findings.length || ""}</span></h4><FindingList findings={r.findings} /></div>

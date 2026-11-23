@@ -150,6 +150,9 @@ struct Row {
     earlier_approved: bool,
     /// The comments for this commit are on GitHub (posted while the approval waited for CI).
     commented: bool,
+    /// The approval on record is yours by hand ("Approve now"), after Nod itself did not approve: its reasons are why
+    /// Nod held back, not why the PR is unapproved.
+    direct: bool,
     at: f64,
 }
 
@@ -219,6 +222,11 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
             .collect(),
         earlier_approved: e.earlier_approval_counts(),
         commented: !e.sha.is_empty() && e.comment_sha == e.sha,
+        direct: e.status == "direct_approved"
+            || (e.event.as_deref() == Some("APPROVE")
+                && e.direct_approve_id.is_some_and(|id| {
+                    e.review_url.as_deref().is_some_and(|u| u.ends_with(&id.to_string()))
+                })),
         at: e.posted_at.max(e.queued_at).max(e.direct_at),
     }
 }
@@ -939,6 +947,7 @@ fn tray_word(lang: &str, r: &Row) -> &'static str {
     let w = |zh: &'static str, e: &'static str| if en { e } else { zh };
     let done = r.status == "posted" || r.status == "closed";
     match r.status.as_str() {
+        _ if done && r.direct => w("已直接通过", "Approved directly"),
         "retry" if r.wait_until > 0.0 => w("等引擎额度", "Waiting for quota"),
         _ if done && r.earlier_approved => w("已 approve", "Approved"),
         _ if done && r.event.as_deref() == Some("APPROVE") => w("已 approve", "Approved"),
@@ -994,6 +1003,7 @@ fn tray_items_say_what_the_window_says() {
         rounds: vec![],
         earlier_approved: false,
         commented: false,
+        direct: false,
         at: 0.0,
     };
     assert_eq!(
@@ -1028,6 +1038,17 @@ fn tray_items_say_what_the_window_says() {
     );
     assert_eq!(tray_word("en", &r("retry", None)), "Will retry");
     assert_eq!(tray_word("en", &r("aborted", None)), "Stopped");
+    // you approved by hand after Nod held back, then the PR was merged
+    assert_eq!(
+        tray_word(
+            "en",
+            &Row {
+                direct: true,
+                ..r("closed", Some("APPROVE"))
+            }
+        ),
+        "Approved directly"
+    );
     assert_eq!(
         tray_word("en", &r("direct_approved", None)),
         "Approved directly"
