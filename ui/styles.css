@@ -237,7 +237,7 @@ textarea.input { height: auto; padding: 6px 10px; resize: vertical; line-height:
 .note > div { overflow-wrap: anywhere; }
 
 .empty { display: grid; place-items: center; gap: 8px; text-align: center; color: var(--text-3); padding: 40px 16px; }
-.empty p { max-width: 320px; }
+.empty p { max-width: 320px; white-space: pre-line; } /* a "\n" in a message starts its second sentence on a new line */
 
 /* ---------------------------------------------------------------- shell */
 .boot, .fatal { display: grid; place-items: center; height: 100vh; color: var(--text-2); gap: 8px; }

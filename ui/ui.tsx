@@ -298,8 +298,8 @@ export function Segmented({ value, options, onChange }: { value: string; options
   );
 }
 
-export function Empty({ icon = "info", children }: { icon?: string; children: ComponentChildren }) {
-  return <div class="empty"><Icon name={icon} size={20} /><p>{children}</p></div>;
+export function Empty({ icon = "info", children, action }: { icon?: string; children: ComponentChildren; action?: ComponentChildren }) {
+  return <div class="empty"><Icon name={icon} size={20} /><p>{children}</p>{action}</div>;
 }
 
 /** An inline message: result of an action, with its tone. */

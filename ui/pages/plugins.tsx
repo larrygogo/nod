@@ -289,7 +289,8 @@ export function PluginsPage() {
         })} />}
         testLabel={t("btn.test")}
         onCheck={() => api.testChannel(draft, p.id, cleared)}>
-        {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName} />}
+        {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName}
+          fold={p.id === "feishu" ? { label: t("pl.lark_more"), open: !!draft.notify.feishu?.domain && !/\/\/open\.feishu\.cn\/?$/.test(draft.notify.feishu.domain) } : undefined} />}
       </Pane>
     );
   } else if (current === "third") {
@@ -480,12 +481,16 @@ function AddAccount({ kinds, taken, onDone }: { kinds: Plugin[]; taken: string[]
 function Rules({ engines }: { engines: Plugin[] }) {
   const { draft, edit } = useStore();
   const rules = draft.review.per_repo ?? [];
+  const name = (id: string) => engines.find((e) => e.id === id)?.name ?? id;
+  const other = engines.find((e) => e.id !== draft.review.engine);
   return (
     <article class="pane">
       <header class="pane-head"><Tile icon="rules" size={40} />
         <div class="grow"><h2>{t("pl.per_repo")}</h2><div class="muted small">{t("pl.per_repo_help")}</div></div></header>
       <section class="pane-section">
-        {rules.length === 0 && <p class="muted">{t("pl.rules_none")}</p>}
+        {/* say what happens now, not "None": every repository goes to the default engine; an example shows what a
+            rule is for */}
+        {rules.length === 0 && <p class="muted">{t("pl.rules_empty", { engine: name(draft.review.engine), other: other?.name ?? "Codex" })}</p>}
         <div class="rules">
           {rules.map((r, i) => (
             <div class="rule">
@@ -496,6 +501,7 @@ function Rules({ engines }: { engines: Plugin[] }) {
             </div>
           ))}
         </div>
+        {rules.length > 0 && <p class="muted small">{t("pl.rules_rest", { engine: name(draft.review.engine) })}</p>}
         <div class="pane-actions">
           <Button icon="plus" onClick={() => edit((c) => { (c.review.per_repo ??= []).push({ repo: "", engine: engines.find((e) => e.id !== c.review.engine)?.id ?? "claude" }); })}>{t("pl.add_rule")}</Button>
         </div>
@@ -511,7 +517,10 @@ function Third({ plugins }: { plugins: Plugin[] }) {
         <div class="pane-control"><Button icon="folder" onClick={() => api.open("plugins")}>{t("btn.open_folder")}</Button></div></header>
       <p class="pane-desc">{t("pl.third_help")}</p>
       <section class="pane-section">
-        {plugins.length === 0 ? <Empty icon="puzzle">{t("pl.no_third")}</Empty> : (
+        {/* empty: say what a plugin could add and where to read how, instead of a bare "None" */}
+        {plugins.length === 0 ? <Empty icon="puzzle" action={<Button kind="quiet" icon="external"
+            onClick={() => api.url("https://github.com/larrygogo/nod/blob/main/docs/plugins.md")}>{t("pl.third_docs")}</Button>}>
+            {t("pl.no_third_long")}</Empty> : (
           <div class="stack">
             {plugins.map((p) => p.kind === "invalid"
               ? <Note tone="bad"><b>{p.name}</b> · {t("pl.invalid")}: {p.error}</Note>

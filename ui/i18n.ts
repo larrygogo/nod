@@ -207,6 +207,8 @@ const zh = {
   "pl.third": "第三方插件",
   "pl.third_help": "把插件文件夹放进插件目录，重启 Nod 生效。",
   "pl.no_third": "暂无",
+  "pl.no_third_long": "还没有装第三方插件。\n插件可以接入别的代码平台、审查引擎或通知渠道。",
+  "pl.third_docs": "怎么写插件",
   "pl.default": "默认",
   "pl.use_default": "设为默认",
   "pl.broken": "不可用",
@@ -254,6 +256,8 @@ const zh = {
   "pl.can": "能做什么",
   "pl.rules_sub": "{n} 条规则",
   "pl.rules_none": "未设置",
+  "pl.rules_empty": "现在所有仓库都用 {engine} 审查。想让某些仓库换一个引擎（比如 my-org/infra 用 {other}），就加一条规则。",
+  "pl.rules_rest": "其余仓库用 {engine}（默认引擎）。",
   "pl.third_count": "{n} 个",
   "pl.remove_account": "删除这个账号",
 
@@ -383,6 +387,7 @@ const zh = {
   "ob.autostart": "登录电脑时自动启动（推荐）",
   "ob.finish": "完成，开始审查",
   "ob.gh_more": "用 GitHub Enterprise 或个人访问令牌",
+  "pl.lark_more": "用 Lark 国际版",
   "ob.more": "可选：{x}",
   "ob.check_first": "建议先检查，也可跳过，之后在「插件」里处理。",
 
@@ -600,6 +605,8 @@ const en: typeof zh = {
   "pl.third": "Third-party plugins",
   "pl.third_help": "Put a plugin folder in the plugins folder and restart Nod.",
   "pl.no_third": "None",
+  "pl.no_third_long": "No third-party plugins yet.\nA plugin can add another code host, review engine or notification channel.",
+  "pl.third_docs": "Writing a plugin",
   "pl.default": "Default",
   "pl.use_default": "Make default",
   "pl.broken": "Not working",
@@ -647,6 +654,8 @@ const en: typeof zh = {
   "pl.can": "What it can do",
   "pl.rules_sub": "{n} rules",
   "pl.rules_none": "None",
+  "pl.rules_empty": "Every repository is reviewed by {engine} now. Add a rule to send some to another engine (say, my-org/infra to {other}).",
+  "pl.rules_rest": "Other repositories use {engine} (the default engine).",
   "pl.third_count": "{n}",
   "pl.remove_account": "Remove this account",
 
@@ -776,6 +785,7 @@ const en: typeof zh = {
   "ob.autostart": "Start when I sign in (recommended)",
   "ob.finish": "Finish and start reviewing",
   "ob.gh_more": "Use GitHub Enterprise or a personal access token",
+  "pl.lark_more": "Use Lark (international)",
   "ob.more": "Optional: {x}",
   "ob.check_first": "Click Check to make sure it works, or skip and handle it later under Plugins.",
 
