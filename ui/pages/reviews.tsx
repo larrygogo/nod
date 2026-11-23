@@ -102,6 +102,16 @@ export function ReviewsPage() {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [hand, setHand] = useState(review === "__hand__");
+  // a PR just sent for review by hand: opened as soon as its row is there (it may take a poll to appear)
+  const [want, setWant] = useState<string | null>(null);
+  useEffect(() => {
+    const r = want && ov.rows.find((x) => x.key === want);
+    if (r) {
+      setWant(null); setQ(""); setFilter("all"); go("reviews", `${r.account}/${r.key}`);
+      // it may sit far down the list
+      setTimeout(() => document.querySelector(".split-list .review-row.selected")?.scrollIntoView({ block: "nearest" }), 50);
+    }
+  }, [want, ov.rows]);
   useEffect(() => {
     if (review === "__hand__") { setHand(true); go("reviews", null as unknown as string); }
     // the overview's "N more" opens the list filtered
@@ -134,6 +144,10 @@ export function ReviewsPage() {
             ["all", t("rv.all")], ["approved", t("rv.f.approved")], ["commented", t("rv.f.commented")],
             ["active", t("rv.f.active")], ["failed", t("rv.f.failed")],
           ]} />
+          {want && (
+            <div class="filter-bar"><Icon name="refresh" size={14} /><span class="grow">{t("rv.want", { k: want })}</span>
+              <button class="icon-btn" aria-label={t("btn.cancel")} title={t("btn.cancel")} onClick={() => setWant(null)}><Icon name="x" size={14} /></button></div>
+          )}
           {filter === "needs" && (
             <div class="filter-bar"><Icon name="hand" size={14} /><span class="grow">{t("rv.f.needs_n", { n: ov.rows.filter(needsYou).length })}</span>
               <button class="icon-btn" aria-label={t("rv.f.clear")} title={t("rv.f.clear")} onClick={() => setFilter("all")}><Icon name="x" size={14} /></button></div>
@@ -147,7 +161,7 @@ export function ReviewsPage() {
       <div class="split-detail">
         {selected ? <><button class="link back" onClick={() => go("reviews", null as unknown as string)}><Icon name="chevron" size={14} /> {t("rv.title")}</button><Detail r={selected} /></> : (wide && rows.length === 0) ? null : <Empty icon="file">{t("rv.pick")}</Empty>}
       </div>
-      {hand && <HandDialog onClose={() => setHand(false)} />}
+      {hand && <HandDialog onClose={(k) => { setHand(false); if (k) setWant(k); }} />}
     </div>
   );
 }
@@ -414,16 +428,17 @@ export function recognizePr(text: string): string | null {
   return /^[^/#\s]+(\/[^/#\s]+)+#\d+$/.test(k) ? k : null;
 }
 
-function HandDialog({ onClose }: { onClose: () => void }) {
+/** `onClose(k)`: closed after starting a review of `k`, which the page then opens. */
+function HandDialog({ onClose }: { onClose: (started?: string) => void }) {
   const [pr, setPr] = useState("");
   const [msg, setMsg] = useState<{ tone: "info" | "good" | "bad"; text: string } | null>(null);
   const [running, setRunning] = useState(false);
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState<string | null>(null);
   const key = recognizePr(pr);
   const review = async () => {
     if (!key || running || started) return;
     setRunning(true); setMsg(null);
-    try { setMsg({ tone: "good", text: t("hand.started", { k: await api.track(pr) }) }); setStarted(true); }
+    try { const k = await api.track(pr); setMsg({ tone: "good", text: t("hand.started", { k }) }); setStarted(k); }
     catch (e) { setMsg({ tone: "bad", text: errText(e) }); }
     finally { setRunning(false); }
   };
@@ -431,11 +446,11 @@ function HandDialog({ onClose }: { onClose: () => void }) {
     <Dialog title={t("hand.title")} onClose={onClose}>
       <p class="muted">{t("hand.intro")}</p>
       <div onKeyDown={(e) => { if (e.key === "Enter") review(); }}>
-        <TextInput value={pr} onInput={(v) => { setPr(v); setStarted(false); setMsg(null); }} placeholder="https://github.com/owner/repo/pull/123" mono autoFocus />
+        <TextInput value={pr} onInput={(v) => { setPr(v); setStarted(null); setMsg(null); }} placeholder="https://github.com/owner/repo/pull/123" mono autoFocus />
       </div>
       <p class={`small ${key ? "hand-key" : "muted"}`}>{pr.trim() ? (key ? t("hand.recognized", { k: key }) : t("hand.unrecognized")) : t("hand.formats")}</p>
       <div class="hand-main">
-        {started ? <Button kind="primary" onClick={onClose}>{t("hand.see_records")}</Button>
+        {started ? <Button kind="primary" onClick={() => onClose(started)}>{t("hand.see_review")}</Button>
           : <Button kind="primary" icon="play" busy={running} disabled={!key} onClick={review}>{t("hand.review")}</Button>}
       </div>
       {msg && <Note tone={msg.tone}>{msg.text}</Note>}

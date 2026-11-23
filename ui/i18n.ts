@@ -126,6 +126,7 @@ const zh = {
   "rv.f.commented": "未 approve",
   "rv.f.active": "进行中",
   "rv.f.needs_n": "只看等你处理的 {n} 个 PR",
+  "rv.want": "{k} 已加入审查，出现后自动打开",
   "rv.f.clear": "清除筛选",
   "rv.f.failed": "失败",
   "rv.none": "没有匹配的记录",
@@ -154,6 +155,7 @@ const zh = {
   "hand.review": "审查",
   "hand.started": "已开始审查 {k}",
   "hand.see_records": "看审查记录",
+  "hand.see_review": "查看这次审查",
 
   "st.queued": "排队中",
   "st.reviewing": "审查中",
@@ -532,6 +534,7 @@ const en: typeof zh = {
   "rv.f.commented": "Not approved",
   "rv.f.active": "Active",
   "rv.f.needs_n": "Only the {n} PR(s) waiting on you",
+  "rv.want": "{k} is queued; opens when it shows up",
   "rv.f.clear": "Clear filter",
   "rv.f.failed": "Failed",
   "rv.none": "No matching reviews",
@@ -560,6 +563,7 @@ const en: typeof zh = {
   "hand.review": "Review",
   "hand.started": "Reviewing {k}",
   "hand.see_records": "Go to Reviews",
+  "hand.see_review": "Open this review",
 
   "st.queued": "Queued",
   "st.reviewing": "Reviewing",
