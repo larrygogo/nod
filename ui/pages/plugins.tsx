@@ -299,7 +299,7 @@ export function PluginsPage() {
 
 /** Sign in with Nod's OAuth App: show a one-time code, open github.com/login/device, poll until the user approves.
  *  Same flow as GitHub Desktop and the GitHub CLI; nothing to paste back into Nod. */
-function GithubSignIn({ account, usingToken }: { account: Account; usingToken: boolean }) {
+export function GithubSignIn({ account, usingToken, onSignedIn }: { account: Account; usingToken: boolean; onSignedIn?: () => void }) {
   const [session, setSession] = useState<GithubSession | null>(null);
   const [code, setCode] = useState<DeviceCode | null>(null);
   const [copied, setCopied] = useState(false);
@@ -342,7 +342,7 @@ function GithubSignIn({ account, usingToken }: { account: Account; usingToken: b
         if (me !== run.current) { if (r.state === "done") refresh(); return; }
         if (r.state === "pending") continue;
         if (r.state === "slow_down") { wait = Math.max(r.interval, wait + 5); continue; }
-        if (r.state === "done") { setSession({ signed_in: true, login: r.login, has_client_id: true }); break; }
+        if (r.state === "done") { setSession({ signed_in: true, login: r.login, has_client_id: true }); onSignedIn?.(); break; }
         setErr(r.state === "expired" ? t("gh.expired") : r.state === "denied" ? t("gh.denied") : r.message);
         break;
       }

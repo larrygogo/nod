@@ -366,6 +366,8 @@ const zh = {
   "ob.old": "发现 pr-autoreview 旧配置，可一键导入。",
   "ob.autostart": "登录电脑时自动启动（推荐）",
   "ob.finish": "完成，开始审查",
+  "ob.gh_more": "用 GitHub Enterprise 或个人访问令牌",
+  "ob.more": "可选：{x}",
   "ob.check_first": "建议先检查，也可跳过，之后在「插件」里处理。",
 
   "err.prefix": "出错了：",
@@ -741,6 +743,8 @@ const en: typeof zh = {
   "ob.old": "Found settings from pr-autoreview. Import them (settings, review history and repository cache)?",
   "ob.autostart": "Start when I sign in (recommended)",
   "ob.finish": "Finish and start reviewing",
+  "ob.gh_more": "Use GitHub Enterprise or a personal access token",
+  "ob.more": "Optional: {x}",
   "ob.check_first": "Click Check to make sure it works, or skip and handle it later under Plugins.",
 
   "err.prefix": "Error: ",

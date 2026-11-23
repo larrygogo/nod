@@ -17,6 +17,8 @@ pub struct Field {
     pub help: String,
     /// Stored in the system keychain; the window never receives the value.
     pub secret: bool,
+    /// Works when left as it is (detected or defaulted): first-run setup folds it away.
+    pub optional: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,6 +63,7 @@ fn f(key: &str, label: String, kind: &str) -> Field {
         placeholder: String::new(),
         help: String::new(),
         secret: kind == "password",
+        optional: false,
     }
 }
 
@@ -71,6 +74,10 @@ impl Field {
     }
     fn help(mut self, h: String) -> Self {
         self.help = h;
+        self
+    }
+    fn opt(mut self) -> Self {
+        self.optional = true;
         self
     }
 }
@@ -116,10 +123,10 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           l.t("一键登录，以你的身份审查。也可以填个人访问令牌。", "Sign in with one click; Nod reviews as you. A personal access token works too."),
           "github",
           vec![
-              f("url", l.t("Enterprise 地址", "Enterprise address"), "text").ph(&l.t("github.com 留空", "empty for github.com")),
-              f("settings.client_id", l.t("Enterprise Client ID", "Enterprise client ID"), "text").ph("Ov23li…"),
+              f("url", l.t("Enterprise 地址", "Enterprise address"), "text").ph(&l.t("github.com 留空", "empty for github.com")).opt(),
+              f("settings.client_id", l.t("Enterprise Client ID", "Enterprise client ID"), "text").ph("Ov23li…").opt(),
               f("token", l.t("个人访问令牌（可选）", "Personal access token (optional)"), "password").ph("ghp_…")
-                  .help(l.t("填了就不用登录。需要 repo 权限。", "Replaces the sign-in. Needs the repo scope.")),
+                  .help(l.t("填了就不用登录。需要 repo 权限。", "Replaces the sign-in. Needs the repo scope.")).opt(),
           ],
           vec![], "https://docs.github.com/en/apps/oauth-apps/using-oauth-apps/authorizing-oauth-apps"),
         p("gitee", "forge", "Gitee",
@@ -145,9 +152,9 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           l.t("用你自己的 Claude 订阅，只开放只读工具。", "Anthropic's Claude Code on your own subscription, with only the read-only Read, Grep and Glob tools."),
           "claude",
           vec![
-              f("review.claude", l.t("claude 程序", "claude program"), "text").ph("claude"),
-              f("review.claude_config_dir", l.t("配置目录（换账号时填）", "Config directory (for another account)"), "text"),
-              f("review.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text"),
+              f("review.claude", l.t("claude 程序", "claude program"), "text").ph("claude").opt(),
+              f("review.claude_config_dir", l.t("配置目录（换账号时填）", "Config directory (for another account)"), "text").opt(),
+              f("review.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text").opt(),
           ],
           vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("good", l.t("只读，不能执行命令", "Read-only, no commands"))],
           "https://docs.claude.com/en/docs/claude-code/setup"),
@@ -155,8 +162,8 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           l.t("在只读沙箱里运行：不能改文件、不能联网。", "OpenAI's Codex CLI in its read-only OS sandbox: reads files and runs read-only commands; no writes, no network."),
           "openai",
           vec![
-              f("review.codex.exe", l.t("codex 程序", "codex program"), "text").ph("codex"),
-              f("review.codex.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text"),
+              f("review.codex.exe", l.t("codex 程序", "codex program"), "text").ph("codex").opt(),
+              f("review.codex.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text").opt(),
           ],
           vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("good", l.t("系统沙箱只读", "Read-only OS sandbox"))],
           "https://developers.openai.com/codex/cli"),
@@ -164,9 +171,9 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           l.t("只读 plan 模式运行。没有系统沙箱，默认只评论、不 approve。", "Google's Gemini CLI in read-only plan mode. There is no OS sandbox, so by default it comments but never approves."),
           "gemini",
           vec![
-              f("review.gemini.exe", l.t("gemini 程序", "gemini program"), "text").ph("gemini"),
-              f("review.gemini.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text"),
-              f("review.gemini.allow_approve", l.t("允许触发自动 approve（隔离较弱）", "Let its verdicts lead to auto-approval (weaker isolation; at your own risk)"), "bool"),
+              f("review.gemini.exe", l.t("gemini 程序", "gemini program"), "text").ph("gemini").opt(),
+              f("review.gemini.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text").opt(),
+              f("review.gemini.allow_approve", l.t("允许触发自动 approve（隔离较弱）", "Let its verdicts lead to auto-approval (weaker isolation; at your own risk)"), "bool").opt(),
           ],
           vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("warn", l.t("无系统沙箱，默认不 approve", "No OS sandbox; does not approve by default"))],
           "https://geminicli.com/docs"),
@@ -194,7 +201,7 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
               f("notify.feishu.recipient", l.t("接收人", "Recipient"), "text").ph("you@example.com")
                   .help(l.t("填你登录飞书用的邮箱就行；也可以填 open_id（ou_ 开头）或 union_id（on_ 开头）。", "Your Feishu / Lark sign-in email is enough; an open_id (ou_…) or union_id (on_…) works too.")),
               f("notify.feishu.domain", l.t("开放平台地址", "Open platform URL"), "text")
-                  .help(l.t("Lark 国际版填 https://open.larksuite.com", "Lark: https://open.larksuite.com")),
+                  .help(l.t("Lark 国际版填 https://open.larksuite.com", "Lark: https://open.larksuite.com")).opt(),
           ],
           vec![b("good", l.t("可直接通过", "Approve from chat"))], &doc("feishu-setup")),
         p("feishu_bot", "notify", l.t("飞书群机器人", "Feishu / Lark group bot").as_str(),

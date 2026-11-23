@@ -35,7 +35,10 @@ with a detail pane). What we took and why:
   review (which PRs are reviewed and which are approved: each opens with one sentence that reads the lists back — "Nod reviews only PRs in my-org/*, except those by renovate[bot]" — then the four lists as a repository/author by only/never grid, so empty fields no longer have to be decoded as "everything"; automatic approval with its fixed rules listed one per line, the always-approve
   list, the comment footer, and "Running" — timeouts, retries, polling — folded at the end), about (files, version).
 - **Setup** — first launch: code host → review engine → notifications → done. One option per line; the picked option
-  opens its settings right below itself; the step buttons stay fixed at the bottom.
+  opens its settings right below itself; the step buttons stay fixed at the bottom. GitHub leads with "Sign in" (the
+  same device flow as Plugins) and checks by itself once signed in; settings that work as they are (catalog fields
+  marked `optional`: Enterprise, a token, a detected CLI path, the default model) fold under one line. The engine
+  step checks on its own when nothing it needs is empty, so "Next" is ready without hunting for a button.
 
 ## Window
 

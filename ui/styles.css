@@ -678,3 +678,13 @@ details.advanced > summary .muted { font-size: 12px; }
 /* half-width fields: the typing box only drops to its own line once a tag really fills the row */
 .lists-grid .input.tags input { min-width: 48px; }
 .lists > p.muted { margin: 0; }
+
+/* Setup: options most people skip (GitHub Enterprise, a token), folded under the usual path */
+details.more-opts { margin-top: 12px; }
+details.more-opts > summary { display: inline-flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; color: var(--text-2); font-size: 12.5px; }
+details.more-opts > summary::-webkit-details-marker { display: none; }
+details.more-opts > summary:hover { color: var(--text); }
+details.more-opts > summary .icon { color: var(--text-3); transition: transform 150ms var(--ease); }
+details.more-opts[open] > summary .icon { transform: rotate(90deg); }
+details.more-opts > .fields { margin-top: 10px; }
+.choice-body > details.more-opts:first-child { margin-top: 0; }

@@ -25,6 +25,8 @@ export interface Check {
 export interface Field {
   key: string; label: string; kind: "text" | "password" | "number" | "bool" | "select";
   options: [string, string][]; placeholder: string; help: string; secret: boolean;
+  /** works when left as it is; first-run setup folds it away */
+  optional?: boolean;
 }
 export interface Plugin {
   id: string; kind: "forge" | "engine" | "notify" | "invalid"; name: string; description: string; icon: string;
