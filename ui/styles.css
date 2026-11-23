@@ -387,6 +387,8 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .row-flag::after { content: " ·"; color: var(--text-3); font-weight: normal; }
 .review-row { transition: background 120ms var(--ease); }
 .review-row.selected { background: var(--raised); box-shadow: var(--shadow-raise); }
+/* the raised background already marks the selected row; a focus ring on top reads as a second selection */
+.review-row.selected:focus-visible { outline: none; }
 .row-title { font-weight: var(--w-medium); }
 .row-sub { display: block; color: var(--text-2); font-size: 12px; margin-top: 1px; }
 .split-list .key-owner { display: none; } /* the narrow list keeps the repo and PR number, drops the owner */

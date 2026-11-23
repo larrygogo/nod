@@ -125,7 +125,7 @@ export function ReviewsPage() {
         </div>
         <div class="list scroll">
           {rows.length === 0 ? <Empty icon="search">{ov.rows.length ? t("rv.none") : t("ov.empty")}</Empty>
-            : rows.map((r) => <ReviewRow r={r} selected={!!selected && id(r) === id(selected)} onClick={() => go("reviews", id(r))} />)}
+            : rows.map((r) => <ReviewRow key={id(r)} r={r} selected={!!selected && id(r) === id(selected)} onClick={() => go("reviews", id(r))} />)}
         </div>
       </div>
       <div class="split-detail">
@@ -347,7 +347,7 @@ export function Detail({ r }: { r: Row }) {
             const fresh = x.findings.filter((f) => !splitRaised(f.title)[1]);
             const again = x.findings.filter((f) => splitRaised(f.title)[1]);
             return (
-              <details class="round">
+              <details key={`${x.sha}|${x.at}`} class="round">
                 <summary>
                   <span class="mono">{x.sha}</span>
                   <span class="muted">{ago(x.at)}</span>

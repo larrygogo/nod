@@ -93,7 +93,7 @@ export function OverviewPage() {
             <h2 class="block-title">{g.label}</h2>
             {i === 0 && <button class="link small" onClick={() => go("reviews")}>{t("btn.all_reviews")} <Icon name="chevron" size={14} /></button>}
           </header>
-          <div class="list-card">{g.rows.map((r) => <ReviewRow r={r} flag={needsYou(r) ? needWhy(r) : undefined} onClick={() => go("reviews", id(r))} />)}</div>
+          <div class="list-card">{g.rows.map((r) => <ReviewRow key={id(r)} r={r} flag={needsYou(r) ? needWhy(r) : undefined} onClick={() => go("reviews", id(r))} />)}</div>
         </section>
       ))}
     </div>
@@ -132,13 +132,13 @@ function Digest() {
         {(needs.length > 0 || reviewing.length > 0 || ci.length > 0) && (
           <div class="digest-chips">
             {needs.slice(0, 3).map((r) => (
-              <button class="chip warn" title={needWhy(r).hint} onClick={() => go("reviews", id(r))}>
+              <button key={id(r)} class="chip warn" title={needWhy(r).hint} onClick={() => go("reviews", id(r))}>
                 <b class="mono">{short(r.key)}</b><span class="ellipsis">{needWhy(r).text}</span>
               </button>
             ))}
             {needs.length > 3 && <button class="chip" onClick={() => go("reviews", "__filter:needs")}>{t("ov.more_needs", { n: needs.length - 3 })}</button>}
             {reviewing.slice(0, 2).map((r) => (
-              <button class="chip busy" onClick={() => go("reviews", id(r))}><span class="spinner" />
+              <button key={id(r)} class="chip busy" onClick={() => go("reviews", id(r))}><span class="spinner" />
                 <span class="ellipsis">{t(r.status === "queued" ? "ov.now_queued" : "ov.now_reviewing", { k: short(r.key) })}</span></button>
             ))}
             {reviewing.length > 2 && <button class="chip busy" onClick={() => go("reviews", "__filter:active")}><span class="ellipsis">{t("ov.more_active", { n: reviewing.length - 2 })}</span></button>}
