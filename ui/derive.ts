@@ -27,9 +27,11 @@ export function sevCounts(findings: Finding[]): Record<Sev, number> {
 }
 
 const DAY = 86400;
-export function dayStart(ts: number): number {
+/** Local midnight of the day `back` days before `ts` (by the calendar, so a daylight-saving change does not shift it). */
+export function dayStart(ts: number, back = 0): number {
   const d = new Date(ts * 1000);
   d.setHours(0, 0, 0, 0);
+  if (back) d.setDate(d.getDate() - back);
   return d.getTime() / 1000;
 }
 
@@ -41,8 +43,7 @@ export function allRounds(rows: Row[]) {
 /** The last `days` days, oldest first: how many reviews went up each day, split by whether Nod approved. A withdrawn
  *  approval does not count as one; a round still waiting for CI (comments up, no outcome yet) counts as neither. */
 export function daily(rows: Row[], days: number, now = Date.now() / 1000) {
-  const today = dayStart(now);
-  const out = Array.from({ length: days }, (_, i) => ({ day: today - (days - 1 - i) * DAY, approved: 0, commented: 0 }));
+  const out = Array.from({ length: days }, (_, i) => ({ day: dayStart(now, days - 1 - i), approved: 0, commented: 0 }));
   for (const x of allRounds(rows)) {
     const i = Math.round((dayStart(x.at) - out[0].day) / DAY);
     if (i < 0 || i >= days) continue;
@@ -55,7 +56,7 @@ export function daily(rows: Row[], days: number, now = Date.now() / 1000) {
 /** The last seven days (today and the six before, not the calendar week) in numbers: PRs reviewed, review rounds, PRs
  *  Nod approved, PRs held back with a high-severity issue. */
 export function week(rows: Row[], now = Date.now() / 1000) {
-  const from = dayStart(now) - 6 * DAY;
+  const from = dayStart(now, 6);
   const rounds = allRounds(rows).filter((x) => x.at >= from);
   const prs = new Set(rounds.map((x) => `${x.row.account}/${x.row.key}`));
   const inWeek = rows.filter((r) => prs.has(`${r.account}/${r.key}`));

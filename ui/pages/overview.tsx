@@ -27,7 +27,7 @@ const short = (key: string) => key.split("/").pop() ?? key;
 export function dayLabel(ts: number): string {
   const d = dayStart(ts), today = dayStart(Date.now() / 1000);
   if (d === today) return t("day.today");
-  if (d === today - 86400) return t("day.yesterday");
+  if (d === dayStart(Date.now() / 1000, 1)) return t("day.yesterday");
   return new Date(ts * 1000).toLocaleDateString(lang(), { month: "short", day: "numeric" });
 }
 
@@ -134,7 +134,7 @@ function Digest() {
                 <b class="mono">{short(r.key)}</b><span class="ellipsis">{needWhy(r).text}</span>
               </button>
             ))}
-            {needs.length > 3 && <button class="chip" onClick={() => go("reviews", "__filter:commented")}>{t("ov.more_needs", { n: needs.length - 3 })}</button>}
+            {needs.length > 3 && <button class="chip" onClick={() => go("reviews", "__filter:needs")}>{t("ov.more_needs", { n: needs.length - 3 })}</button>}
             {reviewing.slice(0, 2).map((r) => (
               <button class="chip busy" onClick={() => go("reviews", id(r))}><span class="spinner" />
                 <span class="ellipsis">{t(r.status === "queued" ? "ov.now_queued" : "ov.now_reviewing", { k: short(r.key) })}</span></button>

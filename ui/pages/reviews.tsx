@@ -5,7 +5,7 @@ import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
 import { ago, has, t, type Key } from "../i18n";
 import { Badge, Button, Dialog, Empty, Note, Segmented, TextInput, errText } from "../ui";
-import { SEV, isApproved, isNotApproved, sevCounts } from "../derive";
+import { SEV, isApproved, isNotApproved, needsYou, sevCounts } from "../derive";
 
 /** Nod's review result. The PR's own state (merged, closed) is shown apart, by prState. */
 /** "15:30" today, "11-20 15:30" another day. */
@@ -68,13 +68,15 @@ export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () 
   );
 }
 
-type Filter = "all" | "approved" | "commented" | "active" | "failed";
+// "needs" is the overview's "N more": open PRs that wait on you; it shows as a tab only while it is on
+type Filter = "all" | "approved" | "commented" | "active" | "failed" | "needs";
 const match: Record<Filter, (r: Row) => boolean> = {
   all: () => true,
   approved: isApproved,
   commented: isNotApproved,
   active: (r) => ["queued", "reviewing", "awaiting_ci", "retry"].includes(r.status),
   failed: (r) => r.status === "failed",
+  needs: needsYou,
 };
 
 export function ReviewsPage() {
@@ -109,6 +111,7 @@ export function ReviewsPage() {
           <Segmented value={filter} onChange={(v) => setFilter(v as Filter)} options={[
             ["all", t("rv.all")], ["approved", t("rv.f.approved")], ["commented", t("rv.f.commented")],
             ["active", t("rv.f.active")], ["failed", t("rv.f.failed")],
+            ...(filter === "needs" ? [["needs", t("rv.f.needs")] as [string, string]] : []),
           ]} />
         </div>
         <div class="list scroll">
