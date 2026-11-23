@@ -320,7 +320,7 @@ export function Dialog({ title, onClose, children, footer }: {
     <div class="overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
       <div class="dialog" role="dialog" aria-label={title}>
-        <header><h2>{title}</h2><button class="icon-btn" aria-label={t("btn.close")} onClick={onClose}><Icon name="x" /></button></header>
+        <header><h2>{title}</h2><button class="icon-btn" aria-label={t("btn.close")} onClick={() => onClose()}><Icon name="x" /></button></header>
         <div class="dialog-body">{children}</div>
         {footer && <footer>{footer}</footer>}
       </div>

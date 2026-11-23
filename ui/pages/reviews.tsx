@@ -161,7 +161,7 @@ export function ReviewsPage() {
       <div class="split-detail">
         {selected ? <><button class="link back" onClick={() => go("reviews", null as unknown as string)}><Icon name="chevron" size={14} /> {t("rv.title")}</button><Detail r={selected} /></> : (wide && rows.length === 0) ? null : <Empty icon="file">{t("rv.pick")}</Empty>}
       </div>
-      {hand && <HandDialog onClose={(k) => { setHand(false); if (k) setWant(k); }} />}
+      {hand && <HandDialog onClose={(k) => { setHand(false); if (typeof k === "string" && k) setWant(k); }} />}
     </div>
   );
 }
@@ -446,7 +446,8 @@ function HandDialog({ onClose }: { onClose: (started?: string) => void }) {
     finally { setRunning(false); }
   };
   return (
-    <Dialog title={t("hand.title")} onClose={onClose}>
+    // closing it (×, Esc, outside) opens nothing: only "Open this review" does
+    <Dialog title={t("hand.title")} onClose={() => onClose()}>
       <p class="muted">{t("hand.intro")}</p>
       <div onKeyDown={(e) => { if (e.key === "Enter") review(); }}>
         <TextInput value={pr} onInput={(v) => { setPr(v); setStarted(null); setMsg(null); }} placeholder="https://github.com/owner/repo/pull/123" mono autoFocus />
