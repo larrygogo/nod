@@ -33,11 +33,19 @@ pub struct Check {
     pub action: Option<&'static str>,
     /// The code-host account the check is about (several accounts can be checked at once).
     pub account: Option<String>,
+    /// An engine failure of the kind the backup engine takes over at review time (not installed, signed out: what
+    /// `reviewer::classify` calls Unavailable). Any other failure ends the review without trying the backup, so the
+    /// window must not promise it.
+    pub fallback: bool,
 }
 
 impl Check {
     fn detail_account(&mut self, id: &str) -> &mut Self {
         self.account = Some(id.to_string());
+        self
+    }
+    fn backup_takes_over(&mut self) -> &mut Self {
+        self.fallback = !self.ok;
         self
     }
 }
@@ -99,6 +107,7 @@ impl Ctx<'_> {
             fix,
             action,
             account: None,
+            fallback: false,
         });
         self.v.last_mut().unwrap()
     }
@@ -256,7 +265,8 @@ fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
                     ),
                     FIX_INSTALL_CLAUDE,
                 )),
-            );
+            )
+            .backup_takes_over();
         }
         Some(exe) => {
             let exe = exe.to_string_lossy().to_string();
@@ -285,7 +295,8 @@ fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
                         ),
                         FIX_CLAUDE_LOGIN,
                     )),
-                );
+                )
+                .backup_takes_over();
             }
         }
     }
@@ -407,7 +418,8 @@ pub fn engine_check(c: &mut Ctx, cfg: &Config, engine: &str, live: bool) {
                         ),
                         install,
                     )),
-                );
+                )
+                .backup_takes_over();
                 return;
             };
             let p = path.to_string_lossy().to_string();
@@ -436,7 +448,8 @@ pub fn engine_check(c: &mut Ctx, cfg: &Config, engine: &str, live: bool) {
                         ),
                         login,
                     )),
-                );
+                )
+                .backup_takes_over();
             }
             c.push(
                 "engine",
@@ -638,6 +651,33 @@ mod tests {
         assert!(!c.ok);
         assert_eq!(c.action, Some(FIX_INSTALL_CLAUDE));
         assert!(c.detail.contains("not found"));
+    }
+
+    /// The overview says "reviews go to the backup engine" only for failures the backup really takes over at review
+    /// time: a program that is not installed (reviewer::classify: Unavailable) yes; an API engine without a model
+    /// (its review error is classified Other, so the review fails) no.
+    #[test]
+    fn only_failures_the_backup_takes_over_say_so() {
+        let mut cfg = Config::default();
+        cfg.review.codex.exe = "definitely-not-a-codex-binary".into();
+        let mut c = Ctx::new("en");
+        engine_check(&mut c, &cfg, "codex", false);
+        let v = c.done();
+        assert!(!v[0].ok && v[0].fallback);
+        assert_eq!(
+            crate::reviewer::classify("Codex CLI (\"x\") not found on PATH", 0.0),
+            crate::reviewer::Trouble::Unavailable
+        );
+
+        cfg.review.api.model.clear();
+        let mut c = Ctx::new("en");
+        engine_check(&mut c, &cfg, "api", false);
+        let v = c.done();
+        assert!(!v[0].ok && !v[0].fallback);
+        assert_eq!(
+            crate::reviewer::classify("review.api.model is not set", 0.0),
+            crate::reviewer::Trouble::Other
+        );
     }
 
     /// An older configuration (the implicit `github` account, used with `gh` before) shows "not signed in" with a

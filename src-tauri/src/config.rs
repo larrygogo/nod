@@ -35,9 +35,11 @@ pub const RECIPIENT_TYPES: [&str; 4] = ["open_id", "union_id", "user_id", "email
 /// validation can say what is wrong.
 pub fn feishu_recipient(raw: &str) -> String {
     let s = raw.trim();
-    if let Some((t, _)) = s.split_once(':') {
-        if RECIPIENT_TYPES.contains(&t) {
-            return s.to_string();
+    if let Some((t, id)) = s.split_once(':') {
+        // "Email:a@b.c" as typed: the type is matched without case and written the way Feishu expects
+        let t = t.to_ascii_lowercase();
+        if RECIPIENT_TYPES.contains(&t.as_str()) {
+            return format!("{t}:{}", id.trim());
         }
     }
     if s.contains('@') && !s.contains(char::is_whitespace) {
@@ -795,6 +797,7 @@ mod tests {
             ("on_abc", "union_id:on_abc"),
             ("union_id:on_abc", "union_id:on_abc"),
             ("email:a@b.c", "email:a@b.c"),
+            ("Email:a@b.c", "email:a@b.c"),
             ("user_id:123", "user_id:123"),
             ("bob", "bob"),
         ] {

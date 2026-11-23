@@ -21,6 +21,8 @@ export interface Overview {
 }
 export interface Check {
   id: string; name: string; ok: boolean; warn: boolean; detail: string; fix: string; action: string | null; account: string | null;
+  /** an engine failure the backup engine takes over at review time (not installed, signed out) */
+  fallback?: boolean;
 }
 export interface Field {
   key: string; label: string; kind: "text" | "password" | "number" | "bool" | "select";

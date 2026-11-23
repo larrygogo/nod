@@ -185,7 +185,7 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
                   .help(l.t("Ollama 填 http://localhost:11434/v1", "For Ollama: http://localhost:11434/v1")),
               f("review.api.model", l.t("模型", "Model"), "text").ph("deepseek-chat"),
               f("review.api.key", l.t("API 密钥（本地模型可留空）", "API key (may be empty for local models)"), "password"),
-              f("review.api.max_diff_kb", l.t("diff 最多发送（KB）", "Send at most this much diff (KB)"), "number"),
+              f("review.api.max_diff_kb", l.t("diff 最多发送（KB）", "Send at most this much diff (KB)"), "number").opt(),
           ],
           vec![b("warn", l.t("只看 diff", "Sees only the diff")), b("good", l.t("不接触本机文件", "Never touches local files"))], ""),
         // ------------------------------------------------------------ notifications

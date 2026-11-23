@@ -50,11 +50,13 @@ type Set = (k: string, v: unknown) => void;
 function PluginFields({ p, get, set, more, openIfSet }: { p: Plugin; get: Get; set: Set; more?: string; openIfSet?: boolean }) {
   const need = p.fields.filter((f) => !f.optional);
   const opt = p.fields.filter((f) => f.optional);
+  // decided once: bound to the values, clearing the last character typed there would fold the block under the cursor
+  const [openAtFirst] = useState(() => !!openIfSet && opt.some((f) => { const v = get(f.key); return v !== undefined && v !== "" && v !== false && v !== null; }));
   return (
     <>
       {need.length > 0 && <FieldList fields={need} get={get} set={set} />}
       {opt.length > 0 && (
-        <details class="more-opts" open={!!openIfSet && opt.some((f) => { const v = get(f.key); return v !== undefined && v !== "" && v !== false && v !== null; })}>
+        <details class="more-opts" open={openAtFirst}>
           <summary><Icon name="chevron" size={12} />{more ?? t("ob.more", { x: opt.map((f) => f.label.replace(/（.*）|\(.*\)/, "").trim()).join(t("set.sum.sep")) })}</summary>
           <FieldList fields={opt} get={get} set={set} />
         </details>
@@ -121,7 +123,8 @@ export function Setup() {
   // the engine step checks by itself once nothing it needs is empty (a detected CLI needs nothing): no button to find
   const engineReady = !!engine && engine.fields.every((f) => f.optional || f.kind === "bool" || f.secret || !!getPath(draft, f.key));
   useEffect(() => {
-    if (step === 1 && engine && engineReady) runCheck(() => api.checkPlugin(draft, "engine", engine.id));
+    // without a model call (no usage spent, nothing left running when you switch again); "Check" does the full one
+    if (step === 1 && engine && engineReady) runCheck(() => api.checkPlugin(draft, "engine", engine.id, [], false));
   }, [step, engine?.id]);
   const allOk = checks?.every((c) => c.ok);
 

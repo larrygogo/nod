@@ -37,7 +37,7 @@ function RuleField({ value, kind, placeholder, suggest, onChange }: {
     <div class="tags-wrap">
       <input class={`input mono${bad ? " invalid" : ""}`} value={text} placeholder={placeholder} spellcheck={false}
         title={bad ? t(kind === "repo" ? "tag.bad_repo" : "tag.bad_login", { x: text }) : undefined}
-        onInput={(e) => { setText((e.target as HTMLInputElement).value); setBad(false); setHi(-1); }}
+        onInput={(e) => { setText((e.target as HTMLInputElement).value); setBad(false); setHi(-1); setFocus(true); }}
         onFocus={() => setFocus(true)} onBlur={() => { setFocus(false); commit(); }} onKeyDown={key} />
       {options.length > 0 && (
         <ul class="select-menu tags-menu" role="listbox">
@@ -177,7 +177,9 @@ export function SettingsPage() {
           <div class="approve-rules always-note">
             <div class="approve-rules-title">{t("set.always.title")}</div>
             <ul>{(["set.always.findings", "set.always.ci", "set.always.failed", "set.always.switch"] as const).map((k) =>
-              <li><Icon name="alert" size={13} />{t(k)}</li>)}</ul>
+              <li><Icon name="alert" size={13} />{t(k)}</li>)}
+              {/* what it still never does (review::always_approve): own PRs, drafts, closed PRs */}
+              <li class="still"><Icon name="info" size={13} />{t("set.always.still")}</li></ul>
           </div>
           <AlwaysRules repoHints={repoHints} loginHints={loginHints} />
         </Card>
@@ -235,11 +237,14 @@ export function SettingsPage() {
 
 type ListKey = "repos" | "authors" | "exclude_repos" | "exclude_authors";
 
-/** "a、b 等 3 个" / "a, b and 1 more": a list short enough for one sentence. */
-function few(xs: string[]) {
+/** "a、b 等 3 个仓库" / "a, b and 1 more": a list short enough for one sentence. Chinese counts all of them, English
+ *  the rest. */
+function few(xs: string[], kind: "repo" | "login") {
   const head = xs.slice(0, 2).join(t("set.sum.sep"));
-  return xs.length > 2 ? t("set.sum.more", { x: head, n: xs.length - 2 }) : head;
+  return xs.length > 2 ? t(kind === "repo" ? "set.sum.more_repos" : "set.sum.more_authors", { x: head, n: xs.length, rest: xs.length - 2 }) : head;
 }
+/** No space between a Chinese word and the particle after it ("3 个仓库里"), one after a name ("my-org/* 里"). */
+const tidy = (x: string) => x.replace(/([一-鿿]) (里|提)/g, "$1$2");
 
 /** The four lists that narrow a rule (which PRs get reviewed, which get approved), read out as one sentence first:
  *  four empty fields say nothing until you work out that empty means "everything". Then the fields themselves, as a
@@ -249,11 +254,11 @@ function Lists({ verb, value, onChange, repoHints, loginHints }: {
   repoHints: string[]; loginHints: string[];
 }) {
   const { repos, authors, exclude_repos: xr, exclude_authors: xa } = value;
-  const what = [repos.length ? t("set.sum.in_only", { x: few(repos) }) : "", authors.length ? t("set.sum.by_only", { x: few(authors) }) : ""]
+  const what = [repos.length ? t("set.sum.in_only", { x: few(repos, "repo") }) : "", authors.length ? t("set.sum.by_only", { x: few(authors, "login") }) : ""]
     .filter(Boolean).join(t("set.sum.join"));
-  const skip = [xr.length ? t("set.sum.in", { x: few(xr) }) : "", xa.length ? t("set.sum.by", { x: few(xa) }) : ""]
+  const skip = [xr.length ? t("set.sum.in", { x: few(xr, "repo") }) : "", xa.length ? t("set.sum.by", { x: few(xa, "login") }) : ""]
     .filter(Boolean).join(t("set.sum.or"));
-  const line = t(what ? `set.sum.${verb}` : `set.sum.${verb}_all`, { what, skip: skip ? t("set.sum.skip", { x: skip }) : "" });
+  const line = tidy(t(what ? `set.sum.${verb}` : `set.sum.${verb}_all`, { what, skip: skip ? t("set.sum.skip", { x: skip }) : "" }));
   const field = (k: ListKey, kind: "repo" | "login", placeholder: string) => (
     <TagInput kind={kind} suggest={kind === "repo" ? repoHints : loginHints} value={value[k]} placeholder={placeholder}
       onChange={(v) => onChange(k, v)} />

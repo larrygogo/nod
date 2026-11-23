@@ -657,6 +657,8 @@ details.round > summary:hover { background: var(--surface-2); border-radius: var
 .approve-rules li { display: flex; align-items: center; gap: 6px; }
 .approve-rules li .icon { color: var(--good); flex: none; }
 .always-note li .icon { color: var(--warn); }
+.always-note li.still { color: var(--text-2); }
+.always-note li.still .icon { color: var(--text-3); }
 .always-note { margin-bottom: 10px; }
 /* a section folded by default ("Running") */
 details.advanced > summary { display: flex; align-items: baseline; gap: 8px; list-style: none; cursor: pointer; margin-bottom: 10px; color: var(--text); }

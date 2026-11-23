@@ -37,21 +37,29 @@ export function OverviewPage() {
   const engineKey = (pid: string) => `engine:${pid}`;
   const s = ov.status;
   const plugin = (pid: string) => catalog.find((p) => p.id === pid);
-  // A code host or engine in use that does not work, said with what it means: a broken account brings no requests;
-  // a broken engine fails its reviews, unless the backup engine works (the backend switches to it by itself). A broken
-  // backup alone is not worth the overview; the Plugins list marks it.
-  const health = usePluginHealth(loaded.config);
+  // A code host or engine in use that does not work, said with what it means (decided once every check is back):
+  //  - a code host: no review requests come in from that account;
+  //  - the default engine: its reviews fail, unless the failure is one the backup engine takes over at review time
+  //    (the check marks it: not installed, signed out) and the backup's own check passed;
+  //  - an engine only some repositories use: those repositories' reviews fail;
+  //  - an engine used only as the backup: not worth the overview (the Plugins list marks it).
+  const { health, ready } = usePluginHealth(loaded.config);
   const cfg = loaded.config;
   const fb = cfg.review.fallback;
   const fbOk = !!fb && !!health[`engine:${fb}`] && healthOf(health[`engine:${fb}`]) !== "bad";
-  const broken = Object.entries(health).filter(([k, r]) => healthOf(r) === "bad" && k !== `engine:${fb}`).map(([k, r]) => {
+  const repoEngines = new Set((cfg.review.per_repo ?? []).map((r) => r.engine));
+  const broken = !ready ? [] : Object.entries(health).filter(([, r]) => healthOf(r) === "bad").flatMap(([k, r]) => {
     const bad = r.find((c) => !c.ok)!;
     const pid = k.slice(k.indexOf(":") + 1);
     const forge = k.startsWith("forge:") ? accounts(cfg).find((a) => a.id === pid) : undefined;
+    const isDefault = !forge && pid === cfg.review.engine;
+    if (!forge && !isDefault && !repoEngines.has(pid)) return [];
     const x = forge ? (plugin(forge.kind)?.name ?? forge.kind) + (accounts(cfg).length > 1 ? ` (${forge.id})` : "") : plugin(pid)?.name ?? pid;
-    const tone: "bad" | "warn" = forge || !fbOk ? "bad" : "warn";
-    const title = forge ? t("ov.broken_forge", { x }) : fbOk ? t("ov.broken_fb", { x, y: plugin(fb)?.name ?? fb }) : t("ov.broken_engine", { x });
-    return { k, tone, title, detail: [bad.detail, bad.fix].filter(Boolean).join(t("ov.broken_sep")) };
+    const covered = !forge && pid !== fb && bad.fallback && fbOk;
+    const title = forge ? t("ov.broken_forge", { x })
+      : covered ? t("ov.broken_fb", { x, y: plugin(fb)?.name ?? fb })
+      : isDefault ? t("ov.broken_engine", { x }) : t("ov.broken_repo", { x });
+    return [{ k, tone: (covered ? "warn" : "bad") as "bad" | "warn", title, detail: [bad.detail, bad.fix].filter(Boolean).join(t("ov.broken_sep")) }];
   });
   const brokenTone = broken.some((b) => b.tone === "bad") ? "bad" : "warn";
   const channels = activeChannels(draft);

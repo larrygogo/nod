@@ -3,7 +3,7 @@
 // (catalog), so a third-party plugin gets the same settings UI as a built-in one.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { accounts, activeChannels, api, getPath, setPath, type Account, type Check, type Config, type DeviceCode, type Field, type GithubSession, type Plugin } from "../api";
-import { usePluginHealth, healthOf } from "../health";
+import { healthOf, recordHealth, usePluginHealth } from "../health";
 import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
 import { t } from "../i18n";
@@ -79,7 +79,7 @@ function Pane({ p, sub, control, children, onCheck, testLabel, extra, account, h
   const [ran, setResult] = useState<Check[] | string | null>(null);
   const result = ran ?? health ?? null;
   // something wrong is the first thing to read, above the settings that fix it; a clean result stays at the bottom
-  const trouble = Array.isArray(result) && result.some((c) => !c.ok || c.warn);
+  const trouble = Array.isArray(result) && healthOf(result) !== null;
   const [err, setErr] = useState<string | null>(null);
   return (
     <article class="pane">
@@ -198,7 +198,14 @@ export function PluginsPage() {
 
   // Everything in use is checked when the page opens, with the saved settings and without calling a model: the list
   // then says which one is broken, instead of every line reading "On" until you think of pressing Self-test.
-  const health = usePluginHealth(loaded.config);
+  const { health } = usePluginHealth(loaded.config);
+  // a self-test on the saved settings is the newest answer: the list and the overview take it over
+  const saved = !cleared.length && JSON.stringify(draft) === JSON.stringify(loaded.config);
+  const selfTest = (k: string, run: () => Promise<Check[]>) => async () => {
+    const r = await run();
+    if (saved) recordHealth(loaded.config, k, r);
+    return r;
+  };
   // the overview's "Claude Code is not working" opens this page on that plugin
   const { review, go } = useStore();
   useEffect(() => {
@@ -224,7 +231,7 @@ export function PluginsPage() {
     pane = !a ? null : !p ? <Note tone="bad">{a.id}: {a.kind}</Note> : (
       <Pane key={`${a.id}|${a.kind}`} p={p} sub={`${a.id}${hostOf(a) ? " · " + hostOf(a) : ""}`}
         control={<Switch on={a.enabled} label={t("pl.enabled")} onChange={(v) => edit((c) => { materialize(c); c.forges![i].enabled = v; })} />}
-        onCheck={() => api.checkPlugin(draft, "forge", a.id, cleared)} health={health[`forge:${a.id}`]}
+        onCheck={selfTest(`forge:${a.id}`, () => api.checkPlugin(draft, "forge", a.id, cleared))} health={health[`forge:${a.id}`]}
         account={a.kind === "github" ? <GithubSignIn account={a} usingToken={!!a.token || (!!loaded.secrets[`forge.${a.id}.token`] && !cleared.includes(`forge.${a.id}.token`))} /> : undefined}
         extra={list.length > 1 && <section class="pane-section"><Button kind="danger" icon="trash" onClick={() => edit((c) => { materialize(c); c.forges!.splice(i, 1); })}>{t("pl.remove_account")}</Button></section>}>
         {p.fields.length > 0 && <Fields fields={p.fields}
@@ -244,7 +251,7 @@ export function PluginsPage() {
             onClick={() => edit((c) => { c.review.fallback = isFallback ? "" : p.id; })}>{t(isFallback ? "pl.no_fallback" : "pl.use_fallback")}</Button>
           <Button onClick={() => edit((c) => { c.review.engine = p.id; if (c.review.fallback === p.id) c.review.fallback = ""; })}>{t("pl.use_default")}</Button>
         </>}
-        onCheck={() => api.checkPlugin(draft, "engine", p.id, cleared)} health={health[`engine:${p.id}`]}>
+        onCheck={selfTest(`engine:${p.id}`, () => api.checkPlugin(draft, "engine", p.id, cleared))} health={health[`engine:${p.id}`]}>
         {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName} />}
       </Pane>
     );
