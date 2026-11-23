@@ -660,6 +660,11 @@ details.round > summary:hover { background: var(--surface-2); border-radius: var
 .always-note li.still { color: var(--text-2); }
 .always-note li.still .icon { color: var(--text-3); }
 .always-note { margin-bottom: 10px; }
+/* these are sentences of very different length: a grid cut the long one in two and stranded the fourth on its own
+   row, so they read one per line */
+.always-note ul { grid-template-columns: 1fr; gap: 4px; }
+.always-note li { align-items: baseline; }
+.always-note li .icon { position: relative; top: 2px; }
 /* a section folded by default ("Running") */
 details.advanced > summary { display: flex; align-items: baseline; gap: 8px; list-style: none; cursor: pointer; margin-bottom: 10px; color: var(--text); }
 details.advanced > summary::-webkit-details-marker { display: none; }
