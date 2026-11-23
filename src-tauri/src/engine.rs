@@ -829,7 +829,12 @@ impl Engine {
             } else {
                 e.reviewed_at + self.cfg.review.ci_wait_max_min * 60.0
             };
-            if !commented && !self.cfg.dry_run && !verdict.findings.is_empty() {
+            // Only new issues are worth a review of their own now: ones raised before go with the approval.
+            let anything_new = verdict
+                .findings
+                .iter()
+                .any(|f| review::raised_before(&f.title).is_none());
+            if !commented && !self.cfg.dry_run && anything_new {
                 let body = review::build_review(
                     self.lang(),
                     &pr,

@@ -87,7 +87,9 @@ First public release: a desktop app.
   "new reviews will fail".
 - Issues still open from an earlier review (or raised in the discussion) are no longer commented again on their
   lines with every new commit: the review lists them once, folded ("13 raised before and still open"), and only new
-  issues get line comments. A PR with ten commits used to collect the same fourteen comments ten times.
+  issues get line comments. A PR with ten commits used to collect the same fourteen comments ten times. One that
+  still blocks the approval stays in the open list, marked "raised before". With nothing new to say, no review goes
+  up while CI runs: the list comes once, with the approval.
 - "Approved by an earlier approval" now means your own approval still stands on GitHub. When a new commit dismissed
   it, someone else's approval no longer makes the window, tray or notification say the PR is approved by you.
 - A desktop notification for a review that was not approved says "Not approved" (it used to say "Commented", though

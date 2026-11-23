@@ -43,6 +43,7 @@ const TABLE: &[(&str, &str, &str)] = &[
         "Findings (🔴 High blocks approval; 🟠 Medium should be fixed in this PR; 🟡 Low can wait; ⚪ Nit is optional):",
     ),
     ("review.old_issue", " · 老问题", " · pre-existing"),
+    ("review.raised_mark", " · 之前提过", " · raised before"),
     ("review.still_open", "之前提过、仍未修的 {n} 条（不再逐行重发）", "{n} raised before and still open (not commented again line by line)"),
     ("review.outside_diff", "（`{loc}`，不在 diff 内）", " (`{loc}`, outside the diff)"),
     (

@@ -177,7 +177,8 @@ export function ReviewsPage() {
 
 /** The review prompt (src-tauri/assets/review.*.md) marks an issue already raised in the PR's discussion by a fixed
  *  suffix on its title; shown as a tag instead, so titles stay readable. */
-const RAISED = /\s*(（已有评论提过）|\(raised in discussion\))\s*$/i;
+// the same marks review.rs raised_before() accepts: either kind of brackets, a full stop after
+const RAISED = /\s*[（(]\s*(已有评论提过|raised in (the )?discussion)\s*[)）][\s。.]*$/i;
 export function splitRaised(title: string): [string, boolean] {
   return RAISED.test(title) ? [title.replace(RAISED, ""), true] : [title, false];
 }

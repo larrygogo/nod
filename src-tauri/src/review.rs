@@ -285,12 +285,16 @@ pub fn build_review(
     // An issue still open from an earlier review or the discussion (the engine marks its title) is already in a thread
     // on the PR: it goes into one folded list in the summary, not into a new comment on every commit. A busy PR got
     // the same fourteen comments again for each of ten commits.
+    // One that blocks the approval stays in the open list (without a new comment), so the reader sees what holds it.
     let (again, findings): (Vec<_>, Vec<_>) = findings
         .into_iter()
-        .partition(|f| raised_before(&f.title).is_some());
+        .partition(|f| raised_before(&f.title).is_some() && !blocks_approval(f));
     let mut comments = vec![];
     let mut outside = vec![];
-    for f in &findings {
+    for f in findings
+        .iter()
+        .filter(|f| raised_before(&f.title).is_none())
+    {
         let old = if f.introduced_by_pr {
             String::new()
         } else {
@@ -343,7 +347,10 @@ pub fn build_review(
         lines.push(String::new());
         lines.push(t(lang, "review.legend"));
         for f in &findings {
-            lines.push(item(f, &f.title));
+            lines.push(match raised_before(&f.title) {
+                Some(title) => item(f, &format!("{title}{}", t(lang, "review.raised_mark"))),
+                None => item(f, &f.title),
+            });
         }
     }
     if !again.is_empty() {
@@ -377,17 +384,26 @@ pub fn build_review(
 
 /// The title without the engine's "raised before" mark, when it has one (review.*.md tells the engine to add it).
 pub fn raised_before(title: &str) -> Option<&str> {
-    let t = title.trim_end();
+    // "…（已有评论提过）", "… (raised in discussion)", also with a full stop after it or the other kind of brackets
+    let t = title.trim_end().trim_end_matches(['。', '.', ' ']);
+    let body = t.strip_suffix(')').or_else(|| t.strip_suffix('）'))?;
+    let open = body.rfind(['(', '（'])?;
+    let mark = body[open..]
+        .trim_start_matches(['(', '（'])
+        .trim()
+        .to_lowercase();
     [
-        "（已有评论提过）",
-        "(已有评论提过)",
-        "(raised in discussion)",
+        "已有评论提过",
+        "raised in discussion",
+        "raised in the discussion",
     ]
-    .iter()
-    .find_map(|m| {
-        let n = t.len().checked_sub(m.len())?;
-        (t.is_char_boundary(n) && t[n..].eq_ignore_ascii_case(m)).then(|| t[..n].trim_end())
-    })
+    .contains(&mark.as_str())
+    .then(|| t[..open].trim_end())
+}
+
+/// Holds the approval by itself (review::decide): a high issue, or a medium one this PR introduced.
+pub fn blocks_approval(f: &Finding) -> bool {
+    f.severity == "high" || (f.severity == "medium" && f.introduced_by_pr)
 }
 
 /// The engine's name as people know it, for the review's signature.
@@ -612,6 +628,29 @@ pub mod tests {
         );
         assert_eq!(raised_before("x （已有评论提过） "), Some("x"));
         assert_eq!(raised_before("plain"), None);
+        assert_eq!(raised_before("y (已有评论提过)。"), Some("y"));
+        assert_eq!(raised_before("z（raised in the discussion）"), Some("z"));
+        assert_eq!(raised_before("(raised in discussion)"), Some(""));
+        // one that still blocks the approval is in the open list, marked, but gets no new comment either
+        let mut v = clean();
+        let mut high = finding("high", true, 3);
+        high.title = "Leaks the token（已有评论提过）".into();
+        v.findings = vec![high];
+        let r = build_review(
+            "en",
+            &pr("a"),
+            &v,
+            "COMMENT",
+            &["high".into()],
+            &valid,
+            None,
+        );
+        assert!(r["comments"].as_array().unwrap().is_empty());
+        let body = r["body"].as_str().unwrap();
+        assert!(
+            body.contains("Leaks the token · raised before") && !body.contains("<details>"),
+            "{body}"
+        );
     }
 
     #[test]
