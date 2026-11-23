@@ -113,7 +113,7 @@ export function ReviewsPage() {
             ["active", t("rv.f.active")], ["failed", t("rv.f.failed")],
           ]} />
           {filter === "needs" && (
-            <div class="filter-bar"><Icon name="hand" size={14} /><span class="grow">{t("rv.f.needs_n", { n: rows.length })}</span>
+            <div class="filter-bar"><Icon name="hand" size={14} /><span class="grow">{t("rv.f.needs_n", { n: ov.rows.filter(needsYou).length })}</span>
               <button class="icon-btn" aria-label={t("rv.f.clear")} title={t("rv.f.clear")} onClick={() => setFilter("all")}><Icon name="x" size={14} /></button></div>
           )}
         </div>
