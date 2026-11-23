@@ -137,12 +137,14 @@ export function TagInput({ value, onChange, kind, placeholder, suggest = [] }: {
   const [err, setErr] = useState("");
   const [focus, setFocus] = useState(false);
   const [hi, setHi] = useState(-1);
+  // Esc hides the menu while the field keeps focus; typing or focusing again brings it back
+  const [shut, setShut] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const clean = kind === "repo" ? cleanRepo : cleanLogin;
   const has = (x: string) => value.some((v) => v.toLowerCase() === x.toLowerCase());
   const q = text.trim().toLowerCase();
   const focused = focus || (typeof document !== "undefined" && document.activeElement === input.current);
-  const options = focused ? suggest.filter((x) => !has(x) && (!q || x.toLowerCase().includes(q))).slice(0, 6) : [];
+  const options = focused && !shut ? suggest.filter((x) => !has(x) && (!q || x.toLowerCase().includes(q))).slice(0, 6) : [];
 
   const add = (raw: string) => {
     const items = raw.split(/[\s,，;；]+/).filter(Boolean);
@@ -163,7 +165,7 @@ export function TagInput({ value, onChange, kind, placeholder, suggest = [] }: {
   const key = (e: KeyboardEvent) => {
     if (e.key === "ArrowDown" && options.length) { e.preventDefault(); setHi((i) => Math.min(i + 1, options.length - 1)); return; }
     if (e.key === "ArrowUp" && options.length) { e.preventDefault(); setHi((i) => Math.max(i - 1, -1)); return; }
-    if (e.key === "Escape") { setHi(-1); setFocus(false); return; }
+    if (e.key === "Escape") { setHi(-1); setShut(true); return; }
     if (e.key === "Enter" || ((e.key === "," || e.key === " " || e.key === "Tab") && text.trim())) {
       if (e.key === "Enter" && hi >= 0 && options[hi]) { e.preventDefault(); add(options[hi]); return; }
       if (!text.trim()) return;
@@ -184,10 +186,10 @@ export function TagInput({ value, onChange, kind, placeholder, suggest = [] }: {
           </span>
         ))}
         <input ref={input} class="mono" value={text} spellcheck={false} placeholder={value.length ? "" : placeholder}
-          onInput={(e) => { setText((e.target as HTMLInputElement).value); setErr(""); setHi(-1); }}
+          onInput={(e) => { setText((e.target as HTMLInputElement).value); setErr(""); setHi(-1); setShut(false); }}
           onKeyDown={key}
           onPaste={(e) => { const d = e.clipboardData?.getData("text") ?? ""; if (/[\s,，;；]/.test(d.trim())) { e.preventDefault(); add(text + d); } }}
-          onFocus={() => setFocus(true)}
+          onFocus={() => { setFocus(true); setShut(false); }}
           onBlur={() => { setFocus(false); if (text.trim()) add(text); }} />
       </div>
       {options.length > 0 && (

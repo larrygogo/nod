@@ -664,3 +664,15 @@ details.advanced > summary .muted { font-size: 12px; }
 .gh-code { font: 600 26px/1.2 var(--mono, ui-monospace, "Cascadia Mono", monospace); letter-spacing: 0.12em; padding: 8px 14px; border-radius: var(--r-sm); background: var(--surface-2); user-select: all; }
 .gh-signed { display: flex; align-items: center; gap: 10px; }
 
+
+/* Settings: the four lists that narrow a rule, read out as a sentence, then repository/author by only/never. */
+.lists { display: flex; flex-direction: column; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.lists:first-child { padding-top: 0; }
+.lists-sum { margin: 0; font-weight: var(--w-medium); }
+.lists-grid { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 6px 10px; align-items: center; }
+.lists-grid > .muted { padding-left: 2px; }
+.lists-label { color: var(--text-2); white-space: nowrap; }
+.lists-grid .tags-wrap, .lists-grid .input.tags { width: 100%; min-width: 0; }
+/* half-width fields: the typing box only drops to its own line once a tag really fills the row */
+.lists-grid .input.tags input { min-width: 48px; }
+.lists > p.muted { margin: 0; }

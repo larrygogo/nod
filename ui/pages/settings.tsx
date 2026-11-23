@@ -146,14 +146,10 @@ export function SettingsPage() {
           is added on top. Two rule sets, one page. */}
       {tab === "review" && <Section title={t("set.scope")} help={t("set.scope_help")}>
         <Card>
-          <Row label={t("set.scope.repos")} help={t("set.list_help")} wide>
-            <TagInput kind="repo" suggest={repoHints} value={draft.scope.repos} onChange={(v) => edit((c) => { c.scope.repos = v; })} placeholder="my-org/*" /></Row>
-          <Row label={t("set.scope.exclude")} wide>
-            <TagInput kind="repo" suggest={repoHints} value={draft.scope.exclude_repos} onChange={(v) => edit((c) => { c.scope.exclude_repos = v; })} /></Row>
-          <Row label={t("set.scope.authors")} wide>
-            <TagInput kind="login" suggest={loginHints} value={draft.scope.authors ?? []} onChange={(v) => edit((c) => { c.scope.authors = v; })} placeholder="alice" /></Row>
-          <Row label={t("set.scope.exclude_authors")} wide>
-            <TagInput kind="login" suggest={loginHints} value={draft.scope.exclude_authors ?? []} onChange={(v) => edit((c) => { c.scope.exclude_authors = v; })} placeholder="renovate[bot]" /></Row>
+          <Lists verb="review" repoHints={repoHints} loginHints={loginHints} value={{
+            repos: draft.scope.repos, authors: draft.scope.authors ?? [],
+            exclude_repos: draft.scope.exclude_repos, exclude_authors: draft.scope.exclude_authors ?? [],
+          }} onChange={(k, v) => edit((c) => { c.scope[k] = v; })} />
           <Row label={t("set.scope.team")} help={t("set.scope.team_help")}>
             <Switch on={draft.scope.team_requests} label={t("set.scope.team")} onChange={(v) => edit((c) => { c.scope.team_requests = v; })} /></Row>
         </Card>
@@ -167,14 +163,8 @@ export function SettingsPage() {
           </Row>
           {draft.approve.mode !== "never" && <>
             <ApproveRules />
-            <Row label={t("set.approve.repos")} help={t("set.list_help")} wide>
-              <TagInput kind="repo" suggest={repoHints} value={draft.approve.repos} onChange={(v) => edit((c) => { c.approve.repos = v; })} placeholder="my-org/*" /></Row>
-            <Row label={t("set.approve.authors")} wide>
-              <TagInput kind="login" suggest={loginHints} value={draft.approve.authors} onChange={(v) => edit((c) => { c.approve.authors = v; })} placeholder="dependabot[bot]" /></Row>
-            <Row label={t("set.approve.exclude_repos")} wide>
-              <TagInput kind="repo" suggest={repoHints} value={draft.approve.exclude_repos} onChange={(v) => edit((c) => { c.approve.exclude_repos = v; })} /></Row>
-            <Row label={t("set.approve.exclude_authors")} wide>
-              <TagInput kind="login" suggest={loginHints} value={draft.approve.exclude_authors} onChange={(v) => edit((c) => { c.approve.exclude_authors = v; })} /></Row>
+            <Lists verb="approve" repoHints={repoHints} loginHints={loginHints} value={draft.approve}
+              onChange={(k, v) => edit((c) => { c.approve[k] = v; })} />
             <Row label={t("set.ci_wait")}>{num((c) => c.review.ci_wait_max_min, (c, v) => { c.review.ci_wait_max_min = v; })}</Row>
             <Row label={t("set.ci_grace")} help={t("set.ci_grace_help")}>{num((c) => c.review.ci_none_grace_min, (c, v) => { c.review.ci_none_grace_min = v; })}</Row>
           </>}
@@ -239,6 +229,46 @@ export function SettingsPage() {
         </Card>
       </Section>
       </>}
+    </div>
+  );
+}
+
+type ListKey = "repos" | "authors" | "exclude_repos" | "exclude_authors";
+
+/** "a、b 等 3 个" / "a, b and 1 more": a list short enough for one sentence. */
+function few(xs: string[]) {
+  const head = xs.slice(0, 2).join(t("set.sum.sep"));
+  return xs.length > 2 ? t("set.sum.more", { x: head, n: xs.length - 2 }) : head;
+}
+
+/** The four lists that narrow a rule (which PRs get reviewed, which get approved), read out as one sentence first:
+ *  four empty fields say nothing until you work out that empty means "everything". Then the fields themselves, as a
+ *  grid of repository/author by only/never, so the two that pair up sit side by side. */
+function Lists({ verb, value, onChange, repoHints, loginHints }: {
+  verb: "review" | "approve"; value: Record<ListKey, string[]>; onChange: (k: ListKey, v: string[]) => void;
+  repoHints: string[]; loginHints: string[];
+}) {
+  const { repos, authors, exclude_repos: xr, exclude_authors: xa } = value;
+  const what = [repos.length ? t("set.sum.in_only", { x: few(repos) }) : "", authors.length ? t("set.sum.by_only", { x: few(authors) }) : ""]
+    .filter(Boolean).join(t("set.sum.join"));
+  const skip = [xr.length ? t("set.sum.in", { x: few(xr) }) : "", xa.length ? t("set.sum.by", { x: few(xa) }) : ""]
+    .filter(Boolean).join(t("set.sum.or"));
+  const line = t(what ? `set.sum.${verb}` : `set.sum.${verb}_all`, { what, skip: skip ? t("set.sum.skip", { x: skip }) : "" });
+  const field = (k: ListKey, kind: "repo" | "login", placeholder: string) => (
+    <TagInput kind={kind} suggest={kind === "repo" ? repoHints : loginHints} value={value[k]} placeholder={placeholder}
+      onChange={(v) => onChange(k, v)} />
+  );
+  return (
+    <div class="lists">
+      <p class="lists-sum">{line}</p>
+      <div class="lists-grid">
+        <span /><span class="muted small">{t("set.list.repo")}</span><span class="muted small">{t("set.list.author")}</span>
+        <span class="lists-label">{t(`set.list.only_${verb}`)}</span>
+        {field("repos", "repo", t("set.list.any_repo"))}{field("authors", "login", t("set.list.any_author"))}
+        <span class="lists-label">{t(`set.list.never_${verb}`)}</span>
+        {field("exclude_repos", "repo", t("set.list.none"))}{field("exclude_authors", "login", t("set.list.none"))}
+      </div>
+      <p class="muted small">{t("set.list_help")}</p>
     </div>
   );
 }
