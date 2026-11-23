@@ -320,6 +320,8 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 /* ---------------------------------------------------------------- overview */
 .page-head .status-line { margin-top: 6px; font-weight: var(--w-regular); color: var(--text); }
 .page-head .status-line .muted { margin-left: -2px; }
+/* the sidebar already says the same at the bottom left; the page repeats it only once the sidebar folds to icons */
+@media (min-width: 901px) { .page-head .status-line { display: none; } }
 .banner { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-md); }
 .banner > .icon { flex: none; align-self: flex-start; margin-top: 2px; }
 .banner.bad { background: var(--bad-bg); }
