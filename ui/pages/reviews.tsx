@@ -343,18 +343,25 @@ export function Detail({ r }: { r: Row }) {
           {earlier.map((x) => {
             const o = roundOutcome(x);
             const n = x.findings.length;
+            // the review marks issues already raised in the discussion: list the new ones, fold the rest
+            const fresh = x.findings.filter((f) => !splitRaised(f.title)[1]);
+            const again = x.findings.filter((f) => splitRaised(f.title)[1]);
             return (
               <details class="round">
                 <summary>
                   <span class="mono">{x.sha}</span>
                   <span class="muted">{ago(x.at)}</span>
                   <span class={`state-label ${o.tone}`}>{o.text}</span>
-                  <span class="muted grow">{n ? t("rd.n_findings", { n }) : t("rd.no_findings")}</span>
+                  <span class="muted grow">{n ? t("rd.n_findings", { n }) : t("rd.no_findings")}{again.length > 0 && fresh.length > 0 && <> · {t("rd.n_new", { n: fresh.length })}</>}</span>
                   <Icon name="chevron" size={14} />
                 </summary>
                 <div class="round-body">
                   {x.summary && <p class="summary">{x.summary}</p>}
-                  {(x.summary || n > 0) && <FindingList findings={x.findings} />}
+                  {(x.summary || n > 0) && (again.length === 0 ? <FindingList findings={x.findings} /> : <>
+                    {fresh.length > 0 && <FindingList findings={fresh} />}
+                    <details class="raised-fold"><summary><Icon name="chevron" size={13} />{t(fresh.length ? "rd.more_raised" : "rd.all_raised", { n: again.length })}</summary>
+                      <FindingList findings={again} /></details>
+                  </>)}
                   <div class="round-links">
                     {x.comment_url && x.comment_url !== x.url && <button class="link small" onClick={() => api.url(x.comment_url!)}>{t("rd.open_comments")} <Icon name="external" size={12} /></button>}
                     {x.url && <button class="link small" onClick={() => api.url(x.url!)}>{t("btn.open_review")} <Icon name="external" size={12} /></button>}

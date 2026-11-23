@@ -141,6 +141,21 @@ function Group({ title, help, action, children }: {
   );
 }
 
+/** A group's items with the ones not in use folded behind one line ("6 more"), so the list shows what is set up.
+ *  The selected item always shows; with nothing in use, everything shows, to pick from. */
+function Folded({ items, more }: { items: { key: string; inUse: boolean; selected: boolean; node: preact.ComponentChildren }[]; more: string }) {
+  const [open, setOpen] = useState(false);
+  const visible = items.filter((x) => x.inUse || x.selected);
+  if (open || visible.length === 0 || visible.length === items.length) return <>{items.map((x) => x.node)}</>;
+  const rest = items.length - visible.length;
+  return (
+    <>
+      {visible.map((x) => x.node)}
+      <button class="pl-more" onClick={() => setOpen(true)}><Icon name="chevron" size={13} />{more.replace("{n}", String(rest))}</button>
+    </>
+  );
+}
+
 /** Keychain name of a field: built-in fields use their config path; third-party plugin fields
  *  (`plugins.<name>.<key>`) are stored as `plugin.<name>.<key>`. */
 const pluginSecretName = (k: string) => (k.startsWith("plugins.") ? "plugin." + k.slice("plugins.".length) : k);
@@ -246,17 +261,24 @@ export function PluginsPage() {
             {adding && <div class="pl-item selected"><span class="tile-icon small"><Icon name="plus" size={14} /></span><span class="pl-name">{t("pl.add_account")}</span></div>}
           </Group>
           <Group title={t("pl.engines")} help={t("pl.engines_help")}>
-            {engines.map((p) => <Item key={p.id} icon={p.icon} name={p.name}
-              state={draft.review.engine === p.id ? <span class="onoff on">{t("pl.default")}</span>
-                : draft.review.fallback === p.id ? <span class="onoff">{t("pl.fallback")}</span> : undefined}
-              selected={isSel(`engine:${p.id}`)} onClick={() => pick(`engine:${p.id}`)} />)}
+            <Folded more={t("pl.more_engines")} items={engines.map((p) => ({
+              key: p.id, selected: isSel(`engine:${p.id}`),
+              inUse: draft.review.engine === p.id || draft.review.fallback === p.id || rules.some((r) => r.engine === p.id),
+              node: <Item key={p.id} icon={p.icon} name={p.name}
+                state={draft.review.engine === p.id ? <span class="onoff on">{t("pl.default")}</span>
+                  : draft.review.fallback === p.id ? <span class="onoff">{t("pl.fallback")}</span> : undefined}
+                selected={isSel(`engine:${p.id}`)} onClick={() => pick(`engine:${p.id}`)} />,
+            }))} />
             <Item icon="rules" name={t("pl.per_repo")}
               sub={rules.length ? rules.map((r) => `${r.repo || "…"} → ${name(r.engine)}`).join(", ") : t("pl.rules_none")}
               selected={isSel("rules")} onClick={() => pick("rules")} />
           </Group>
           <Group title={t("pl.channels")} help={t("pl.channels_help")}>
-            {channels.map((p) => <Item key={p.id} icon={p.icon} name={p.name} state={<On on={on.includes(p.id)} />}
-              selected={isSel(`notify:${p.id}`)} onClick={() => pick(`notify:${p.id}`)} />)}
+            <Folded more={t("pl.more_channels")} items={channels.map((p) => ({
+              key: p.id, selected: isSel(`notify:${p.id}`), inUse: on.includes(p.id),
+              node: <Item key={p.id} icon={p.icon} name={p.name} state={<On on={on.includes(p.id)} />}
+                selected={isSel(`notify:${p.id}`)} onClick={() => pick(`notify:${p.id}`)} />,
+            }))} />
           </Group>
           <Group title={t("pl.third")}>
             <Item icon="plugin" name={t("pl.third")} sub={third.length ? third.map((p) => p.name).join(", ") : t("pl.no_third")}
