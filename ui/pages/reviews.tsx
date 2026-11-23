@@ -68,7 +68,7 @@ export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () 
   );
 }
 
-// "needs" is the overview's "N more": open PRs that wait on you; it shows as a tab only while it is on
+// "needs" is the overview's "N more": open PRs that wait on you; not a tab, a removable bar above the list
 type Filter = "all" | "approved" | "commented" | "active" | "failed" | "needs";
 const match: Record<Filter, (r: Row) => boolean> = {
   all: () => true,
@@ -111,8 +111,11 @@ export function ReviewsPage() {
           <Segmented value={filter} onChange={(v) => setFilter(v as Filter)} options={[
             ["all", t("rv.all")], ["approved", t("rv.f.approved")], ["commented", t("rv.f.commented")],
             ["active", t("rv.f.active")], ["failed", t("rv.f.failed")],
-            ...(filter === "needs" ? [["needs", t("rv.f.needs")] as [string, string]] : []),
           ]} />
+          {filter === "needs" && (
+            <div class="filter-bar"><Icon name="hand" size={14} /><span class="grow">{t("rv.f.needs_n", { n: rows.length })}</span>
+              <button class="icon-btn" aria-label={t("rv.f.clear")} title={t("rv.f.clear")} onClick={() => setFilter("all")}><Icon name="x" size={14} /></button></div>
+          )}
         </div>
         <div class="list scroll">
           {rows.length === 0 ? <Empty icon="search">{ov.rows.length ? t("rv.none") : t("ov.empty")}</Empty>

@@ -406,6 +406,9 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .toolbar { display: flex; flex-direction: column; gap: 8px; padding-right: 8px; }
 .toolbar .segmented { flex-wrap: nowrap; overflow-x: auto; align-self: flex-start; max-width: 100%; }
 .toolbar .segmented button { white-space: nowrap; }
+.filter-bar { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 10px; border-radius: var(--r-sm); background: var(--warn-bg); font-size: 12.5px; }
+.filter-bar > .icon { color: var(--warn); }
+.filter-bar .icon-btn { width: 24px; height: 24px; }
 .search { position: relative; }
 .search .icon { position: absolute; left: 10px; top: 8px; color: var(--text-3); }
 .search .input { padding-left: 32px; }
