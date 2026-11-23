@@ -191,7 +191,8 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           vec![
               f("notify.feishu.app_id", "App ID".into(), "text").ph("cli_…"),
               f("notify.feishu.app_secret", "App Secret".into(), "password"),
-              f("notify.feishu.recipient", l.t("接收人", "Recipient"), "text").ph("email:you@example.com"),
+              f("notify.feishu.recipient", l.t("接收人", "Recipient"), "text").ph("you@example.com")
+                  .help(l.t("填你登录飞书用的邮箱就行；也可以填 open_id（ou_ 开头）或 union_id（on_ 开头）。", "Your Feishu / Lark sign-in email is enough; an open_id (ou_…) or union_id (on_…) works too.")),
               f("notify.feishu.domain", l.t("开放平台地址", "Open platform URL"), "text")
                   .help(l.t("Lark 国际版填 https://open.larksuite.com", "Lark: https://open.larksuite.com")),
           ],

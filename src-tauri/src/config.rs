@@ -30,6 +30,27 @@ pub const ENGINES: [&str; 4] = ["claude", "codex", "gemini", "api"];
 pub const FORGES: [&str; 3] = ["github", "gitee", "gitea"];
 pub const RECIPIENT_TYPES: [&str; 4] = ["open_id", "union_id", "user_id", "email"];
 
+/// The Feishu recipient as `<type>:<id>`, from what people actually type: an email address, an open_id ("ou_…") or a
+/// union_id ("on_…") needs no prefix. An explicit `<type>:<id>` is kept; anything else is returned as typed, so
+/// validation can say what is wrong.
+pub fn feishu_recipient(raw: &str) -> String {
+    let s = raw.trim();
+    if let Some((t, _)) = s.split_once(':') {
+        if RECIPIENT_TYPES.contains(&t) {
+            return s.to_string();
+        }
+    }
+    if s.contains('@') && !s.contains(char::is_whitespace) {
+        format!("email:{s}")
+    } else if s.starts_with("ou_") {
+        format!("open_id:{s}")
+    } else if s.starts_with("on_") {
+        format!("union_id:{s}")
+    } else {
+        s.to_string()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Review {
@@ -581,10 +602,11 @@ impl Config {
                     "notify.feishu.app_secret (or env NOD_FEISHU_APP_SECRET) is required".into(),
                 );
             }
-            let (t, id) = f.recipient.split_once(':').unwrap_or(("", ""));
+            let r = feishu_recipient(&f.recipient);
+            let (t, id) = r.split_once(':').unwrap_or(("", ""));
             if !RECIPIENT_TYPES.contains(&t) || id.is_empty() {
                 errs.push(format!(
-                    "notify.feishu.recipient must look like \"email:you@example.com\" or \"open_id:ou_xxx\" (types: {})",
+                    "notify.feishu.recipient must be an email address, an open_id (ou_…) or a union_id (on_…), or \"<type>:<id>\" (types: {})",
                     RECIPIENT_TYPES.join(", ")
                 ));
             }
@@ -763,6 +785,23 @@ pub fn save(cfg: &Config) -> Result<std::path::PathBuf> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn feishu_recipient_takes_what_people_type() {
+        for (raw, want) in [
+            ("you@example.com", "email:you@example.com"),
+            (" you@example.com ", "email:you@example.com"),
+            ("ou_abc", "open_id:ou_abc"),
+            ("on_abc", "union_id:on_abc"),
+            ("union_id:on_abc", "union_id:on_abc"),
+            ("email:a@b.c", "email:a@b.c"),
+            ("user_id:123", "user_id:123"),
+            ("bob", "bob"),
+        ] {
+            assert_eq!(feishu_recipient(raw), want, "{raw:?}");
+        }
+    }
+
     use super::*;
 
     #[test]

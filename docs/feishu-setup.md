@@ -32,9 +32,11 @@ right away; leave it running for the next step.
 
 | Form | Where to find it |
 |---|---|
-| `email:you@company.com` | your Feishu login email (the app must be able to see you — see step 5) |
-| `open_id:ou_…` | per-app user id; shown in the API explorer when you call *Get user info* with this app |
-| `union_id:on_…` / `user_id:…` | the same user across apps of your organization / your employee id |
+| `you@company.com` | your Feishu login email (the app must be able to see you — see step 5); usually all you need |
+| `ou_…` | an open_id: per-app user id; shown in the API explorer when you call *Get user info* with this app |
+| `on_…` / `user_id:…` | a union_id (the same user across apps of your organization) / your employee id |
+
+No `email:` or `open_id:` prefix is needed: Nod tells them apart by their shape. A prefix still works.
 
 `open_id` / `union_id` / `user_id` are stricter: a click is only accepted when the clicking user's id matches.
 With `email`, a click is accepted only from the card that was sent into your private chat with the bot.
