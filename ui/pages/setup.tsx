@@ -113,8 +113,11 @@ export function Setup() {
 
   // only the latest check may show its result: switching engines while one runs must not show the old engine's
   const checkRun = useRef(0);
-  const runCheck = async (f: () => Promise<Check[]>) => {
+  // the engine step's own check does not call the model, so it cannot say the sign-in works: it says what it knows
+  const [quick, setQuick] = useState(false);
+  const runCheck = async (f: () => Promise<Check[]>, isQuick = false) => {
     const me = ++checkRun.current;
+    setQuick(isQuick);
     setChecking(true); setChecks(null); setMsg(null);
     try { const r = await f(); if (me === checkRun.current) setChecks(r); }
     catch (e) { if (me === checkRun.current) setMsg({ tone: "bad", text: errText(e) }); }
@@ -124,7 +127,7 @@ export function Setup() {
   const engineReady = !!engine && engine.fields.every((f) => f.optional || f.kind === "bool" || f.secret || !!getPath(draft, f.key));
   useEffect(() => {
     // without a model call (no usage spent, nothing left running when you switch again); "Check" does the full one
-    if (step === 1 && engine && engineReady) runCheck(() => api.checkPlugin(draft, "engine", engine.id, [], false));
+    if (step === 1 && engine && engineReady) runCheck(() => api.checkPlugin(draft, "engine", engine.id, [], false), true);
   }, [step, engine?.id]);
   const allOk = checks?.every((c) => c.ok);
 
@@ -177,7 +180,7 @@ export function Setup() {
           </div>
           <div class="setup-check">
             <Button icon="check" busy={checking} onClick={() => runCheck(() => api.checkPlugin(draft, "engine", engine.id))}>{t("btn.check")}</Button>
-            {checking ? <span class="muted small">{t("ck.running")}</span> : !checks && <span class="muted small">{t("ob.check_first")}</span>}
+            {checking ? <span class="muted small">{t(quick ? "ck.running_quick" : "ck.running")}</span> : !checks && <span class="muted small">{t("ob.check_first")}</span>}
           </div>
         </>}
 
@@ -203,7 +206,7 @@ export function Setup() {
           <label class="field inline autostart"><Switch on={autostart} onChange={setAutostart} /><span>{t("ob.autostart")}</span></label>
         </>}
 
-        {checks && <div class={`setup-result ${allOk ? "good" : "bad"}`}>{allOk && <Note tone="good">{t("ck.all_ok")}</Note>}<Checks checks={checks} /></div>}
+        {checks && <div class={`setup-result ${allOk ? "good" : "bad"}`}>{allOk && <Note tone="good">{t(quick ? "ck.installed" : "ck.all_ok")}</Note>}<Checks checks={checks} /></div>}
         {msg && msg.tone !== "bad" && <Note tone={msg.tone}>{msg.text}</Note>}
         </div>
 

@@ -47,6 +47,10 @@ export function OverviewPage() {
   const cfg = loaded.config;
   const fb = cfg.review.fallback;
   const fbOk = !!fb && !!health[`engine:${fb}`] && healthOf(health[`engine:${fb}`]) !== "bad";
+  // the quick check sees a Codex or API backup's sign-in, not Claude's or Gemini's (that would cost a model call)
+  const fbSignInChecked = fb === "codex" || fb === "api";
+  // Gemini without approval allowed only comments: PRs that would have been approved by the rules are not
+  const fbNoApprove = fb === "gemini" && !cfg.review.gemini?.allow_approve;
   const repoEngines = new Set((cfg.review.per_repo ?? []).map((r) => r.engine));
   const broken = !ready ? [] : Object.entries(health).filter(([, r]) => healthOf(r) === "bad").flatMap(([k, r]) => {
     const bad = r.find((c) => !c.ok)!;
@@ -56,10 +60,14 @@ export function OverviewPage() {
     if (!forge && !isDefault && !repoEngines.has(pid)) return [];
     const x = forge ? (plugin(forge.kind)?.name ?? forge.kind) + (accounts(cfg).length > 1 ? ` (${forge.id})` : "") : plugin(pid)?.name ?? pid;
     const covered = !forge && pid !== fb && bad.fallback && fbOk;
+    const y = plugin(fb)?.name ?? fb;
     const title = forge ? t("ov.broken_forge", { x })
-      : covered ? t("ov.broken_fb", { x, y: plugin(fb)?.name ?? fb })
+      : covered ? t("ov.broken_fb", { x, y })
       : isDefault ? t("ov.broken_engine", { x }) : t("ov.broken_repo", { x });
-    return [{ k, tone: (covered ? "warn" : "bad") as "bad" | "warn", title, detail: [bad.detail, bad.fix].filter(Boolean).join(t("ov.broken_sep")) }];
+    // the title is the outcome; what it rests on (the backup's sign-in not checked, it will not approve) and the
+    // cause with its fix go on the line below
+    const caveats = covered ? [!fbSignInChecked && t("ov.fb_unchecked", { y }), fbNoApprove && t("ov.fb_no_approve", { y })].filter(Boolean) as string[] : [];
+    return [{ k, tone: (covered ? "warn" : "bad") as "bad" | "warn", title, detail: [bad.detail, bad.fix, ...caveats].filter(Boolean).join(t("ov.broken_sep")) }];
   });
   const brokenTone = broken.some((b) => b.tone === "bad") ? "bad" : "warn";
   const channels = activeChannels(draft);

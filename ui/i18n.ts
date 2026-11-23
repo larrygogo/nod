@@ -78,6 +78,8 @@ const zh = {
 
   "ov.broken_engine": "{x} 用不了，新的审查会失败",
   "ov.broken_fb": "{x} 用不了，审查会改由备用引擎 {y} 来做",
+  "ov.fb_unchecked": "没有核实 {y} 是否已登录",
+  "ov.fb_no_approve": "{y} 只评论、不 approve",
   "ov.broken_repo": "{x} 用不了，指定用它的仓库审查会失败",
   "ov.broken_forge": "{x} 用不了，收不到这个账号的审查请求",
   "ov.broken_join": "；",
@@ -364,6 +366,8 @@ const zh = {
   "ck.title": "环境检查",
   "ck.all_ok": "全部就绪",
   "ck.running": "检查中…（会真实调用一次审查引擎）",
+  "ck.running_quick": "检查中…",
+  "ck.installed": "已安装。要确认能登录、能用，点「检查」（会真实调用一次）",
 
   "ob.welcome": "欢迎使用 Nod",
   "ob.intro": "有人请你审查 PR 时，Nod 在本机用 AI 审查，按你的规则决定是否 approve，并通知你。",
@@ -465,6 +469,8 @@ const en: typeof zh = {
 
   "ov.broken_engine": "{x} is not working: new reviews will fail",
   "ov.broken_fb": "{x} is not working: the backup engine {y} reviews instead",
+  "ov.fb_unchecked": "whether {y} is signed in was not checked",
+  "ov.fb_no_approve": "{y} only comments, never approves",
   "ov.broken_repo": "{x} is not working: reviews in the repositories set to use it will fail",
   "ov.broken_forge": "{x} is not working: no review requests come in from it",
   "ov.broken_join": "; ",
@@ -751,6 +757,8 @@ const en: typeof zh = {
   "ck.title": "Health check",
   "ck.all_ok": "All set",
   "ck.running": "Checking… (runs the review engine once)",
+  "ck.running_quick": "Checking…",
+  "ck.installed": "Installed. To make sure it is signed in and works, press Check (runs it once)",
 
   "ob.welcome": "Welcome to Nod",
   "ob.intro": "When someone asks you to review a PR, Nod reviews it on your own computer with the AI you choose, approves only when your rules allow it, and lets you know.",
@@ -786,7 +794,8 @@ export function lang() {
 }
 export function t(k: Key, args: Record<string, string | number> = {}): string {
   let s: string = (current === "en" ? en : zh)[k] ?? k;
-  for (const [a, v] of Object.entries(args)) s = s.replace(`{${a}}`, String(v));
+  // every occurrence: a sentence may name the same thing twice ("{y} … whether {y} is signed in")
+  for (const [a, v] of Object.entries(args)) s = s.split(`{${a}}`).join(String(v));
   return s;
 }
 export function has(k: string): k is Key {
