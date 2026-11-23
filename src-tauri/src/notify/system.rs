@@ -48,6 +48,8 @@ impl SystemNotifier {
         let (kind, title) = match (e.status.as_str(), e.event.as_deref()) {
             ("direct_approved", _) => ("direct", t(l, "sys.direct")),
             (_, Some("APPROVE")) => ("approve", t(l, "sys.approved")),
+            // not this commit, but an earlier approval still counts: the window says "Approved" too
+            (_, Some(_)) if e.earlier_approval_counts() => ("approve", t(l, "sys.approved")),
             (_, Some(_)) => ("comment", t(l, "sys.commented")),
             ("failed", _) => ("failed", t(l, "sys.failed")),
             // once per commit: the engine is out of quota and Nod waits for it
@@ -150,6 +152,9 @@ mod tests {
         let (_, title, body, _) = n.message("a/b#1", &c).unwrap();
         assert!(title.starts_with("Not approved"), "{title}");
         assert_eq!(body, "Fix\nhigh-severity issue found; CI failed");
+        // an earlier approval still counts on the code host: "Approved", as the window says
+        c.approve_ids = vec![1];
+        assert!(n.message("a/b#1", &c).unwrap().1.starts_with("Approved"));
         // a new commit announces again
         e.sha = "def".into();
         assert_eq!(n.message("a/b#1", &e).unwrap().0, "approve:def");

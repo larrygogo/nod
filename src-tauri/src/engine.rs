@@ -144,6 +144,19 @@ fn is_zero_f(n: &f64) -> bool {
 }
 
 impl Entry {
+    /// This commit was not approved, but an earlier approval of yours (Nod's, or "Approve now") still counts on the
+    /// code host, so the PR can be merged on it. The window, the tray and the notification all call this "Approved".
+    pub fn earlier_approval_counts(&self) -> bool {
+        self.event.as_deref() != Some("APPROVE")
+            && self.status != "direct_approved"
+            && (!self.approve_ids.is_empty() || self.direct_approve_id.is_some())
+            // what the code host says now; without a decision (Gitea), Nod's own record
+            && self
+                .last_pr_status
+                .as_ref()
+                .is_none_or(|s| s.decision.is_empty() || s.decision == "APPROVED")
+    }
+
     /// The latest round for `sha`, if there is one.
     pub fn round_mut(&mut self, sha: &str) -> Option<&mut Round> {
         self.rounds.iter_mut().rev().find(|r| r.sha == sha)

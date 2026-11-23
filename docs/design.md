@@ -40,7 +40,8 @@ with a detail pane). What we took and why:
   send my-org/infra to Codex"), never a bare "None".
 - **Empty lists say why.** A search that finds nothing names what was searched and offers "Clear search" (the field
   also clears with Esc or its ×); an empty filter says what it means — "No failed reviews" is good news, not "No
-  matching reviews". Narrow windows show the list, then
+  matching reviews". A search inside a filter that finds nothing says so and offers to search all reviews, since the
+  filter may be what hides it. Narrow windows show the list, then
   the pane with a back link.
 - **Settings** — one group at a time behind a segmented control: general (language, theme, start at sign-in),
   review (which PRs are reviewed and which are approved: each opens with one sentence that reads the lists back — "Nod reviews only PRs in my-org/*, except those by renovate[bot]" — then the four lists as a repository/author by only/never grid, so empty fields no longer have to be decoded as "everything"; automatic approval with its fixed rules listed one per line, the always-approve

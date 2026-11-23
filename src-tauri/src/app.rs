@@ -217,11 +217,7 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
                 })
             })
             .collect(),
-        earlier_approved: e.event.as_deref() != Some("APPROVE")
-            && e.status != "direct_approved"
-            && (!e.approve_ids.is_empty() || e.direct_approve_id.is_some())
-            // what the code host says now; without a decision (Gitea), Nod's own record
-            && e.last_pr_status.as_ref().is_none_or(|s| s.decision.is_empty() || s.decision == "APPROVED"),
+        earlier_approved: e.earlier_approval_counts(),
         commented: !e.sha.is_empty() && e.comment_sha == e.sha,
         at: e.posted_at.max(e.queued_at).max(e.direct_at),
     }
@@ -928,11 +924,7 @@ fn recent_items(lang: &str) -> Vec<(String, String)> {
         .take(5)
         .map(|r| {
             (
-                format!(
-                    "{} · {}",
-                    tray_word(lang, &r.status, r.event.as_deref(), &r.pr_state),
-                    r.title
-                ),
+                format!("{} · {}", tray_word(lang, &r), r.title),
                 r.review_url.unwrap_or(r.url),
             )
         })
@@ -940,41 +932,129 @@ fn recent_items(lang: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// A review's outcome as the window says it: words, not a ✓ / • / ✕ the reader has to decode. "Not approved" rather
-/// than "commented": the comments go up either way.
-fn tray_word(lang: &str, status: &str, event: Option<&str>, pr_state: &str) -> String {
-    let k = match (status, event) {
-        ("direct_approved", _) | (_, Some("APPROVE")) => "status.approved",
-        ("failed", _) => "sys.failed",
-        (_, Some(_)) => "sys.commented",
-        ("withdrawn", _) => "status.withdrawn",
-        ("out_of_scope", _) => "status.out_of_scope",
-        // gone before Nod said anything
-        ("closed", None) if pr_state == "merged" => "status.merged",
-        ("closed", None) => "status.closed",
-        ("awaiting_ci", _) => "status.awaiting_ci",
-        _ => "status.reviewing",
-    };
-    crate::i18n::t(lang, k)
+/// A review's outcome in the window's words (ui/pages/reviews.tsx `statusLabel`, same order of checks), so the tray
+/// never says something the window does not: words, not a ✓ / • / ✕ the reader has to decode.
+fn tray_word(lang: &str, r: &Row) -> &'static str {
+    let en = lang == "en";
+    let w = |zh: &'static str, e: &'static str| if en { e } else { zh };
+    let done = r.status == "posted" || r.status == "closed";
+    match r.status.as_str() {
+        "retry" if r.wait_until > 0.0 => w("等引擎额度", "Waiting for quota"),
+        _ if done && r.earlier_approved => w("已 approve", "Approved"),
+        _ if done && r.event.as_deref() == Some("APPROVE") => w("已 approve", "Approved"),
+        _ if done && r.event.is_some() => w("未 approve", "Not approved"),
+        "closed" if r.commented => w("未 approve", "Not approved"),
+        "closed" if r.summary.is_some() && r.pr_state == "merged" => {
+            w("合并前未发出", "Merged before posting")
+        }
+        "closed" if r.summary.is_some() => w("关闭前未发出", "Closed before posting"),
+        "closed" => w("未发评审", "Not posted"),
+        "queued" => w("排队中", "Queued"),
+        "reviewing" => w("审查中", "Reviewing"),
+        "reviewed" => w("已审完", "Reviewed"),
+        "awaiting_ci" => w("等 CI", "Waiting for CI"),
+        "direct_approved" => w("已直接通过", "Approved directly"),
+        "failed" => w("失败", "Failed"),
+        "retry" => w("将重试", "Will retry"),
+        "withdrawn" => w("已撤回 approve", "Approval withdrawn"),
+        "aborted" => w("已中止", "Stopped"),
+        "stale" => w("已过期", "Outdated"),
+        "out_of_scope" => w("不在范围内", "Out of scope"),
+        "dry-run" => w("试审结果", "Dry run"),
+        "posted" => w("已发布", "Posted"),
+        _ => w("审查中", "Reviewing"),
+    }
 }
 
 #[cfg(test)]
 #[test]
-fn tray_items_say_the_outcome_in_words() {
+fn tray_items_say_what_the_window_says() {
+    let r = |status: &str, event: Option<&str>| Row {
+        account: String::new(),
+        platform: String::new(),
+        engine: String::new(),
+        key: String::new(),
+        title: String::new(),
+        url: String::new(),
+        author: String::new(),
+        status: status.into(),
+        pr_state: "open".into(),
+        event: event.map(Into::into),
+        summary: None,
+        findings: vec![],
+        reasons: vec![],
+        review_url: None,
+        error: None,
+        wait_until: 0.0,
+        sha: String::new(),
+        head: String::new(),
+        action_msg: String::new(),
+        direct_busy: false,
+        my_approvals: false,
+        rounds: vec![],
+        earlier_approved: false,
+        commented: false,
+        at: 0.0,
+    };
     assert_eq!(
-        tray_word("zh-CN", "posted", Some("APPROVE"), "open"),
+        tray_word("zh-CN", &r("posted", Some("APPROVE"))),
         "已 approve"
     );
     assert_eq!(
-        tray_word("zh-CN", "posted", Some("COMMENT"), "open"),
+        tray_word("zh-CN", &r("posted", Some("COMMENT"))),
         "未 approve"
     );
-    assert_eq!(tray_word("en", "failed", None, "open"), "Review failed");
+    // an earlier approval still counts on the code host
     assert_eq!(
-        tray_word("en", "awaiting_ci", None, "open"),
-        "Waiting for CI"
+        tray_word(
+            "zh-CN",
+            &Row {
+                earlier_approved: true,
+                ..r("posted", Some("COMMENT"))
+            }
+        ),
+        "已 approve"
     );
-    assert_eq!(tray_word("en", "closed", None, "merged"), "Merged");
+    // out of quota: hours of waiting must not read as "Reviewing"
+    assert_eq!(
+        tray_word(
+            "en",
+            &Row {
+                wait_until: 1.0,
+                ..r("retry", None)
+            }
+        ),
+        "Waiting for quota"
+    );
+    assert_eq!(tray_word("en", &r("retry", None)), "Will retry");
+    assert_eq!(tray_word("en", &r("aborted", None)), "Stopped");
+    assert_eq!(
+        tray_word("en", &r("direct_approved", None)),
+        "Approved directly"
+    );
+    assert_eq!(tray_word("en", &r("awaiting_ci", None)), "Waiting for CI");
+    // comments went up while waiting for CI, then the PR was merged
+    assert_eq!(
+        tray_word(
+            "en",
+            &Row {
+                commented: true,
+                ..r("closed", None)
+            }
+        ),
+        "Not approved"
+    );
+    assert_eq!(
+        tray_word(
+            "en",
+            &Row {
+                summary: Some("x".into()),
+                pr_state: "merged".into(),
+                ..r("closed", None)
+            }
+        ),
+        "Merged before posting"
+    );
 }
 
 fn status_loop(app: AppHandle, t: tray::Tray) {

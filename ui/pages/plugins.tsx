@@ -88,11 +88,13 @@ function Checks({ checks }: { checks: Check[] }) {
 }
 
 /** The right-hand pane for one plugin: what it is, what it can do, its settings and its self-test. */
-function Pane({ p, sub, control, children, onCheck, testLabel, extra, account, health }: {
+function Pane({ p, sub, control, children, onCheck, testLabel, extra, account, health, namesUser }: {
   p: Plugin; sub?: string; control?: preact.ComponentChildren; children?: preact.ComponentChildren; account?: preact.ComponentChildren;
   onCheck?: () => Promise<Check[] | string>; testLabel?: string; extra?: preact.ComponentChildren;
   /** what the page found when it opened (saved settings, no model call), shown until the user runs a check */
   health?: Check[];
+  /** the account section already says who is signed in (OAuth): a clean result found by itself would repeat it */
+  namesUser?: boolean;
 }) {
   const [ran, setResult] = useState<Check[] | string | null>(null);
   const result = ran ?? health ?? null;
@@ -130,7 +132,7 @@ function Pane({ p, sub, control, children, onCheck, testLabel, extra, account, h
           {typeof result === "string" && <Note tone="good">{t("btn.sent")}</Note>}
           {/* a clean result the page found by itself is only shown where nothing above says it already (GitHub's
               account section says who is signed in); one the user asked for is always shown */}
-          {Array.isArray(result) && !trouble && (ran !== null || !account) && <Checks checks={result} />}
+          {Array.isArray(result) && !trouble && (ran !== null || !namesUser) && <Checks checks={result} />}
         </section>
       )}
       {extra}
@@ -242,6 +244,8 @@ export function PluginsPage() {
   const name = (id: string) => catalog.find((p) => p.id === id)?.name ?? id;
 
   let pane: preact.ComponentChildren = null;
+  // a personal access token is in use: typed in, or kept in the keychain and not being cleared
+  const tokenIn = (a: Account) => !!a.token || (!!loaded.secrets[`forge.${a.id}.token`] && !cleared.includes(`forge.${a.id}.token`));
   if (adding) {
     pane = <AddAccount kinds={forgeKinds} taken={list.map((a) => a.id)} onDone={(id) => { setAdding(false); if (id) setSel(`forge:${id}`); }} />;
   } else if (current.startsWith("forge:")) {
@@ -252,14 +256,14 @@ export function PluginsPage() {
       <Pane key={`${a.id}|${a.kind}`} p={p} sub={`${a.id}${hostOf(a) ? " · " + hostOf(a) : ""}`}
         control={<Switch on={a.enabled} label={t("pl.enabled")} onChange={(v) => edit((c) => { materialize(c); c.forges![i].enabled = v; })} />}
         onCheck={selfTest(`forge:${a.id}`, () => api.checkPlugin(draft, "forge", a.id, cleared))} health={health[`forge:${a.id}`]}
-        account={a.kind === "github" ? <GithubSignIn account={a} usingToken={!!a.token || (!!loaded.secrets[`forge.${a.id}.token`] && !cleared.includes(`forge.${a.id}.token`))} /> : undefined}
+        account={a.kind === "github" ? <GithubSignIn account={a} usingToken={tokenIn(a)} /> : undefined}
+        namesUser={a.kind === "github" && !tokenIn(a)}
         extra={list.length > 1 && <section class="pane-section"><Button kind="danger" icon="trash" onClick={() => edit((c) => { materialize(c); c.forges!.splice(i, 1); })}>{t("pl.remove_account")}</Button></section>}>
         {p.fields.length > 0 && <Fields fields={p.fields}
           get={(k) => getPath(a, k)}
           set={(k, v) => edit((c) => { materialize(c); setPath(c.forges![i], k, v); })}
           secretName={(k) => (k === "token" ? `forge.${a.id}.token` : k.startsWith("settings.") ? `forge.${a.id}.${k}` : "")}
-          fold={a.kind === "github" ? { label: t("ob.gh_more"), open: !!a.url || !!getPath(a, "settings.client_id") || !!a.token
-            || (!!loaded.secrets[`forge.${a.id}.token`] && !cleared.includes(`forge.${a.id}.token`)) } : undefined} />}
+          fold={a.kind === "github" ? { label: t("ob.gh_more"), open: !!a.url || !!getPath(a, "settings.client_id") || tokenIn(a) } : undefined} />}
       </Pane>
     );
   } else if (current.startsWith("engine:")) {
@@ -290,7 +294,7 @@ export function PluginsPage() {
         testLabel={t("btn.test")}
         onCheck={() => api.testChannel(draft, p.id, cleared)}>
         {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName}
-          fold={p.id === "feishu" ? { label: t("pl.lark_more"), open: !!draft.notify.feishu?.domain && !/\/\/open\.feishu\.cn\/?$/.test(draft.notify.feishu.domain) } : undefined} />}
+          fold={p.id === "feishu" ? { label: t("pl.lark_more"), open: !!draft.notify.feishu?.domain && !/^(https?:\/\/)?open\.feishu\.cn\/?$/i.test(draft.notify.feishu.domain.trim()) } : undefined} />}
       </Pane>
     );
   } else if (current === "third") {
@@ -485,6 +489,8 @@ function Rules({ engines }: { engines: Plugin[] }) {
   const other = engines.find((e) => e.id !== draft.review.engine);
   // a rule added here gets the cursor in its repository field; rules already there on opening do not
   const [added, setAdded] = useState(0);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (added) list.current?.querySelector<HTMLInputElement>(".rule:last-child input")?.focus(); }, [added]);
   return (
     <article class="pane">
       <header class="pane-head"><Tile icon="rules" size={40} />
@@ -493,11 +499,10 @@ function Rules({ engines }: { engines: Plugin[] }) {
         {/* say what happens now, not "None": every repository goes to the default engine; an example shows what a
             rule is for */}
         {rules.length === 0 && <p class="muted">{t("pl.rules_empty", { engine: name(draft.review.engine), other: other?.name ?? "Codex" })}</p>}
-        {rules.length > 0 && <div class="rules">
+        {rules.length > 0 && <div class="rules" ref={list}>
           {rules.map((r, i) => (
             <div class="rule">
-              <TextInput key={`${added}-${i}`} value={r.repo} mono placeholder={t("pl.repo_pattern")} autoFocus={added > 0 && i === rules.length - 1}
-                onInput={(v) => edit((c) => { c.review.per_repo[i].repo = v; })} />
+              <TextInput value={r.repo} mono placeholder={t("pl.repo_pattern")} onInput={(v) => edit((c) => { c.review.per_repo[i].repo = v; })} />
               <Icon name="chevron" />
               <Select value={r.engine} options={engines.map((e) => [e.id, e.name])} onChange={(v) => edit((c) => { c.review.per_repo[i].engine = v; })} />
               <button class="icon-btn" aria-label={t("btn.remove")} onClick={() => edit((c) => { c.review.per_repo.splice(i, 1); })}><Icon name="trash" /></button>
