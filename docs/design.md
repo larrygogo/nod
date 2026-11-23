@@ -32,7 +32,8 @@ with a detail pane). What we took and why:
   the selected one: what it is, what it can see/do, its settings and its self-test. Narrow windows show the list, then
   the pane with a back link.
 - **Settings** — one group at a time behind a segmented control: general (language, theme, start at sign-in),
-  approval rules, review scope, reviewing, about (files, version).
+  review (which PRs are reviewed, automatic approval with its fixed rules listed one per line, the always-approve
+  list, the comment footer, and "Running" — timeouts, retries, polling — folded at the end), about (files, version).
 - **Setup** — first launch: code host → review engine → notifications → done. One option per line; the picked option
   opens its settings right below itself; the step buttons stay fixed at the bottom.
 

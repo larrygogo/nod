@@ -389,6 +389,8 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .review-row.selected { background: var(--raised); box-shadow: var(--shadow-raise); }
 .row-title { font-weight: var(--w-medium); }
 .row-sub { display: block; color: var(--text-2); font-size: 12px; margin-top: 1px; }
+.split-list .key-owner { display: none; } /* the narrow list keeps the repo and PR number, drops the owner */
+.nowrap { white-space: nowrap; }
 .row-right { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .row-right .find { font-size: 11.5px; }
 .find { color: var(--text-2); white-space: nowrap; }
@@ -474,6 +476,7 @@ details.round > summary:hover { background: var(--surface-2); border-radius: var
 .findings li { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .findings li:last-child { border-bottom: none; }
 .findings .sev { margin-top: 1px; }
+.raised { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); font-size: 11px; line-height: 18px; vertical-align: 1px; white-space: nowrap; }
 
 .overlay { position: fixed; inset: 0; background: rgba(10, 10, 14, 0.36); display: grid; place-items: center; padding: 24px; animation: fade 160ms var(--ease); z-index: 10; }
 @keyframes fade { from { opacity: 0; } }
@@ -616,6 +619,18 @@ details.round > summary:hover { background: var(--surface-2); border-radius: var
 .tabbed .section:only-of-type > header h2 { display: none; }
 .tabbed .section:only-of-type > header:not(:has(p)) { display: none; }
 .tabbed .section + .section { margin-top: 12px; }
+/* the approval rules, one per line (ApproveRules in settings.tsx) */
+.approve-rules { padding: 2px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+.approve-rules-title { color: var(--text-2); font-size: 12px; margin-bottom: 6px; }
+.approve-rules ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 16px; }
+.approve-rules li { display: flex; align-items: center; gap: 6px; }
+.approve-rules li .icon { color: var(--good); flex: none; }
+/* a section folded by default ("Running") */
+details.advanced > summary { display: flex; align-items: baseline; gap: 8px; list-style: none; cursor: pointer; margin-bottom: 10px; color: var(--text); }
+details.advanced > summary::-webkit-details-marker { display: none; }
+details.advanced > summary .icon { color: var(--text-3); align-self: center; transition: transform 150ms var(--ease); }
+details.advanced[open] > summary .icon { transform: rotate(90deg); }
+details.advanced > summary .muted { font-size: 12px; }
 .tabbed > .segmented { align-self: flex-start; width: auto; }
 
 /* ---------------------------------------------------------------- press feedback */

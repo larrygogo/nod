@@ -58,7 +58,7 @@ export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () 
       <span class={`state-dot ${tone(r)}`} />
       <span class="grow">
         <span class="row-title ellipsis">{r.title || r.key}</span>
-        <span class="row-sub ellipsis">{flag && <span class="row-flag" title={flag.hint}>{flag.text}</span>}{r.key} · {r.author} · {ago(r.at)}{pr && <> · <span class={`pr-state ${pr.tone}`}>{pr.text}</span></>}</span>
+        <span class="row-sub ellipsis">{flag && <span class="row-flag" title={flag.hint}>{flag.text}</span>}<Key k={r.key} /> · {r.author} · {ago(r.at)}{pr && <> · <span class={`pr-state ${pr.tone}`}>{pr.text}</span></>}</span>
       </span>
       <span class="row-right">
         <span class={`state-label ${tone(r)}`}>{statusLabel(r)}</span>
@@ -69,6 +69,12 @@ export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () 
 }
 
 // "needs" is the overview's "N more": open PRs that wait on you; not a tab, a removable bar above the list
+/** "owner/repo#12": the owner is dropped in the narrow review list (CSS), so the PR number is not the part cut off. */
+function Key({ k }: { k: string }) {
+  const i = k.indexOf("/");
+  return i > 0 && k.indexOf("/", i + 1) < 0 ? <span title={k}><span class="key-owner">{k.slice(0, i + 1)}</span>{k.slice(i + 1)}</span> : <>{k}</>;
+}
+
 type Filter = "all" | "approved" | "commented" | "active" | "failed" | "needs";
 const match: Record<Filter, (r: Row) => boolean> = {
   all: () => true,
@@ -130,6 +136,13 @@ export function ReviewsPage() {
   );
 }
 
+/** The review prompt (src-tauri/assets/review.*.md) marks an issue already raised in the PR's discussion by a fixed
+ *  suffix on its title; shown as a tag instead, so titles stay readable. */
+const RAISED = /\s*(（已有评论提过）|\(raised in discussion\))\s*$/i;
+export function splitRaised(title: string): [string, boolean] {
+  return RAISED.test(title) ? [title.replace(RAISED, ""), true] : [title, false];
+}
+
 /** The findings of one review, worst first. */
 function FindingList({ findings }: { findings: Row["findings"] }) {
   if (findings.length === 0) return <p class="muted">{t("rv.no_findings")}</p>;
@@ -139,7 +152,7 @@ function FindingList({ findings }: { findings: Row["findings"] }) {
         <li>
           <span class={`sev ${f.severity}`}>{t(`sev.${f.severity}` as Key)}</span>
           <div class="grow">
-            <div>{f.title}</div>
+            <div>{splitRaised(f.title)[0]}{splitRaised(f.title)[1] && <span class="raised">{t("rv.raised")}</span>}</div>
             <div class="mono small muted">{f.path}{f.line ? `:${f.line}` : ""} · {f.introduced_by_pr ? t("rv.introduced") : t("rv.old")}</div>
           </div>
         </li>
@@ -266,7 +279,7 @@ export function Detail({ r }: { r: Row }) {
         </div>
         <h2>{r.title || r.key}</h2>
         <div class="muted small detail-sub">
-          <span>{r.key} · {r.author} · {ago(r.at)}</span>
+          <span><span class="nowrap">{r.key}</span> · <span class="nowrap">{r.author}</span> · <span class="nowrap">{ago(r.at)}</span></span>
           {r.url && <button class="link small" onClick={() => api.url(r.url)}>{t("btn.open_pr")} <Icon name="external" size={12} /></button>}
           {r.review_url && <button class="link small" onClick={() => api.url(r.review_url!)}>
             {t(r.status === "closed" && !r.event ? "btn.open_last_review" : "btn.open_review")} <Icon name="external" size={12} /></button>}

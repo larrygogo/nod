@@ -146,6 +146,7 @@ export function SettingsPage() {
               onChange={(v) => edit((c) => { c.approve.mode = v ? "auto" : "never"; })} />
           </Row>
           {draft.approve.mode !== "never" && <>
+            <ApproveRules />
             <Row label={t("set.approve.repos")} help={t("set.list_help")} wide>
               <TagInput kind="repo" suggest={repoHints} value={draft.approve.repos} onChange={(v) => edit((c) => { c.approve.repos = v; })} placeholder="my-org/*" /></Row>
             <Row label={t("set.approve.authors")} wide>
@@ -164,15 +165,6 @@ export function SettingsPage() {
         <Card><AlwaysRules repoHints={repoHints} loginHints={loginHints} /></Card>
       </Section>}
 
-      {tab === "review" && <Section title={t("set.review_run")}>
-        <Card>
-          <Row label={t("set.timeout")}>{num((c) => c.review.timeout_min, (c, v) => { c.review.timeout_min = v; })}</Row>
-          <Row label={t("set.attempts")}>{num((c) => c.review.max_attempts, (c, v) => { c.review.max_attempts = v; })}</Row>
-          <Row label={t("set.rereview")}>{num((c) => c.review.rereview_days, (c, v) => { c.review.rereview_days = v; })}</Row>
-          <Row label={t("set.poll")}>{num((c) => c.daemon.poll_seconds, (c, v) => { c.daemon.poll_seconds = v; })}</Row>
-          <Row label={t("set.refresh")}>{num((c) => c.daemon.refresh_seconds, (c, v) => { c.daemon.refresh_seconds = v; })}</Row>
-        </Card>
-      </Section>}
 
       {tab === "review" && <Section title={t("set.footer")}>
         <Card>
@@ -188,6 +180,18 @@ export function SettingsPage() {
           )}
         </Card>
       </Section>}
+
+      {/* rarely touched: folded, so the page is about what gets reviewed and approved */}
+      {tab === "review" && <details class="section advanced">
+        <summary><Icon name="chevron" size={14} /><h2>{t("set.review_run")}</h2><span class="muted">{t("set.review_run_hint")}</span></summary>
+        <Card>
+          <Row label={t("set.timeout")}>{num((c) => c.review.timeout_min, (c, v) => { c.review.timeout_min = v; })}</Row>
+          <Row label={t("set.attempts")}>{num((c) => c.review.max_attempts, (c, v) => { c.review.max_attempts = v; })}</Row>
+          <Row label={t("set.rereview")}>{num((c) => c.review.rereview_days, (c, v) => { c.review.rereview_days = v; })}</Row>
+          <Row label={t("set.poll")}>{num((c) => c.daemon.poll_seconds, (c, v) => { c.daemon.poll_seconds = v; })}</Row>
+          <Row label={t("set.refresh")}>{num((c) => c.daemon.refresh_seconds, (c, v) => { c.daemon.refresh_seconds = v; })}</Row>
+        </Card>
+      </details>}
 
       {tab === "about" && <>
       <Section title={t("set.files")}>
@@ -207,6 +211,17 @@ export function SettingsPage() {
         </Card>
       </Section>
       </>}
+    </div>
+  );
+}
+
+/** The fixed approval rules (review::decide in src-tauri/src/review.rs), one per line, so they can be counted at a glance. */
+function ApproveRules() {
+  const rules = ["set.rule.high", "set.rule.medium", "set.rule.engine", "set.rule.ci", "set.rule.own", "set.rule.lists"] as const;
+  return (
+    <div class="approve-rules">
+      <div class="approve-rules-title">{t("set.rule.title")}</div>
+      <ul>{rules.map((k) => <li><Icon name="check" size={13} />{t(k)}</li>)}</ul>
     </div>
   );
 }
