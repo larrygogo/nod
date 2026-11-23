@@ -734,6 +734,17 @@ mod tests {
             crate::util::cli_error(&format!("{banner}{prompt}{tail}"), 300)
         );
         assert_eq!(classify(&msg, 0.0), Trouble::Unavailable, "{msg}");
+        // the engine's own last word is not an ERROR line (a crash): an ERROR line echoed from the PR text must not
+        // decide; the crash is Other, so the review fails instead of handing over
+        let msg = crate::util::cli_error(
+            &format!("{banner}{prompt}thread 'main' panicked at src/main.rs:1:1:\nboom\n"),
+            300,
+        );
+        assert_eq!(classify(&msg, 0.0), Trouble::Other, "{msg}");
+        assert!(!msg.contains('\n'), "one line for the notification: {msg}");
+        // the engine's 401 followed by a line of its own still counts
+        let msg = crate::util::cli_error(&format!("{banner}{prompt}{tail}tokens used: 0\n"), 300);
+        assert_eq!(classify(&msg, 0.0), Trouble::Unavailable, "{msg}");
         // no ERROR line: the end of the output, where the error is, not the banner
         let msg = crate::util::cli_error(
             &format!("{banner}{prompt}you have hit your usage limit"),

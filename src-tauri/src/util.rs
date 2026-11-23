@@ -324,11 +324,12 @@ pub fn keep_last(s: &str, n: usize) -> String {
 /// What a CLI said went wrong, short enough for a log line and a notification. reviewer::classify reads it to decide
 /// on the backup engine and on waiting out a quota, so it must be the engine's own last word:
 /// - Codex prints a banner, echoes the whole prompt (the PR text and discussion, which may hold "error:" lines of
-///   their own), retries ("ERROR: Reconnecting... 1/5"), and only then says what failed ("ERROR: unexpected status
-///   401 Unauthorized …"): the last ERROR line that is not a retry;
+///   their own), retries ("ERROR: Reconnecting... 1/5"), and ends with what failed ("ERROR: unexpected status 401
+///   Unauthorized …"): that last line, when it is an ERROR line that is not a retry;
 /// - Gemini prints a JSON object `{"error": {"message": …}}`: its message;
-/// - and always the end of the output, where an error is: if the engine's last word has no ERROR prefix, the last
-///   ERROR line may be one echoed from the PR text, and the end still carries the real one.
+/// - otherwise the end of the output on one line, where an error is, not the start. An ERROR line with more output
+///   after it may be one echoed from the PR text, or the engine's own followed by a line like "tokens used: 0": it
+///   and what follows count, the echo before it does not.
 pub fn cli_error(out: &str, n: usize) -> String {
     let t = out.trim();
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(t) {
@@ -336,17 +337,19 @@ pub fn cli_error(out: &str, n: usize) -> String {
             return truncate(m.trim(), n);
         }
     }
-    let end = keep_last(t, n / 2);
     let last = t
         .lines()
         .map(str::trim)
         .rfind(|l| l.starts_with("ERROR") && !l.contains("Reconnecting"));
-    match last {
-        // already at the end of the output: that line is the whole story
-        Some(l) if t.ends_with(l) => truncate(l, n),
-        Some(l) => format!("{} … {}", truncate(l, n / 2), end.trim()),
-        None => truncate(keep_last(t, n).trim(), n),
-    }
+    let tail = match last {
+        Some(l) if t.ends_with(l) => return truncate(l, n),
+        Some(l) => t.rfind(l).map_or(t, |i| &t[i..]),
+        None => t,
+    };
+    keep_last(tail.trim(), n)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn now() -> f64 {
