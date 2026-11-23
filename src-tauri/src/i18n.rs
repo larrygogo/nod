@@ -178,7 +178,8 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("card.alert_title", "⚠️ 自动审查整轮失败", "⚠️ Nod round failed"),
     ("card.test_title", "Nod 连通测试", "Nod connectivity test"),
     ("sys.approved", "已 approve", "Approved"),
-    ("sys.commented", "已评论", "Commented"),
+    // the comments always go up: what a notification has to say is whether it was approved
+    ("sys.commented", "未 approve", "Not approved"),
     ("sys.waiting", "引擎额度用完，稍后重试", "Engine out of quota; will retry"),
     ("sys.failed", "审查失败", "Review failed"),
     ("sys.direct", "已直接通过", "Approved directly"),

@@ -58,6 +58,13 @@ impl SystemNotifier {
         let body = match (&e.verdict, e.error.as_deref()) {
             (_, Some(err)) if kind == "failed" => crate::util::truncate(err, 160),
             _ if kind == "wait" => e.note.as_ref().map(|n| n.text.clone()).unwrap_or_default(),
+            // not approved: why, which says whether it needs you, rather than the summary
+            _ if kind == "comment" && !e.reasons.is_empty() => e
+                .reasons
+                .iter()
+                .map(|r| crate::i18n::reason_text(l, r))
+                .collect::<Vec<_>>()
+                .join(if l == "en" { "; " } else { "；" }),
             (Some(v), _) => crate::util::truncate(&v.summary, 160),
             _ => String::new(),
         };
@@ -136,6 +143,13 @@ mod tests {
         assert_eq!(url, "https://github.com/a/b/pull/1");
         n.update("a/b#1", &mut e, None).unwrap();
         assert_eq!(e.extra[SIG], "approve:abc");
+        // not approved: says so, with the reasons instead of the summary
+        let mut c = e.clone();
+        c.event = Some("COMMENT".into());
+        c.reasons = vec!["high".into(), "ci_failed".into()];
+        let (_, title, body, _) = n.message("a/b#1", &c).unwrap();
+        assert!(title.starts_with("Not approved"), "{title}");
+        assert_eq!(body, "Fix\nhigh-severity issue found; CI failed");
         // a new commit announces again
         e.sha = "def".into();
         assert_eq!(n.message("a/b#1", &e).unwrap().0, "approve:def");

@@ -85,6 +85,8 @@ First public release: a desktop app.
 - Plugins and Overview check the code hosts and engines in use when opened (installed, signed in; no model call): a
   broken one is marked in the list, and the overview says what it means, such as "reviews go to the backup engine" or
   "new reviews will fail".
+- A desktop notification for a review that was not approved says "Not approved" (it used to say "Commented", though
+  the comments go up either way) and gives the reasons, such as "high-severity issue found", instead of the summary.
 - *Review again* on a failed or waiting review, and pasting the link of a failed PR into **Review**, starts it over;
   before, the same commit was never reviewed again.
 - Webhook recognises chat and push apps and sends in their format: Feishu / Lark, DingTalk, WeCom, Slack, Discord,
