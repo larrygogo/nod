@@ -483,6 +483,8 @@ function Rules({ engines }: { engines: Plugin[] }) {
   const rules = draft.review.per_repo ?? [];
   const name = (id: string) => engines.find((e) => e.id === id)?.name ?? id;
   const other = engines.find((e) => e.id !== draft.review.engine);
+  // a rule added here gets the cursor in its repository field; rules already there on opening do not
+  const [added, setAdded] = useState(0);
   return (
     <article class="pane">
       <header class="pane-head"><Tile icon="rules" size={40} />
@@ -491,19 +493,20 @@ function Rules({ engines }: { engines: Plugin[] }) {
         {/* say what happens now, not "None": every repository goes to the default engine; an example shows what a
             rule is for */}
         {rules.length === 0 && <p class="muted">{t("pl.rules_empty", { engine: name(draft.review.engine), other: other?.name ?? "Codex" })}</p>}
-        <div class="rules">
+        {rules.length > 0 && <div class="rules">
           {rules.map((r, i) => (
             <div class="rule">
-              <TextInput value={r.repo} mono placeholder={t("pl.repo_pattern")} onInput={(v) => edit((c) => { c.review.per_repo[i].repo = v; })} />
+              <TextInput key={`${added}-${i}`} value={r.repo} mono placeholder={t("pl.repo_pattern")} autoFocus={added > 0 && i === rules.length - 1}
+                onInput={(v) => edit((c) => { c.review.per_repo[i].repo = v; })} />
               <Icon name="chevron" />
               <Select value={r.engine} options={engines.map((e) => [e.id, e.name])} onChange={(v) => edit((c) => { c.review.per_repo[i].engine = v; })} />
               <button class="icon-btn" aria-label={t("btn.remove")} onClick={() => edit((c) => { c.review.per_repo.splice(i, 1); })}><Icon name="trash" /></button>
             </div>
           ))}
-        </div>
+        </div>}
         {rules.length > 0 && <p class="muted small">{t("pl.rules_rest", { engine: name(draft.review.engine) })}</p>}
         <div class="pane-actions">
-          <Button icon="plus" onClick={() => edit((c) => { (c.review.per_repo ??= []).push({ repo: "", engine: engines.find((e) => e.id !== c.review.engine)?.id ?? "claude" }); })}>{t("pl.add_rule")}</Button>
+          <Button icon="plus" onClick={() => { setAdded((n) => n + 1); edit((c) => { (c.review.per_repo ??= []).push({ repo: "", engine: engines.find((e) => e.id !== c.review.engine)?.id ?? "claude" }); }); }}>{t("pl.add_rule")}</Button>
         </div>
       </section>
     </article>

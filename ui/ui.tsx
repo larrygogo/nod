@@ -71,9 +71,13 @@ export function Row({ label, help, children, wide }: {
 export function TextInput(p: {
   value: string | number; onInput: (v: string) => void; placeholder?: string; type?: string; mono?: boolean; autoFocus?: boolean;
 }) {
+  // the autofocus attribute only counts when the page loads; an input that appears later (a dialog, a rule just
+  // added) is focused here
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (p.autoFocus) ref.current?.focus(); }, []);
   return (
-    <input class={`input${p.mono ? " mono" : ""}`} type={p.type ?? "text"} value={p.value} placeholder={p.placeholder}
-      autoFocus={p.autoFocus} spellcheck={false}
+    <input ref={ref} class={`input${p.mono ? " mono" : ""}`} type={p.type ?? "text"} value={p.value} placeholder={p.placeholder}
+      spellcheck={false}
       onInput={(e) => p.onInput((e.target as HTMLInputElement).value)} />
   );
 }
