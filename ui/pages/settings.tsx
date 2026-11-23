@@ -162,7 +162,15 @@ export function SettingsPage() {
       </Section>}
 
       {tab === "review" && <Section title={t("set.always")} help={t("set.always_help")}>
-        <Card><AlwaysRules repoHints={repoHints} loginHints={loginHints} /></Card>
+        <Card>
+          {/* what "always" gives up, one per line, in the same shape as the approval rules above */}
+          <div class="approve-rules always-note">
+            <div class="approve-rules-title">{t("set.always.title")}</div>
+            <ul>{(["set.always.findings", "set.always.ci", "set.always.failed", "set.always.switch"] as const).map((k) =>
+              <li><Icon name="alert" size={13} />{t(k)}</li>)}</ul>
+          </div>
+          <AlwaysRules repoHints={repoHints} loginHints={loginHints} />
+        </Card>
       </Section>}
 
 

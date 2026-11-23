@@ -625,6 +625,8 @@ details.round > summary:hover { background: var(--surface-2); border-radius: var
 .approve-rules ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 16px; }
 .approve-rules li { display: flex; align-items: center; gap: 6px; }
 .approve-rules li .icon { color: var(--good); flex: none; }
+.always-note li .icon { color: var(--warn); }
+.always-note { margin-bottom: 10px; }
 /* a section folded by default ("Running") */
 details.advanced > summary { display: flex; align-items: baseline; gap: 8px; list-style: none; cursor: pointer; margin-bottom: 10px; color: var(--text); }
 details.advanced > summary::-webkit-details-marker { display: none; }
