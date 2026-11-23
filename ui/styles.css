@@ -23,6 +23,8 @@
   --bad: #cb2634;  --bad-bg: #ffece8;
   --busy: #0e42d2; --busy-bg: #e8f3ff;
   --merged: #8250df; --merged-bg: #f5effe;
+  /* chart fills: state colours bright enough to read as a shape (the text shades above are too dark for a bar) */
+  --good-fill: #23c16b; --warn-fill: #ff9a2e; --bad-fill: #f2555a;
   /* elevation instead of borders and highlights */
   --ring: 0 0 0 1px rgba(29, 33, 41, 0.05);
   --shadow-sm: 0 0 0 1px rgba(29, 33, 41, 0.05), 0 1px 2px rgba(29, 33, 41, 0.05);
@@ -54,6 +56,7 @@
     --accent: #165dff; --accent-2: #3c7eff; --accent-3: #0e42d2; --accent-bg: #172744; --accent-fg: #6aa1ff; --accent-text: #ffffff;
     --good: #3dd68c; --good-bg: #13291d; --warn: #ffb65d; --warn-bg: #2e2111; --bad: #ff8a8a; --bad-bg: #331a1c;
     --busy: #6aa1ff; --busy-bg: #172744; --merged: #c297ff; --merged-bg: #2a2040;
+    --good-fill: #3dd68c; --warn-fill: #ffb65d; --bad-fill: #ff8a8a;
     --ring: 0 0 0 1px rgba(255, 255, 255, 0.05);
     --shadow-sm: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-card: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
@@ -72,6 +75,7 @@
   --accent: #165dff; --accent-2: #3c7eff; --accent-3: #0e42d2; --accent-bg: #172744; --accent-fg: #6aa1ff; --accent-text: #ffffff;
   --good: #3dd68c; --good-bg: #13291d; --warn: #ffb65d; --warn-bg: #2e2111; --bad: #ff8a8a; --bad-bg: #331a1c;
   --busy: #6aa1ff; --busy-bg: #172744; --merged: #c297ff; --merged-bg: #2a2040;
+  --good-fill: #3dd68c; --warn-fill: #ffb65d; --bad-fill: #ff8a8a;
   --ring: 0 0 0 1px rgba(255, 255, 255, 0.05);
   --shadow-sm: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-card: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
@@ -97,7 +101,7 @@ body { font: var(--w-regular) 13px/1.55 var(--font); -webkit-font-smoothing: ant
   font-feature-settings: "cv11"; }
 /* Digits that count or change are tabular so they never jitter. Not the whole page: in Inter, tabular figures also
    widen the hyphen, which spaced out names like "gitee-work". */
-.metric-value, .nav .count, .sev, .badge, .find, .state-label, .row-sub, .detail-meta, .status-widget .muted,
+.nav .count, .sev, .badge, .find, .state-label, .row-sub, .detail-meta, .status-widget .muted,
 .page-head .status-line, .checks, .input[type="number"] { font-variant-numeric: tabular-nums; }
 b, strong { font-weight: var(--w-semibold); }
 p, li, .muted, .pane-desc, .note > div, .summary { text-wrap: pretty; }
@@ -271,7 +275,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .update-notice + .status-widget { margin-top: 0; }
 .status-widget { margin-top: auto; padding: 10px 6px 4px 10px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
 .status-widget .status-text-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.status-widget .status-line { font-size: 12.5px; }
+.status-widget .status-line { font-size: 12.5px; display: block; } /* block, so the ellipsis works */
 .status-widget .muted { font-size: 11.5px; }
 .status-line { display: flex; align-items: center; gap: 8px; font-weight: var(--w-medium); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: none; }
@@ -324,13 +328,39 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .banner.warn > .icon { color: var(--warn); }
 .banner-title { font-weight: var(--w-semibold); }
 .banner details code { max-height: 120px; overflow-y: auto; }
-.metrics { display: grid; grid-template-columns: auto repeat(4, 1fr); align-items: center; background: var(--surface); border: none; border-radius: var(--r-md); box-shadow: var(--shadow-card); }
-.metrics-title { padding: 0 18px; color: var(--text-2); font-weight: var(--w-medium); align-self: stretch; display: flex; align-items: center; border-right: 1px solid var(--border); }
-.metric { padding: 12px 18px; border-right: 1px solid var(--border); }
-.metric:last-child { border-right: none; }
-.metric-value { font-size: 24px; font-weight: var(--w-semibold); line-height: 1.2; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.metric-label { color: var(--text-2); font-size: 12px; }
-.metric.good .metric-value { color: var(--good); } .metric.warn .metric-value { color: var(--warn); } .metric.bad .metric-value { color: var(--bad); }
+/* the first thing on the overview: one sentence (does anything wait on you, what Nod did this week) and the week drawn */
+.digest { display: flex; gap: 28px; align-items: center; padding: 16px 18px 16px 20px; border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-card); }
+.digest-lead { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: var(--w-semibold); letter-spacing: -0.01em; line-height: 1.35; }
+.digest-lead.warn .icon { color: var(--warn); }
+.digest-lead.good .icon { color: var(--good); }
+.digest-sub { color: var(--text-2); margin: 4px 0 0; }
+.digest-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; max-width: 100%; padding: 0 10px; border: none; border-radius: 999px;
+  background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; transition: background 120ms var(--ease), transform 220ms var(--spring); }
+.chip:hover { background: var(--surface-3); }
+.chip:active { transform: scale(0.96); }
+.chip b { font-weight: var(--w-semibold); flex: none; }
+.chip .ellipsis { color: var(--text-2); }
+.chip.warn { background: var(--warn-bg); }
+.chip.warn:hover { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); }
+.chip.busy { background: var(--busy-bg); }
+.chip.busy .ellipsis, .chip.busy .icon { color: var(--busy); }
+.chip .spinner { width: 10px; height: 10px; border-width: 1.5px; color: var(--busy); }
+.week { flex: none; width: 168px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.week-bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; height: 64px; }
+.week-col { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.week-stack { flex: 1; width: 100%; max-width: 14px; display: flex; flex-direction: column-reverse; gap: 2px; }
+.week-stack .seg { display: block; border-radius: 3px; min-height: 3px; }
+.week-stack .seg.good { background: var(--good-fill); }
+.week-stack .seg.warn { background: var(--warn-fill); }
+.week-stack .seg.none { height: 3px; background: var(--border-strong); }
+.week-day { font-size: 10.5px; line-height: 1; color: var(--text-3); }
+.week-day.today { color: var(--text); font-weight: var(--w-semibold); }
+.week-legend { display: flex; gap: 10px; justify-content: center; font-size: 11px; color: var(--text-2); }
+.week-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.week-legend i { width: 7px; height: 7px; border-radius: 2px; }
+.week-legend i.good { background: var(--good-fill); }
+.week-legend i.warn { background: var(--warn-fill); }
 .chain { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; color: var(--text-2); font-size: 12px; margin-top: -6px; }
 .chain-item { display: inline-flex; align-items: center; gap: 6px; }
 .chain-item .tile { border-radius: 5px; }
@@ -414,6 +444,24 @@ details.round > summary:hover { background: var(--surface-2); border-radius: var
 .round-body { padding: 0 2px 12px; }
 .round-links { display: flex; gap: 14px; margin-top: 6px; }
 .round-links .link { display: inline-flex; align-items: center; gap: 3px; }
+/* several reviews of one PR, drawn (RoundTrend in reviews.tsx) */
+.trend { margin: 0 0 4px; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 10px; }
+.trend figcaption { font-weight: var(--w-medium); }
+.trend-bars { display: grid; gap: 6px; height: 72px; }
+.trend-col { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.trend-stack { flex: 1; width: 100%; max-width: 18px; display: flex; flex-direction: column-reverse; gap: 2px; }
+.trend-stack .seg { display: block; border-radius: 3px; min-height: 3px; }
+.trend-stack .seg.high, .trend-legend i.high { background: var(--bad-fill); }
+.trend-stack .seg.medium, .trend-legend i.medium { background: var(--warn-fill); }
+.trend-stack .seg.low, .trend-legend i.low { background: color-mix(in srgb, var(--busy) 70%, var(--surface)); }
+.trend-stack .seg.nit { background: var(--border-strong); }
+.trend-stack .seg.none { height: 3px; background: var(--border-strong); }
+.trend-n { display: grid; place-items: center; height: 14px; font-size: 10.5px; line-height: 1; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.trend-n.good { color: var(--good); }
+.trend-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--text-2); }
+.trend-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.trend-legend i { width: 7px; height: 7px; border-radius: 2px; }
+.trend-legend .icon { color: var(--good); }
 .detail section { margin: 18px 0; }
 .summary { font-size: 14px; line-height: 1.6; }
 .reasons { margin: 0; padding-left: 18px; color: var(--text-2); }
@@ -542,10 +590,6 @@ details.round > summary:hover { background: var(--surface-2); border-radius: var
   .update-notice { padding: 0; background: none; align-items: center; }
   .update-notice .grow, .update-notice .btn > span:last-child { display: none; }
   .savebar { left: 84px; }
-  .metrics { grid-template-columns: repeat(2, 1fr); }
-  .metrics-title { grid-column: 1 / -1; border-right: none; border-bottom: 1px solid var(--border); padding: 8px 18px; }
-  .metric:nth-child(3), .metric:nth-child(5) { border-right: none; }
-  .metric:nth-child(n+4) { border-top: 1px solid var(--border); }
   .split { grid-template-columns: 1fr; }
   .split-detail { display: none; }
   .split.has-sel .split-list { display: none; }
@@ -582,3 +626,4 @@ details.round > summary:hover { background: var(--surface-2); border-radius: var
 .gh-code-row { display: flex; align-items: center; gap: 12px; }
 .gh-code { font: 600 26px/1.2 var(--mono, ui-monospace, "Cascadia Mono", monospace); letter-spacing: 0.12em; padding: 8px 14px; border-radius: var(--r-sm); background: var(--surface-2); user-select: all; }
 .gh-signed { display: flex; align-items: center; gap: 10px; }
+

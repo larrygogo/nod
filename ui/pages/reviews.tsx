@@ -5,6 +5,7 @@ import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
 import { ago, has, t, type Key } from "../i18n";
 import { Badge, Button, Dialog, Empty, Note, Segmented, TextInput, errText } from "../ui";
+import { SEV, isApproved, isNotApproved, sevCounts } from "../derive";
 
 /** Nod's review result. The PR's own state (merged, closed) is shown apart, by prState. */
 /** "15:30" today, "11-20 15:30" another day. */
@@ -30,14 +31,13 @@ export function prState(r: Row): { text: string; tone: string } | null {
   return tone ? { text: t(`pr.${r.pr_state}` as Key), tone } : null;
 }
 export function tone(r: Row): string {
-  if (r.status === "direct_approved" || r.event === "APPROVE" || ((r.status === "closed" || r.status === "posted") && r.earlier_approved)) return "good";
+  if (isApproved(r)) return "good";
   if (r.status === "failed") return "bad";
   if (r.status === "retry" && r.wait_until > 0) return "warn";
   if (["queued", "reviewing", "awaiting_ci", "retry"].includes(r.status)) return "busy";
   if (r.event === "COMMENT") return "warn";
   return "muted";
 }
-const SEV = ["high", "medium", "low", "nit"];
 
 /** "4 findings · 1 high": the count, and the worst severity when it matters. */
 export function findingsText(r: Row): { text: string; tone: string } | null {
@@ -71,8 +71,8 @@ export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () 
 type Filter = "all" | "approved" | "commented" | "active" | "failed";
 const match: Record<Filter, (r: Row) => boolean> = {
   all: () => true,
-  approved: (r) => r.event === "APPROVE" || r.status === "direct_approved" || ((r.status === "closed" || r.status === "posted") && r.earlier_approved),
-  commented: (r) => r.event === "COMMENT" || (r.status === "closed" && r.commented),
+  approved: isApproved,
+  commented: isNotApproved,
   active: (r) => ["queued", "reviewing", "awaiting_ci", "retry"].includes(r.status),
   failed: (r) => r.status === "failed",
 };
@@ -125,7 +125,7 @@ function FindingList({ findings }: { findings: Row["findings"] }) {
   if (findings.length === 0) return <p class="muted">{t("rv.no_findings")}</p>;
   return (
     <ul class="findings">
-      {[...findings].sort((a, b) => SEV.indexOf(a.severity) - SEV.indexOf(b.severity)).map((f) => (
+      {[...findings].sort((a, b) => SEV.indexOf(a.severity as never) - SEV.indexOf(b.severity as never)).map((f) => (
         <li>
           <span class={`sev ${f.severity}`}>{t(`sev.${f.severity}` as Key)}</span>
           <div class="grow">
@@ -139,6 +139,39 @@ function FindingList({ findings }: { findings: Row["findings"] }) {
 }
 
 type Round = Row["rounds"][number];
+
+/** Several reviews of one PR, drawn: one column per review, oldest first, stacked by severity, so "fewer issues each
+ *  round" (or not) is seen at a glance. The sentence says the same in words, counting high and medium. */
+function RoundTrend({ rounds }: { rounds: Round[] }) {
+  const xs = [...rounds].reverse();
+  const max = Math.max(1, ...xs.map((x) => x.findings.length));
+  const serious = (x: Round) => { const c = sevCounts(x.findings); return c.high + c.medium; };
+  const first = serious(xs[0]), last = serious(xs[xs.length - 1]);
+  const line = last < first ? t("rd.trend_down", { n: xs.length, a: first, b: last })
+    : last > first ? t("rd.trend_up", { n: xs.length, a: first, b: last }) : t("rd.trend_same", { n: xs.length, a: last });
+  return (
+    <figure class="trend">
+      <figcaption>{line}</figcaption>
+      <div class="trend-bars" style={{ gridTemplateColumns: `repeat(${xs.length}, minmax(0, 28px))` }}>
+        {xs.map((x, i) => {
+          const c = sevCounts(x.findings);
+          const o = roundOutcome(x);
+          return (
+            <div class="trend-col" title={`${x.sha} · ${clock(x.at)} · ${o.text} · ${x.findings.length ? t("rd.n_findings", { n: x.findings.length }) : t("rd.no_findings")}`}>
+              <div class="trend-stack">
+                {SEV.slice().reverse().map((s) => c[s] > 0 && <span class={`seg ${s}`} style={{ height: `${(c[s] / max) * 100}%` }} />)}
+                {x.findings.length === 0 && <span class="seg none" />}
+              </div>
+              <span class={`trend-n ${o.tone}`}>{x.event === "APPROVE" && !x.withdrawn ? <Icon name="check" size={11} /> : i + 1}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div class="trend-legend">{(["high", "medium", "low"] as const).map((s) => <span><i class={s} />{t(`sev.${s}` as Key)}</span>)}
+        <span><Icon name="check" size={11} />{t("rd.approved")}</span></div>
+    </figure>
+  );
+}
 
 /** What went up to GitHub for one review. */
 function roundOutcome(x: Round): { text: string; tone: string } {
@@ -257,6 +290,8 @@ export function Detail({ r }: { r: Row }) {
       {r.action_msg && !r.direct_busy && r.status !== "direct_approved" && <Note tone="warn">{r.action_msg}</Note>}
       {waiting && <Note tone="warn">{t("rv.quota_wait", { at: clock(r.wait_until) })}</Note>}
       {r.error && (waiting ? <p class="muted small" style={{ wordBreak: "break-word" }}>{r.error}</p> : <Note tone="bad">{r.error}</Note>)}
+
+      {r.rounds.length >= 2 && <RoundTrend rounds={r.rounds} />}
 
       {(r.summary || r.findings.length > 0 || tone(r) === "busy") && (
         <section class="round current">

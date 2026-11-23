@@ -14,10 +14,16 @@ with a detail pane). What we took and why:
 
 ## Information architecture
 
-- **Overview** — one status line under the title (and a banner with the fix only when something is wrong), today's
-  numbers as one strip, the plugins in use as a short chain, "worth a look" (failed reviews, comments with high
-  findings) only when there is something, then the latest reviews as one full-width list.
-- **Reviews** — every review: search, filter by state and platform, detail pane with verdict, reasons and findings.
+- **Overview** — one status line under the title (and a banner with the fix only when something is wrong), then the
+  digest: one sentence that answers "does anything wait on me?" (open PRs Nod did not approve, or whose review failed,
+  with up to three of them as shortcuts and what is reviewing or waiting for CI right now), one sentence on the week
+  ("reviewed 8 PRs in 39 rounds, approved 6, held back 1 with a high-severity issue"), and the last seven days drawn
+  next to it. Then the plugins in use as a short chain and the latest reviews grouped by day, newest first; rows that
+  wait on you are flagged in place, never pinned. No strip of today's counters: most days it read "0 0 0 0".
+- **Reviews** — every review: search, filter by outcome (approved / not approved / in progress / failed), detail pane
+  with verdict, reasons and findings. A PR reviewed more than once shows its rounds as small stacked columns (one per
+  review, by severity) with a sentence ("5 reviews: high and medium issues went from 6 to 1"); earlier rounds stay
+  folded.
   "Review a PR by hand" (dry run / track) lives here.
 - **Plugins** — list and pane, like macOS System Settings or Raycast's extension settings. The list groups code
   hosts (accounts, with "+" to add one), review engines (plus the per-repository rules), notification channels and
@@ -38,7 +44,10 @@ with a detail pane). What we took and why:
   settings.
 - Colour means state. Capability tags are neutral outlines; only warnings ("cannot be withdrawn", "no system sandbox")
   are amber. Status words are coloured text, not filled pills, in lists.
-- Numbers get words: "3 findings · 1 high", never bare coloured counters.
+- Numbers get words: "3 findings · 1 high", never bare coloured counters. A chart always comes with the sentence it
+  proves and a legend.
+- States follow the approval, not the comment: comments always go up, so a review reads "approved", "not approved"
+  (with the reason), "waiting for CI" or "reviewing" — never "commented" as if it were the opposite of approved.
 
 ## Tokens
 
@@ -57,6 +66,7 @@ lines and no pure black.
 | `--text` / `-2` / `-3` | `#1d2129` / `#4e5969` / `#5f6673` | `#e8e9ed` / `#a9aeb8` / `#8f949e` | all ≥ 4.5:1 |
 | `--accent` | `#165dff` (hover `#4080ff`, pressed `#0e42d2`, as text `#0e42d2`) | `#165dff` (as text `#6aa1ff`) | primary action, links |
 | `--good` `--warn` `--bad` | `#007a33` `#a34700` `#cb2634` on light tints | `#3dd68c` `#ffb65d` `#ff8a8a` | state only |
+| `--good-fill` `--warn-fill` `--bad-fill` | `#23c16b` `#ff9a2e` `#f2555a` | same as the text shades | chart bars and legends (the text shades are too dark for a shape) |
 
 - **Neutrals**: one cool grey (HSL 222°); neighbouring layers differ by 1.5–2 % lightness, so surfaces separate by
   tone and shadow rather than by lines.
