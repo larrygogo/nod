@@ -150,11 +150,12 @@ impl Entry {
         self.event.as_deref() != Some("APPROVE")
             && self.status != "direct_approved"
             && (!self.approve_ids.is_empty() || self.direct_approve_id.is_some())
-            // what the code host says now; without a decision (Gitea), Nod's own record
-            && self
-                .last_pr_status
-                .as_ref()
-                .is_none_or(|s| s.decision.is_empty() || s.decision == "APPROVED")
+            // what the code host says now: your own approval where it tells (GitHub; someone else's approval does not
+            // make yours count), else the PR's decision, else (Gitea) Nod's own record
+            && self.last_pr_status.as_ref().is_none_or(|s| match s.mine_approved {
+                Some(m) => m,
+                None => s.decision.is_empty() || s.decision == "APPROVED",
+            })
     }
 
     /// The latest round for `sha`, if there is one.

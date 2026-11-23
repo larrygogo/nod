@@ -155,6 +155,17 @@ mod tests {
         // an earlier approval still counts on the code host: "Approved", as the window says
         c.approve_ids = vec![1];
         assert!(n.message("a/b#1", &c).unwrap().1.starts_with("Approved"));
+        // unless the code host says yours was dismissed, whoever else approved the PR
+        c.last_pr_status = Some(PrStatus {
+            decision: "APPROVED".into(),
+            mine_approved: Some(false),
+            ..Default::default()
+        });
+        assert!(n
+            .message("a/b#1", &c)
+            .unwrap()
+            .1
+            .starts_with("Not approved"));
         // a new commit announces again
         e.sha = "def".into();
         assert_eq!(n.message("a/b#1", &e).unwrap().0, "approve:def");

@@ -179,9 +179,29 @@ const PR_STATUS_QUERY: &str = "query($owner: String!, $name: String!, $number: I
     pullRequest(number: $number) {
       state isDraft reviewDecision headRefOid title url author { login }
       additions deletions changedFiles headRefName baseRefName merged
+      latestOpinionatedReviews(first: 100) { nodes { state author { login } } }
     }
   }
+  viewer { login }
 }";
+
+/// Your latest approve / request-changes review on the PR is an approval that still counts. GitHub turns it into
+/// DISMISSED when a new commit dismisses stale approvals or someone dismisses it by hand; a later plain comment does
+/// not count (it is not an opinionated review).
+fn mine_approved(data: &Value) -> bool {
+    let me = data["viewer"]["login"].as_str().unwrap_or_default();
+    !me.is_empty()
+        && data["repository"]["pullRequest"]["latestOpinionatedReviews"]["nodes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|n| {
+                n["author"]["login"]
+                    .as_str()
+                    .is_some_and(|a| a.eq_ignore_ascii_case(me))
+                    && n["state"] == "APPROVED"
+            })
+}
 
 impl Forge for Gh {
     fn current_user(&self) -> Result<String> {
@@ -319,6 +339,7 @@ impl Forge for Gh {
             changed_files: d["changedFiles"].as_u64(),
             head_ref: s(d, "headRefName"),
             base_ref: s(d, "baseRefName"),
+            mine_approved: Some(mine_approved(&data)),
         };
         if state == "open" {
             let pr = Pr {
@@ -447,6 +468,22 @@ mod tests {
     use super::super::github_auth::{save, Tokens};
     use super::super::http::fake;
     use super::*;
+
+    #[test]
+    fn only_your_own_standing_approval_counts() {
+        let data = |nodes: Value| {
+            json!({"viewer": {"login": "larry"},
+            "repository": {"pullRequest": {"latestOpinionatedReviews": {"nodes": nodes}}}})
+        };
+        // a new commit dismissed yours; someone else approved: the PR is approved, yours is not
+        let d = data(json!([{"state": "DISMISSED", "author": {"login": "larry"}},
+                            {"state": "APPROVED", "author": {"login": "bell"}}]));
+        assert!(!mine_approved(&d));
+        assert!(mine_approved(&data(
+            json!([{"state": "APPROVED", "author": {"login": "Larry"}}])
+        )));
+        assert!(!mine_approved(&data(json!([]))));
+    }
     use crate::util::now;
 
     fn gh(f: &fake::Fake, account: &str) -> Gh {

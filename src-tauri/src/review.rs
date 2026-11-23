@@ -282,6 +282,12 @@ pub fn build_review(
             .position(|s| *s == f.severity)
             .unwrap_or(9)
     });
+    // An issue still open from an earlier review or the discussion (the engine marks its title) is already in a thread
+    // on the PR: it goes into one folded list in the summary, not into a new comment on every commit. A busy PR got
+    // the same fourteen comments again for each of ten commits.
+    let (again, findings): (Vec<_>, Vec<_>) = findings
+        .into_iter()
+        .partition(|f| raised_before(&f.title).is_some());
     let mut comments = vec![];
     let mut outside = vec![];
     for f in &findings {
@@ -324,18 +330,39 @@ pub fn build_review(
             &[("reasons", &rs.join("; "))],
         ));
     }
-    if !findings.is_empty() {
+    let item = |f: &Finding, title: &str| {
+        format!(
+            "- {} `{}:{}` {}",
+            t(lang, &format!("sev_icon.{}", f.severity)),
+            f.path,
+            f.line,
+            title
+        )
+    };
+    if !findings.is_empty() || !again.is_empty() {
         lines.push(String::new());
         lines.push(t(lang, "review.legend"));
         for f in &findings {
-            lines.push(format!(
-                "- {} `{}:{}` {}",
-                t(lang, &format!("sev_icon.{}", f.severity)),
-                f.path,
-                f.line,
-                f.title
-            ));
+            lines.push(item(f, &f.title));
         }
+    }
+    if !again.is_empty() {
+        lines.push(String::new());
+        // GitHub, Gitea and Gitee render a folded block; a blank line around the list keeps it Markdown
+        lines.push(format!(
+            "<details><summary>{}</summary>",
+            tf(
+                lang,
+                "review.still_open",
+                &[("n", &again.len().to_string())]
+            )
+        ));
+        lines.push(String::new());
+        for f in &again {
+            lines.push(item(f, raised_before(&f.title).unwrap_or(&f.title)));
+        }
+        lines.push(String::new());
+        lines.push("</details>".into());
     }
     for o in outside {
         lines.push(String::new());
@@ -346,6 +373,21 @@ pub fn build_review(
         lines.push(f.to_string());
     }
     json!({"commit_id": pr.head, "event": event, "body": lines.join("\n"), "comments": comments})
+}
+
+/// The title without the engine's "raised before" mark, when it has one (review.*.md tells the engine to add it).
+pub fn raised_before(title: &str) -> Option<&str> {
+    let t = title.trim_end();
+    [
+        "（已有评论提过）",
+        "(已有评论提过)",
+        "(raised in discussion)",
+    ]
+    .iter()
+    .find_map(|m| {
+        let n = t.len().checked_sub(m.len())?;
+        (t.is_char_boundary(n) && t[n..].eq_ignore_ascii_case(m)).then(|| t[..n].trim_end())
+    })
 }
 
 /// The engine's name as people know it, for the review's signature.
@@ -537,6 +579,39 @@ pub mod tests {
         let mut c = Config::default();
         c.approve.authors = vec!["alice".into()];
         assert_eq!(d(&c, &pr("alice"), &v).0, "COMMENT");
+    }
+
+    #[test]
+    fn issues_raised_before_are_listed_once_not_commented_again() {
+        let mut v = clean();
+        let mut old = finding("low", true, 3);
+        old.title = "Cards stay pending (raised in discussion)".into();
+        let mut old_outside = finding("nit", true, 99);
+        old_outside.title = "Duplicate handler（已有评论提过）".into();
+        v.findings = vec![old, old_outside, finding("medium", true, 4)];
+        let valid = DiffLines::from([("a.py".to_string(), HashSet::from([3, 4]))]);
+        let r = build_review("en", &pr("a"), &v, "COMMENT", &[], &valid, None);
+        // only the new issue gets a comment on its line
+        let comments = r["comments"].as_array().unwrap();
+        assert_eq!(comments.len(), 1, "{comments:?}");
+        assert_eq!(comments[0]["line"], 4);
+        let body = r["body"].as_str().unwrap();
+        // the old ones are in one folded list, without the mark, and not repeated as an outside-the-diff block
+        assert!(
+            body.contains("<details><summary>2 raised before and still open"),
+            "{body}"
+        );
+        assert!(
+            body.contains("`a.py:3` Cards stay pending\n")
+                && body.contains("`a.py:99` Duplicate handler\n"),
+            "{body}"
+        );
+        assert!(
+            !body.contains("outside the diff") && !body.contains("raised in discussion"),
+            "{body}"
+        );
+        assert_eq!(raised_before("x （已有评论提过） "), Some("x"));
+        assert_eq!(raised_before("plain"), None);
     }
 
     #[test]

@@ -151,6 +151,7 @@ impl Forge for Gitea {
             changed_files: d["changed_files"].as_u64(),
             head_ref: d["head"]["ref"].as_str().unwrap_or_default().into(),
             base_ref: pr.base,
+            mine_approved: None,
         })
     }
 

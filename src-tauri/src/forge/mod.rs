@@ -55,6 +55,11 @@ pub struct PrStatus {
     pub head_ref: String,
     #[serde(default)]
     pub base_ref: String,
+    /// Whether your own approval still stands on the code host (GitHub: your latest approve/request-changes review is
+    /// an approval, not dismissed by a new commit or by hand). None where the host does not say (Gitea, Gitee): then
+    /// `decision` and Nod's own record stand in.
+    #[serde(default)]
+    pub mine_approved: Option<bool>,
 }
 
 pub type DiffLines = HashMap<String, HashSet<u64>>;

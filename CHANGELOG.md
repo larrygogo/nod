@@ -85,6 +85,11 @@ First public release: a desktop app.
 - Plugins and Overview check the code hosts and engines in use when opened (installed, signed in; no model call): a
   broken one is marked in the list, and the overview says what it means, such as "reviews go to the backup engine" or
   "new reviews will fail".
+- Issues still open from an earlier review (or raised in the discussion) are no longer commented again on their
+  lines with every new commit: the review lists them once, folded ("13 raised before and still open"), and only new
+  issues get line comments. A PR with ten commits used to collect the same fourteen comments ten times.
+- "Approved by an earlier approval" now means your own approval still stands on GitHub. When a new commit dismissed
+  it, someone else's approval no longer makes the window, tray or notification say the PR is approved by you.
 - A desktop notification for a review that was not approved says "Not approved" (it used to say "Commented", though
   the comments go up either way) and gives the reasons, such as "high-severity issue found", instead of the summary.
 - The tray's latest reviews say how each one ended in words ("Not approved · Fix login", "Waiting for CI · …")

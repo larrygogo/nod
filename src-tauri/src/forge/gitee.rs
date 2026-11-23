@@ -387,6 +387,7 @@ impl Forge for Gitee {
             changed_files: None,
             head_ref: d["head"]["ref"].as_str().unwrap_or_default().into(),
             base_ref: pr.base,
+            mine_approved: None,
         })
     }
 
