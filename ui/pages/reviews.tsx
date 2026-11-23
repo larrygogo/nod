@@ -152,8 +152,13 @@ function FindingList({ findings }: { findings: Row["findings"] }) {
         <li>
           <span class={`sev ${f.severity}`}>{t(`sev.${f.severity}` as Key)}</span>
           <div class="grow">
-            <div>{splitRaised(f.title)[0]}{splitRaised(f.title)[1] && <span class="raised">{t("rv.raised")}</span>}</div>
-            <div class="mono small muted">{f.path}{f.line ? `:${f.line}` : ""} · {f.introduced_by_pr ? t("rv.introduced") : t("rv.old")}</div>
+            <div>{splitRaised(f.title)[0]}{splitRaised(f.title)[1] && <span class="raised">{t("rv.raised")}</span>}
+              {/* most issues come with the PR; the ones that were already there are the exception worth a word (they do
+                  not hold back an approval) */}
+              {!f.introduced_by_pr && <span class="raised">{t("rv.old")}</span>}</div>
+            {/* a long path is cut from the left, so the file name and line stay in view */}
+            {f.path && <div class="find-path mono small muted" title={`${f.path}${f.line ? `:${f.line}` : ""}`}>
+              <bdi>{f.path}{f.line ? `:${f.line}` : ""}</bdi></div>}
           </div>
         </li>
       ))}

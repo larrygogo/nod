@@ -69,11 +69,16 @@ function Checks({ checks }: { checks: Check[] }) {
 }
 
 /** The right-hand pane for one plugin: what it is, what it can do, its settings and its self-test. */
-function Pane({ p, sub, control, children, onCheck, testLabel, extra, account }: {
+function Pane({ p, sub, control, children, onCheck, testLabel, extra, account, health }: {
   p: Plugin; sub?: string; control?: preact.ComponentChildren; children?: preact.ComponentChildren; account?: preact.ComponentChildren;
   onCheck?: () => Promise<Check[] | string>; testLabel?: string; extra?: preact.ComponentChildren;
+  /** what the page found when it opened (saved settings, no model call), shown until the user runs a check */
+  health?: Check[];
 }) {
-  const [result, setResult] = useState<Check[] | string | null>(null);
+  const [ran, setResult] = useState<Check[] | string | null>(null);
+  const result = ran ?? health ?? null;
+  // something wrong is the first thing to read, above the settings that fix it; a clean result stays at the bottom
+  const trouble = Array.isArray(result) && result.some((c) => !c.ok || c.warn);
   const [err, setErr] = useState<string | null>(null);
   return (
     <article class="pane">
@@ -87,6 +92,7 @@ function Pane({ p, sub, control, children, onCheck, testLabel, extra, account }:
       </header>
       <p class="pane-desc">{p.description}</p>
       {p.badges.length > 0 && <div class="caps">{p.badges.map((b) => <Badge tone={b.tone === "warn" ? "warn" : "cap"}>{b.text}</Badge>)}</div>}
+      {trouble && <section class="pane-section"><Checks checks={result as Check[]} /></section>}
       {account && <section class="pane-section"><h3>{t("gh.account")}</h3>{account}</section>}
       <section class="pane-section">
         <h3>{t("pl.settings")}</h3>
@@ -103,7 +109,7 @@ function Pane({ p, sub, control, children, onCheck, testLabel, extra, account }:
           </div>
           {err && <Note tone="bad">{err}</Note>}
           {typeof result === "string" && <Note tone="good">{t("btn.sent")}</Note>}
-          {Array.isArray(result) && <Checks checks={result} />}
+          {Array.isArray(result) && !trouble && <Checks checks={result} />}
         </section>
       )}
       {extra}
@@ -189,6 +195,28 @@ export function PluginsPage() {
   const [showPane, setShowPane] = useState(false);
   const pick = (id: string) => { setAdding(false); setSel(id); setShowPane(true); };
 
+  // Everything in use is checked when the page opens, with the saved settings and without calling a model: the list
+  // then says which one is broken, instead of every line reading "On" until you think of pressing Self-test.
+  const [health, setHealth] = useState<Record<string, Check[]>>({});
+  const saved = loaded.config;
+  useEffect(() => {
+    let live = true;
+    const jobs: [string, Promise<Check[]>][] = [
+      ...accounts(saved).filter((a) => a.enabled).map((a) => [`forge:${a.id}`, api.checkPlugin(saved, "forge", a.id, [], false)] as [string, Promise<Check[]>]),
+      ...[...new Set([saved.review.engine, saved.review.fallback, ...(saved.review.per_repo ?? []).map((r) => r.engine)].filter(Boolean))]
+        .map((e) => [`engine:${e}`, api.checkPlugin(saved, "engine", e, [], false)] as [string, Promise<Check[]>]),
+    ];
+    for (const [k, job] of jobs) job.then((r) => { if (live) setHealth((h) => ({ ...h, [k]: r })); }).catch(() => {});
+    return () => { live = false; };
+  }, [saved]);
+  // a problem replaces the line's usual state word; a working one keeps it
+  const flag = (k: string, normal?: preact.ComponentChildren) => {
+    const r = health[k];
+    if (r?.some((c) => !c.ok)) return <span class="onoff bad">{t("pl.broken")}</span>;
+    if (r?.some((c) => c.warn)) return <span class="onoff warn">{t("pl.attention")}</span>;
+    return normal;
+  };
+
   // the selection may point at an account that was just removed: fall back to the first one
   const current = sel.startsWith("forge:") && !list.some((a) => `forge:${a.id}` === sel) ? `forge:${list[0]?.id}` : sel;
   const name = (id: string) => catalog.find((p) => p.id === id)?.name ?? id;
@@ -203,7 +231,7 @@ export function PluginsPage() {
     pane = !a ? null : !p ? <Note tone="bad">{a.id}: {a.kind}</Note> : (
       <Pane key={`${a.id}|${a.kind}`} p={p} sub={`${a.id}${hostOf(a) ? " · " + hostOf(a) : ""}`}
         control={<Switch on={a.enabled} label={t("pl.enabled")} onChange={(v) => edit((c) => { materialize(c); c.forges![i].enabled = v; })} />}
-        onCheck={() => api.checkPlugin(draft, "forge", a.id, cleared)}
+        onCheck={() => api.checkPlugin(draft, "forge", a.id, cleared)} health={health[`forge:${a.id}`]}
         account={a.kind === "github" ? <GithubSignIn account={a} usingToken={!!a.token || (!!loaded.secrets[`forge.${a.id}.token`] && !cleared.includes(`forge.${a.id}.token`))} /> : undefined}
         extra={list.length > 1 && <section class="pane-section"><Button kind="danger" icon="trash" onClick={() => edit((c) => { materialize(c); c.forges!.splice(i, 1); })}>{t("pl.remove_account")}</Button></section>}>
         {p.fields.length > 0 && <Fields fields={p.fields}
@@ -223,7 +251,7 @@ export function PluginsPage() {
             onClick={() => edit((c) => { c.review.fallback = isFallback ? "" : p.id; })}>{t(isFallback ? "pl.no_fallback" : "pl.use_fallback")}</Button>
           <Button onClick={() => edit((c) => { c.review.engine = p.id; if (c.review.fallback === p.id) c.review.fallback = ""; })}>{t("pl.use_default")}</Button>
         </>}
-        onCheck={() => api.checkPlugin(draft, "engine", p.id, cleared)}>
+        onCheck={() => api.checkPlugin(draft, "engine", p.id, cleared)} health={health[`engine:${p.id}`]}>
         {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName} />}
       </Pane>
     );
@@ -256,7 +284,7 @@ export function PluginsPage() {
             {list.map((a) => {
               const p = forgeKinds.find((k) => k.id === a.kind);
               return <Item key={`${a.id}|${a.kind}`} icon={p?.icon ?? "plugin"} name={p?.name ?? a.kind} sub={`${a.id}${hostOf(a) ? " · " + hostOf(a) : ""}`}
-                state={<On on={a.enabled} />} selected={isSel(`forge:${a.id}`)} onClick={() => pick(`forge:${a.id}`)} />;
+                state={a.enabled ? flag(`forge:${a.id}`, <On on />) : <On on={false} />} selected={isSel(`forge:${a.id}`)} onClick={() => pick(`forge:${a.id}`)} />;
             })}
             {adding && <div class="pl-item selected"><span class="tile-icon small"><Icon name="plus" size={14} /></span><span class="pl-name">{t("pl.add_account")}</span></div>}
           </Group>
@@ -265,8 +293,8 @@ export function PluginsPage() {
               key: p.id, selected: isSel(`engine:${p.id}`),
               inUse: draft.review.engine === p.id || draft.review.fallback === p.id || rules.some((r) => r.engine === p.id),
               node: <Item key={p.id} icon={p.icon} name={p.name}
-                state={draft.review.engine === p.id ? <span class="onoff on">{t("pl.default")}</span>
-                  : draft.review.fallback === p.id ? <span class="onoff">{t("pl.fallback")}</span> : undefined}
+                state={flag(`engine:${p.id}`, draft.review.engine === p.id ? <span class="onoff on">{t("pl.default")}</span>
+                  : draft.review.fallback === p.id ? <span class="onoff">{t("pl.fallback")}</span> : undefined)}
                 selected={isSel(`engine:${p.id}`)} onClick={() => pick(`engine:${p.id}`)} />,
             }))} />
             <Item icon="rules" name={t("pl.per_repo")}

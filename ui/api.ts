@@ -56,7 +56,7 @@ export const api = {
   save: (cfg: Config, clear: string[] = []) => invoke<string[]>("save_config", { cfg, clear }),
   catalog: (lang?: string) => invoke<Plugin[]>("catalog", { lang }),
   checkAll: (cfg: Config, live: boolean, clear: string[] = []) => invoke<Check[]>("check_tools", { cfg, live, clear }),
-  checkPlugin: (cfg: Config, kind: string, id: string, clear: string[] = []) => invoke<Check[]>("check_plugin", { cfg, kind, id, clear }),
+  checkPlugin: (cfg: Config, kind: string, id: string, clear: string[] = [], live = true) => invoke<Check[]>("check_plugin", { cfg, kind, id, clear, live }),
   testChannel: (cfg: Config, channel: string, clear: string[] = []) => invoke<string>("test_notification", { cfg, channel, clear }),
   fix: (action: string) => invoke<void>("fix", { action }),
   pause: (paused: boolean) => invoke<void>("set_paused", { paused }),

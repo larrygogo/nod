@@ -482,8 +482,12 @@ async fn check_plugin(
     kind: String,
     id: String,
     clear: Option<Vec<String>>,
+    // false: only what the machine can answer by itself (installed, signed in), no model call. The Plugins page checks
+    // everything in use this way each time it opens; the Self-test button asks for the full check.
+    live: Option<bool>,
 ) -> Result<Vec<doctor::Check>, String> {
     let c = from_window(cfg, &clear.unwrap_or_default())?;
+    let live = live.unwrap_or(true);
     tauri::async_runtime::spawn_blocking(move || {
         let mut ctx = doctor::Ctx::new(&c.language);
         match kind.as_str() {
@@ -495,7 +499,7 @@ async fn check_plugin(
                     .ok_or_else(|| format!("no account {id}"))?;
                 doctor::forge_check(&mut ctx, &acc, &c);
             }
-            "engine" => doctor::engine_check(&mut ctx, &c, &id, true),
+            "engine" => doctor::engine_check(&mut ctx, &c, &id, live),
             _ => return Err(format!("cannot check {kind}")),
         }
         Ok(ctx.done())
