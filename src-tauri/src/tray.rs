@@ -124,9 +124,9 @@ pub fn text(lang: &str, key: &str) -> &'static str {
         }
         "idle" => {
             if en {
-                "Watching for review requests"
+                "Waiting for review requests"
             } else {
-                "正在等待审查请求"
+                "等待审查请求"
             }
         }
         "reviewing" => {
@@ -160,7 +160,7 @@ pub fn status_line(lang: &str, s: &Status) -> String {
 }
 
 pub fn build(app: &AppHandle, lang: &str) -> tauri::Result<Tray> {
-    let status = MenuItem::with_id(app, "status", "nod", false, None::<&str>)?;
+    let status = MenuItem::with_id(app, "status", "Nod", false, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", text(lang, "open"), true, None::<&str>)?;
     let pause = MenuItem::with_id(app, "pause", text(lang, "pause"), true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", text(lang, "quit"), true, None::<&str>)?;
@@ -173,7 +173,7 @@ pub fn build(app: &AppHandle, lang: &str) -> tauri::Result<Tray> {
     let (px, w, h) = icon_rgba("starting");
     let icon = TrayIconBuilder::with_id("main")
         .icon(Image::new_owned(px, w, h))
-        .tooltip("nod")
+        .tooltip("Nod")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, ev| crate::app::on_menu(app, ev.id().as_ref()))

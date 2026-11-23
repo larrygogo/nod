@@ -87,6 +87,8 @@ First public release: a desktop app.
   "new reviews will fail".
 - A desktop notification for a review that was not approved says "Not approved" (it used to say "Commented", though
   the comments go up either way) and gives the reasons, such as "high-severity issue found", instead of the summary.
+- The tray's latest reviews say how each one ended in words ("Not approved · Fix login", "Waiting for CI · …")
+  instead of ✓ / • / ✕ marks, and its idle line reads the same as the window's.
 - *Review again* on a failed or waiting review, and pasting the link of a failed PR into **Review**, starts it over;
   before, the same commit was never reviewed again.
 - Webhook recognises chat and push apps and sends in their format: Feishu / Lark, DingTalk, WeCom, Slack, Discord,

@@ -916,7 +916,7 @@ fn adopt_login_shell_path() {
     }
 }
 
-/// The five latest reviews for the tray menu: a mark and the title, with the review's (or PR's) link.
+/// The five latest reviews for the tray menu: the outcome in words and the title, with the review's (or PR's) link.
 fn recent_items(lang: &str) -> Vec<(String, String)> {
     let mut rows: Vec<Row> = supervisor::load_all()
         .iter()
@@ -927,19 +927,54 @@ fn recent_items(lang: &str) -> Vec<(String, String)> {
     rows.into_iter()
         .take(5)
         .map(|r| {
-            let mark = match (r.status.as_str(), r.event.as_deref()) {
-                ("direct_approved", _) | (_, Some("APPROVE")) => "✓",
-                ("failed", _) => "✕",
-                (_, Some(_)) => "•",
-                _ => "…",
-            };
             (
-                format!("{mark}  {}", r.title),
+                format!(
+                    "{} · {}",
+                    tray_word(lang, &r.status, r.event.as_deref(), &r.pr_state),
+                    r.title
+                ),
                 r.review_url.unwrap_or(r.url),
             )
         })
         .filter(|(_, url)| url.starts_with("https://") || url.starts_with("http://"))
         .collect()
+}
+
+/// A review's outcome as the window says it: words, not a ✓ / • / ✕ the reader has to decode. "Not approved" rather
+/// than "commented": the comments go up either way.
+fn tray_word(lang: &str, status: &str, event: Option<&str>, pr_state: &str) -> String {
+    let k = match (status, event) {
+        ("direct_approved", _) | (_, Some("APPROVE")) => "status.approved",
+        ("failed", _) => "sys.failed",
+        (_, Some(_)) => "sys.commented",
+        ("withdrawn", _) => "status.withdrawn",
+        ("out_of_scope", _) => "status.out_of_scope",
+        // gone before Nod said anything
+        ("closed", None) if pr_state == "merged" => "status.merged",
+        ("closed", None) => "status.closed",
+        ("awaiting_ci", _) => "status.awaiting_ci",
+        _ => "status.reviewing",
+    };
+    crate::i18n::t(lang, k)
+}
+
+#[cfg(test)]
+#[test]
+fn tray_items_say_the_outcome_in_words() {
+    assert_eq!(
+        tray_word("zh-CN", "posted", Some("APPROVE"), "open"),
+        "已 approve"
+    );
+    assert_eq!(
+        tray_word("zh-CN", "posted", Some("COMMENT"), "open"),
+        "未 approve"
+    );
+    assert_eq!(tray_word("en", "failed", None, "open"), "Review failed");
+    assert_eq!(
+        tray_word("en", "awaiting_ci", None, "open"),
+        "Waiting for CI"
+    );
+    assert_eq!(tray_word("en", "closed", None, "merged"), "Merged");
 }
 
 fn status_loop(app: AppHandle, t: tray::Tray) {
