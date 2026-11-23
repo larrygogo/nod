@@ -440,6 +440,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 
 .detail > header { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
 .detail > header h2 { font-size: 17px; }
+.detail-links { display: inline-flex; gap: 12px; white-space: nowrap; }
 .detail-meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--text-2); font-size: 12px; }
 .detail-meta span { display: inline-flex; align-items: center; gap: 6px; }
 .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

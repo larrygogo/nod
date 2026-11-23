@@ -315,13 +315,16 @@ export function Detail({ r }: { r: Row }) {
         <h2>{r.title || r.key}</h2>
         <div class="muted small detail-sub">
           <span><span class="nowrap">{r.key}</span> · <span class="nowrap">{r.author}</span> · <span class="nowrap">{ago(r.at)}</span></span>
-          {r.url && <button class="link small" onClick={() => api.url(r.url)}>{t("btn.open_pr")} <Icon name="external" size={12} /></button>}
-          {r.review_url && <button class="link small" onClick={() => api.url(r.review_url!)}>
-            {t(r.status === "closed" && !r.event ? "btn.open_last_review" : "btn.open_review")} <Icon name="external" size={12} /></button>}
+          {/* the two links wrap together: one left alone on the next line reads like a stray */}
+          <span class="detail-links">
+            {r.url && <button class="link small" onClick={() => api.url(r.url)}>{t("btn.open_pr")} <Icon name="external" size={12} /></button>}
+            {r.review_url && <button class="link small" onClick={() => api.url(r.review_url!)}>
+              {t(r.status === "closed" && !r.event ? "btn.open_last_review" : "btn.open_review")} <Icon name="external" size={12} /></button>}
+          </span>
         </div>
         <div class="detail-bar">
           <div class="detail-meta">
-            <span><Tile icon={catalog.find((p) => p.id === r.platform)?.icon ?? "plugin"} size={18} /> {pname(r.platform)} · {r.account}</span>
+            <span><Tile icon={catalog.find((p) => p.id === r.platform)?.icon ?? "plugin"} size={18} /> {pname(r.platform)}{r.account.toLowerCase() !== r.platform.toLowerCase() && pname(r.platform).toLowerCase() !== r.account.toLowerCase() ? ` · ${r.account}` : ""}</span>
             {r.engine && <span><Tile icon={engineIcon} size={18} /> {pname(r.engine)}</span>}
           </div>
           <div class="detail-actions">
