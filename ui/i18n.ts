@@ -505,7 +505,7 @@ const en: typeof zh = {
   "rv.all": "All",
   "rv.f.approved": "Approved",
   "rv.f.commented": "Not approved",
-  "rv.f.active": "In progress",
+  "rv.f.active": "Active",
   "rv.f.needs_n": "Only the {n} PR(s) waiting on you",
   "rv.f.clear": "Clear filter",
   "rv.f.failed": "Failed",

@@ -395,6 +395,11 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .review-row.selected:focus-visible { outline: none; }
 .row-title { font-weight: var(--w-medium); }
 .row-sub { display: block; color: var(--text-2); font-size: 12px; margin-top: 1px; }
+.find-short { display: none; }
+.split-list .find-full { display: none; }
+.split-list .find-short { display: inline; }
+.split-list .segmented { gap: 1px; }
+.split-list .segmented button { padding: 4px 7px; } /* five filters on one line in the narrow list */
 .split-list .key-owner { display: none; } /* the narrow list keeps the repo and PR number, drops the owner */
 .nowrap { white-space: nowrap; }
 .row-right { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
@@ -407,14 +412,16 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .state-dot.good { background: var(--good); } .state-dot.warn { background: var(--warn); } .state-dot.bad { background: var(--bad); }
 .state-dot.busy { background: var(--busy); animation: pulse 1.4s infinite; }
 
-.split { display: grid; grid-template-columns: minmax(360px, 1.15fr) minmax(320px, 1fr); height: 100%; min-height: 0; }
+/* the list is scanned, the detail is read: the reading side gets the room, as in a mail client */
+.split { display: grid; grid-template-columns: minmax(344px, 0.9fr) minmax(360px, 1.15fr); height: 100%; min-height: 0; }
 /* the list's scrollbar sits against the divider; its content keeps a 28px inset (6 + 12 bar + 10) */
 .split-list { display: flex; flex-direction: column; gap: 12px; padding: 24px 6px 16px 24px; min-height: 0; border-right: 1px solid var(--border); }
 .split-list .page-head { padding-right: 22px; }
 .split-detail { overflow-y: auto; overflow-x: hidden; padding: 24px 28px 96px; min-width: 0; }
 .split-detail h2, .split-detail .summary, .split-detail .note { overflow-wrap: anywhere; }
 .toolbar { display: flex; flex-direction: column; gap: 8px; padding-right: 8px; }
-.toolbar .segmented { flex-wrap: nowrap; overflow-x: auto; align-self: flex-start; max-width: 100%; }
+.toolbar .segmented { flex-wrap: nowrap; overflow-x: auto; align-self: flex-start; max-width: 100%; scrollbar-width: none; }
+.toolbar .segmented::-webkit-scrollbar { display: none; } /* a bar would make the control taller; it still scrolls */
 .toolbar .segmented button { white-space: nowrap; }
 .filter-bar { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 10px; border-radius: var(--r-sm); background: var(--warn-bg); font-size: 12.5px; }
 .filter-bar > .icon { color: var(--warn); }

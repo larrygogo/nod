@@ -40,13 +40,16 @@ export function tone(r: Row): string {
 }
 
 /** "4 findings · 1 high": the count, and the worst severity when it matters. */
-export function findingsText(r: Row): { text: string; tone: string } | null {
+/** "3 issues · 1 high" for a row, and `short` ("1 high", or "3 issues" when none is high or medium) for the narrow
+ *  review list, where the long form leaves the title a few characters. */
+export function findingsText(r: Row): { text: string; short: string; tone: string } | null {
   const n = r.findings.length;
   if (!n) return null;
   const high = r.findings.filter((f) => f.severity === "high").length;
   const medium = r.findings.filter((f) => f.severity === "medium").length;
   const worst = high ? t("rv.n_high", { n: high }) : medium ? t("rv.n_medium", { n: medium }) : "";
-  return { text: (n === 1 ? t("rv.one_finding") : t("rv.n_findings", { n })) + (worst ? " · " + worst : ""), tone: high ? "bad" : medium ? "warn" : "" };
+  const count = n === 1 ? t("rv.one_finding") : t("rv.n_findings", { n });
+  return { text: count + (worst ? " · " + worst : ""), short: worst || count, tone: high ? "bad" : medium ? "warn" : "" };
 }
 
 export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () => void; selected?: boolean; flag?: { text: string; hint: string } }) {
@@ -62,7 +65,7 @@ export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () 
       </span>
       <span class="row-right">
         <span class={`state-label ${tone(r)}`}>{statusLabel(r)}</span>
-        {f && <span class={`find ${f.tone}`}>{f.text}</span>}
+        {f && <span class={`find ${f.tone}`} title={f.text}><span class="find-full">{f.text}</span><span class="find-short">{f.short}</span></span>}
       </span>
     </button>
   );
