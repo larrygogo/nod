@@ -91,6 +91,7 @@ const TABLE: &[(&str, &str, &str)] = &[
         "The review text looked like it contained credentials ({kinds}); it was not posted and the PR was not approved.",
     ),
     ("note.quota_wait", "{engine} 额度用完或被限流，{at} 左右自动重试；恢复前不会 approve。", "{engine} is out of quota or rate limited; Nod tries again around {at} and does not approve until then."),
+    ("note.offline", "已经 {min} 分钟连不上代码平台，这段时间没有审查新的 PR。通常是网络或代理的问题，恢复后会自动继续。最后一次的错误：{err}", "The code host has been unreachable for {min} minutes, so no new PR was reviewed. This is usually the network or a proxy; reviewing resumes by itself. Last error: {err}"),
     ("note.system_failed", "自动审查整轮失败，没有审查任何 PR。原因：{err}", "A whole polling round failed; no PR was reviewed. Error: {err}"),
     // direct approve feedback
     ("direct.working", "⏳ 正在直接通过…", "⏳ Approving…"),

@@ -437,6 +437,24 @@ impl Engine {
 
     /// A whole round failed (signed out of GitHub, network…). At most once every 6 hours.
     pub fn alert(&self, text: &str) {
+        self.send_alert(&tf(
+            self.lang(),
+            "note.system_failed",
+            &[("err", &truncate(text, 400))],
+        ));
+    }
+
+    /// The code host has been unreachable for `min` minutes in a row: say so in words, with the last error.
+    pub fn alert_offline(&self, min: u64, last: &str) {
+        self.send_alert(&tf(
+            self.lang(),
+            "note.offline",
+            &[("min", &min.to_string()), ("err", &truncate(last, 300))],
+        ));
+    }
+
+    /// At most one alert every six hours, whatever it says.
+    fn send_alert(&self, text: &str) {
         let p = paths::data_dir().join("alert.json");
         let last = fs::read_to_string(&p)
             .ok()
@@ -451,11 +469,7 @@ impl Engine {
             return;
         }
         let _ = fs::write(&p, serde_json::json!({"at": now()}).to_string());
-        if let Err(e) = self.notifier.alert(&tf(
-            self.lang(),
-            "note.system_failed",
-            &[("err", &truncate(text, 400))],
-        )) {
+        if let Err(e) = self.notifier.alert(text) {
             warn!("alert failed: {e}");
         }
     }

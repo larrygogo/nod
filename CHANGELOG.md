@@ -92,6 +92,9 @@ First public release: a desktop app.
   up while CI runs: the list comes once, with the approval.
 - "Approved by an earlier approval" now means your own approval still stands on GitHub. When a new commit dismissed
   it, someone else's approval no longer makes the window, tray or notification say the PR is approved by you.
+- A dropped connection to the code host (such as "tls connection init failed: unexpected end of file") no longer
+  sends a "whole round failed" notification: only one that lasts ten minutes does, saying in words that the code host
+  has been unreachable and reviewing resumes by itself. Other failures (signed out, no access) are still told at once.
 - A desktop notification for a review that was not approved says "Not approved" (it used to say "Commented", though
   the comments go up either way) and gives the reasons, such as "high-severity issue found", instead of the summary.
 - The tray's latest reviews say how each one ended in words ("Not approved · Fix login", "Waiting for CI · …")

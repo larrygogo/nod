@@ -441,18 +441,50 @@ impl Daemon {
         self.start_refresher();
         self.requeue_unfinished();
         let every = Duration::from_secs_f64(self.engine.cfg.daemon.poll_seconds);
+        // when the current run of network failures began: one dropped connection is not worth a notification
+        let mut offline_since: Option<f64> = None;
         loop {
             match self.poll_once() {
-                Ok(()) => write_health(&self.account, None),
+                Ok(()) => {
+                    offline_since = None;
+                    write_health(&self.account, None);
+                }
                 Err(e) => {
-                    error!("{}: poll failed: {e:#}", self.account);
-                    write_health(&self.account, Some(&format!("{e:#}")));
-                    self.engine.alert(&format!("{e:#}"));
+                    let raw = format!("{e:#}");
+                    error!("{}: poll failed: {raw}", self.account);
+                    write_health(&self.account, Some(&raw));
+                    match alert_for(&raw, &mut offline_since, now()) {
+                        Some(Outage::Other) => self.engine.alert(&raw),
+                        Some(Outage::Offline(min)) => self.engine.alert_offline(min, &raw),
+                        None => {}
+                    }
                 }
             }
             wait_for_work(&self.track, every);
         }
     }
+}
+
+/// Network failures in a row this long before anyone is told: a dropped TLS handshake usually heals by the next poll.
+const OFFLINE_ALERT_MIN: f64 = 10.0;
+
+#[derive(Debug, PartialEq)]
+enum Outage {
+    /// Not a network hiccup (signed out, no access, …): tell at once.
+    Other,
+    /// The code host has been unreachable for this many minutes.
+    Offline(u64),
+}
+
+/// Whether a failed poll is worth a notification now, keeping track of how long the network has been failing.
+fn alert_for(raw: &str, offline_since: &mut Option<f64>, at: f64) -> Option<Outage> {
+    if !crate::supervisor::is_network(raw) {
+        *offline_since = None;
+        return Some(Outage::Other);
+    }
+    let since = *offline_since.get_or_insert(at);
+    let min = (at - since) / 60.0;
+    (min >= OFFLINE_ALERT_MIN).then_some(Outage::Offline(min as u64))
 }
 
 /// The flag the window drops next to the track file when it hands over a PR. The track file itself keeps every
@@ -705,5 +737,30 @@ mod tests {
         wait_for_work(&track, Duration::from_secs(30));
         assert!(t.elapsed() < Duration::from_secs(2));
         assert!(!wake_file(&track).exists());
+    }
+}
+
+#[cfg(test)]
+mod alert_tests {
+    use super::*;
+
+    const TLS: &str =
+        "GET /search/issues: Connection Failed: tls connection init failed: unexpected end of file";
+
+    #[test]
+    fn a_dropped_connection_is_told_only_when_it_lasts() {
+        let mut since = None;
+        assert_eq!(alert_for(TLS, &mut since, 1000.0), None);
+        assert_eq!(alert_for(TLS, &mut since, 1000.0 + 9.0 * 60.0), None);
+        assert_eq!(
+            alert_for(TLS, &mut since, 1000.0 + 12.0 * 60.0),
+            Some(Outage::Offline(12))
+        );
+        // anything else is told at once, and ends the outage
+        assert_eq!(
+            alert_for("401 Bad credentials", &mut since, 2000.0),
+            Some(Outage::Other)
+        );
+        assert_eq!(since, None);
     }
 }
