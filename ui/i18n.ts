@@ -368,6 +368,7 @@ const zh = {
   "ck.running": "检查中…（会真实调用一次审查引擎）",
   "ck.running_quick": "检查中…",
   "ck.installed": "已安装。要确认能登录、能用，点「检查」（会真实调用一次）",
+  "ck.installed_only": "已安装。能不能用要等第一次审查才知道",
   "ck.gemini_unchecked": "已安装。Nod 查不了 Gemini 是否已登录，请在终端运行一次 gemini 确认",
 
   "ob.welcome": "欢迎使用 Nod",
@@ -760,6 +761,7 @@ const en: typeof zh = {
   "ck.running": "Checking… (runs the review engine once)",
   "ck.running_quick": "Checking…",
   "ck.installed": "Installed. To make sure it is signed in and works, press Check (runs it once)",
+  "ck.installed_only": "Installed. Whether it works shows with the first review",
   "ck.gemini_unchecked": "Installed. Nod cannot see whether Gemini is signed in: run gemini once in a terminal to make sure",
 
   "ob.welcome": "Welcome to Nod",

@@ -321,22 +321,32 @@ pub fn keep_last(s: &str, n: usize) -> String {
     chars[chars.len().saturating_sub(n)..].iter().collect()
 }
 
-/// What a CLI said went wrong, short enough for a log line and a notification. Engines print a banner and echo the
-/// prompt before the error (Codex: version, workdir, session id, then the whole prompt, then "ERROR: … 401
-/// Unauthorized"), so the start of the output is the wrong end: take its ERROR lines, else its last `n` characters.
-/// reviewer::classify reads this text to decide on the backup engine and on waiting out a quota.
+/// What a CLI said went wrong, short enough for a log line and a notification. reviewer::classify reads it to decide
+/// on the backup engine and on waiting out a quota, so it must be the engine's own last word:
+/// - Codex prints a banner, echoes the whole prompt (the PR text and discussion, which may hold "error:" lines of
+///   their own), retries ("ERROR: Reconnecting... 1/5"), and only then says what failed ("ERROR: unexpected status
+///   401 Unauthorized …"): the last ERROR line that is not a retry;
+/// - Gemini prints a JSON object `{"error": {"message": …}}`: its message;
+/// - and always the end of the output, where an error is: if the engine's last word has no ERROR prefix, the last
+///   ERROR line may be one echoed from the PR text, and the end still carries the real one.
 pub fn cli_error(out: &str, n: usize) -> String {
-    let errors: Vec<&str> = out
+    let t = out.trim();
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(t) {
+        if let Some(m) = v["error"]["message"].as_str().or(v["error"].as_str()) {
+            return truncate(m.trim(), n);
+        }
+    }
+    let end = keep_last(t, n / 2);
+    let last = t
         .lines()
         .map(str::trim)
-        .filter(|l| l.starts_with("ERROR") || l.starts_with("Error:") || l.starts_with("error:"))
-        .collect();
-    let text = if errors.is_empty() {
-        keep_last(out.trim(), n)
-    } else {
-        errors.join(" ")
-    };
-    truncate(text.trim(), n)
+        .rfind(|l| l.starts_with("ERROR") && !l.contains("Reconnecting"));
+    match last {
+        // already at the end of the output: that line is the whole story
+        Some(l) if t.ends_with(l) => truncate(l, n),
+        Some(l) => format!("{} … {}", truncate(l, n / 2), end.trim()),
+        None => truncate(keep_last(t, n).trim(), n),
+    }
 }
 
 pub fn now() -> f64 {
