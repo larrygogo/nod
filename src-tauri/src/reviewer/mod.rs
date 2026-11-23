@@ -708,4 +708,30 @@ mod tests {
         assert!(with_fallback(&cfg, "k", "claude", run("usage limit reached")).is_err());
         assert_eq!(*ran.borrow(), ["claude"]);
     }
+
+    /// Codex prints a banner and echoes the whole prompt before the error. The review error keeps the error lines,
+    /// so a signed-out Codex is seen as such and the backup engine takes over (it was cut to the first 300
+    /// characters before, which held only the banner).
+    #[test]
+    fn a_signed_out_codex_is_recognised_behind_its_banner() {
+        let banner = "OpenAI Codex v0.169.0 (research preview)\n--------\nworkdir: C:\\tmp\\wt\nmodel: gpt-5\n\
+                      provider: openai\napproval: never\nsandbox: read-only\n\
+                      session id: 01a20698-0000-0000-0000-000000000000\n--------\nuser\n";
+        let prompt = "You are reviewing a pull request. ".repeat(200);
+        let tail = "\nERROR: unexpected status 401 Unauthorized: Missing bearer or basic authentication in header\n";
+        let msg = format!(
+            "Codex exited Some(1) without a verdict: {}",
+            crate::util::cli_error(&format!("{banner}{prompt}{tail}"), 300)
+        );
+        assert_eq!(classify(&msg, 0.0), Trouble::Unavailable, "{msg}");
+        // no ERROR line: the end of the output, where the error is, not the banner
+        let msg = crate::util::cli_error(
+            &format!("{banner}{prompt}you have hit your usage limit"),
+            300,
+        );
+        assert!(
+            matches!(classify(&msg, 0.0), Trouble::Quota { .. }),
+            "{msg}"
+        );
+    }
 }

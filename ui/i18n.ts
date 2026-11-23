@@ -368,6 +368,7 @@ const zh = {
   "ck.running": "检查中…（会真实调用一次审查引擎）",
   "ck.running_quick": "检查中…",
   "ck.installed": "已安装。要确认能登录、能用，点「检查」（会真实调用一次）",
+  "ck.gemini_unchecked": "已安装。Nod 查不了 Gemini 是否已登录，请在终端运行一次 gemini 确认",
 
   "ob.welcome": "欢迎使用 Nod",
   "ob.intro": "有人请你审查 PR 时，Nod 在本机用 AI 审查，按你的规则决定是否 approve，并通知你。",
@@ -759,6 +760,7 @@ const en: typeof zh = {
   "ck.running": "Checking… (runs the review engine once)",
   "ck.running_quick": "Checking…",
   "ck.installed": "Installed. To make sure it is signed in and works, press Check (runs it once)",
+  "ck.gemini_unchecked": "Installed. Nod cannot see whether Gemini is signed in: run gemini once in a terminal to make sure",
 
   "ob.welcome": "Welcome to Nod",
   "ob.intro": "When someone asks you to review a PR, Nod reviews it on your own computer with the AI you choose, approves only when your rules allow it, and lets you know.",

@@ -447,7 +447,10 @@ pub fn engine_check(c: &mut Ctx, cfg: &Config, engine: &str, live: bool) {
             }
             // `codex login status` reads the local sign-in, no model call: checked even without `live`, so a backup
             // engine that is signed out is not promised to take over
-            if engine == "codex" {
+            // CODEX_API_KEY in the environment signs `codex exec` in (reviewer::codex keeps it) while `login status` still
+            // says "Not logged in": with the key set there is nothing to check here
+            let env_key = std::env::var("CODEX_API_KEY").is_ok_and(|k| !k.trim().is_empty());
+            if engine == "codex" && !env_key {
                 let (signed, text) = out(&[&p, "login", "status"], 30);
                 c.push(
                     "engine_login",

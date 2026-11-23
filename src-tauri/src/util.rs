@@ -321,6 +321,24 @@ pub fn keep_last(s: &str, n: usize) -> String {
     chars[chars.len().saturating_sub(n)..].iter().collect()
 }
 
+/// What a CLI said went wrong, short enough for a log line and a notification. Engines print a banner and echo the
+/// prompt before the error (Codex: version, workdir, session id, then the whole prompt, then "ERROR: … 401
+/// Unauthorized"), so the start of the output is the wrong end: take its ERROR lines, else its last `n` characters.
+/// reviewer::classify reads this text to decide on the backup engine and on waiting out a quota.
+pub fn cli_error(out: &str, n: usize) -> String {
+    let errors: Vec<&str> = out
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("ERROR") || l.starts_with("Error:") || l.starts_with("error:"))
+        .collect();
+    let text = if errors.is_empty() {
+        keep_last(out.trim(), n)
+    } else {
+        errors.join(" ")
+    };
+    truncate(text.trim(), n)
+}
+
 pub fn now() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -130,6 +130,10 @@ export function Setup() {
     if (step === 1 && engine && engineReady) runCheck(() => api.checkPlugin(draft, "engine", engine.id, [], false), true);
   }, [step, engine?.id]);
   const allOk = checks?.every((c) => c.ok);
+  // Only Claude's full check calls the model to see the sign-in; the quick one stops at "installed". Codex and the API
+  // check their sign-in either way; Gemini's sign-in is not checked at all.
+  const quickNote = step === 1 && engine?.id === "gemini" ? "ck.gemini_unchecked"
+    : quick && engine?.id === "claude" ? "ck.installed" : "ck.all_ok";
 
   const steps = [t("ob.s1"), t("ob.s2"), t("ob.s3")];
   return (
@@ -180,7 +184,7 @@ export function Setup() {
           </div>
           <div class="setup-check">
             <Button icon="check" busy={checking} onClick={() => runCheck(() => api.checkPlugin(draft, "engine", engine.id))}>{t("btn.check")}</Button>
-            {checking ? <span class="muted small">{t(quick ? "ck.running_quick" : "ck.running")}</span> : !checks && <span class="muted small">{t("ob.check_first")}</span>}
+            {checking ? <span class="muted small">{t(!quick && engine?.id === "claude" ? "ck.running" : "ck.running_quick")}</span> : !checks && <span class="muted small">{t("ob.check_first")}</span>}
           </div>
         </>}
 
@@ -206,7 +210,7 @@ export function Setup() {
           <label class="field inline autostart"><Switch on={autostart} onChange={setAutostart} /><span>{t("ob.autostart")}</span></label>
         </>}
 
-        {checks && <div class={`setup-result ${allOk ? "good" : "bad"}`}>{allOk && <Note tone="good">{t(quick ? "ck.installed" : "ck.all_ok")}</Note>}<Checks checks={checks} /></div>}
+        {checks && <div class={`setup-result ${allOk ? "good" : "bad"}`}>{allOk && <Note tone="good">{t(quickNote)}</Note>}<Checks checks={checks} /></div>}
         {msg && msg.tone !== "bad" && <Note tone={msg.tone}>{msg.text}</Note>}
         </div>
 
