@@ -88,6 +88,15 @@ const match: Record<Filter, (r: Row) => boolean> = {
   needs: needsYou,
 };
 
+/** An empty list says why: a search that found nothing names what was searched and offers to clear it; an empty
+ *  filter says what it means ("no failed reviews" is good news, not "no matching reviews"). */
+function NoRows({ q, filter, anything, onClear }: { q: string; filter: Filter; anything: boolean; onClear: () => void }) {
+  if (!anything) return <Empty icon="list">{t("ov.empty")}</Empty>;
+  if (q) return <Empty icon="search" action={<Button kind="quiet" small onClick={onClear}>{t("rv.clear_search")}</Button>}>{t("rv.none_q", { q })}</Empty>;
+  const icon = filter === "failed" || filter === "needs" ? "check" : "info";
+  return <Empty icon={icon}>{t(`rv.none_${filter}` as "rv.none")}</Empty>;
+}
+
 export function ReviewsPage() {
   const { ov, review, go } = useStore();
   const [q, setQ] = useState("");
@@ -116,7 +125,11 @@ export function ReviewsPage() {
         <header class="page-head"><h1>{t("rv.title")}</h1>
           <Button icon="hand" small onClick={() => setHand(true)}>{t("btn.by_hand")}</Button></header>
         <div class="toolbar">
-          <div class="search"><Icon name="search" /><TextInput value={q} onInput={setQ} placeholder={t("rv.search")} /></div>
+          {/* Esc or the × clears it, like a system search field */}
+          <div class="search" onKeyDown={(e) => { if (e.key === "Escape" && q) { e.stopPropagation(); setQ(""); } }}>
+            <Icon name="search" /><TextInput value={q} onInput={setQ} placeholder={t("rv.search")} />
+            {q && <button class="search-clear" aria-label={t("rv.clear_search")} title={t("rv.clear_search")} onClick={() => setQ("")}><Icon name="x" size={12} /></button>}
+          </div>
           <Segmented value={filter} onChange={(v) => setFilter(v as Filter)} options={[
             ["all", t("rv.all")], ["approved", t("rv.f.approved")], ["commented", t("rv.f.commented")],
             ["active", t("rv.f.active")], ["failed", t("rv.f.failed")],
@@ -127,12 +140,12 @@ export function ReviewsPage() {
           )}
         </div>
         <div class="list scroll">
-          {rows.length === 0 ? <Empty icon="search">{ov.rows.length ? t("rv.none") : t("ov.empty")}</Empty>
+          {rows.length === 0 ? <NoRows q={q.trim()} filter={filter} anything={ov.rows.length > 0} onClear={() => setQ("")} />
             : rows.map((r) => <ReviewRow key={id(r)} r={r} selected={!!selected && id(r) === id(selected)} onClick={() => go("reviews", id(r))} />)}
         </div>
       </div>
       <div class="split-detail">
-        {selected ? <><button class="link back" onClick={() => go("reviews", null as unknown as string)}><Icon name="chevron" size={14} /> {t("rv.title")}</button><Detail r={selected} /></> : <Empty icon="file">{t("rv.pick")}</Empty>}
+        {selected ? <><button class="link back" onClick={() => go("reviews", null as unknown as string)}><Icon name="chevron" size={14} /> {t("rv.title")}</button><Detail r={selected} /></> : (wide && rows.length === 0) ? null : <Empty icon="file">{t("rv.pick")}</Empty>}
       </div>
       {hand && <HandDialog onClose={() => setHand(false)} />}
     </div>
