@@ -14,7 +14,9 @@ with a detail pane). What we took and why:
 
 ## Information architecture
 
-- **Overview** — one status line under the title (and a banner with the fix only when something is wrong), then the
+- **Overview** — one status line under the title (and a banner with the fix only when something is wrong — including
+  a code host or engine in use that fails its local check, said with its consequence: no requests from that account,
+  reviews failing, or "using the backup engine for now" when the backup works), then the
   digest: one sentence that answers "does anything wait on me?" (open PRs Nod did not approve, or whose review failed,
   with up to three of them as shortcuts and what is reviewing or waiting for CI right now), one sentence on the last
   seven days — rolling, not the calendar week, so a Monday is not empty — ("reviewed 8 PRs in 39 rounds, approved 6,

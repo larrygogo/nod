@@ -3,6 +3,7 @@
 // (catalog), so a third-party plugin gets the same settings UI as a built-in one.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { accounts, activeChannels, api, getPath, setPath, type Account, type Check, type Config, type DeviceCode, type Field, type GithubSession, type Plugin } from "../api";
+import { usePluginHealth, healthOf } from "../health";
 import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
 import { t } from "../i18n";
@@ -197,24 +198,16 @@ export function PluginsPage() {
 
   // Everything in use is checked when the page opens, with the saved settings and without calling a model: the list
   // then says which one is broken, instead of every line reading "On" until you think of pressing Self-test.
-  const [health, setHealth] = useState<Record<string, Check[]>>({});
-  const saved = loaded.config;
+  const health = usePluginHealth(loaded.config);
+  // the overview's "Claude Code is not working" opens this page on that plugin
+  const { review, go } = useStore();
   useEffect(() => {
-    let live = true;
-    const jobs: [string, Promise<Check[]>][] = [
-      ...accounts(saved).filter((a) => a.enabled).map((a) => [`forge:${a.id}`, api.checkPlugin(saved, "forge", a.id, [], false)] as [string, Promise<Check[]>]),
-      ...[...new Set([saved.review.engine, saved.review.fallback, ...(saved.review.per_repo ?? []).map((r) => r.engine)].filter(Boolean))]
-        .map((e) => [`engine:${e}`, api.checkPlugin(saved, "engine", e, [], false)] as [string, Promise<Check[]>]),
-    ];
-    for (const [k, job] of jobs) job.then((r) => { if (live) setHealth((h) => ({ ...h, [k]: r })); }).catch(() => {});
-    return () => { live = false; };
-  }, [saved]);
+    if (review?.startsWith("__plugin:")) { pick(review.slice(9)); go("plugins", null as unknown as string); }
+  }, [review]);
   // a problem replaces the line's usual state word; a working one keeps it
   const flag = (k: string, normal?: preact.ComponentChildren) => {
-    const r = health[k];
-    if (r?.some((c) => !c.ok)) return <span class="onoff bad">{t("pl.broken")}</span>;
-    if (r?.some((c) => c.warn)) return <span class="onoff warn">{t("pl.attention")}</span>;
-    return normal;
+    const h = healthOf(health[k]);
+    return h ? <span class={`onoff ${h}`}>{t(h === "bad" ? "pl.broken" : "pl.attention")}</span> : normal;
   };
 
   // the selection may point at an account that was just removed: fall back to the first one

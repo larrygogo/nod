@@ -8,6 +8,7 @@ import { ago, lang, t, type Key } from "../i18n";
 import { Button, Note } from "../ui";
 import { daily, dayStart, needsYou, week } from "../derive";
 import { ReviewRow } from "./reviews";
+import { healthOf, usePluginHealth } from "../health";
 
 /** Why a review waits on you, in words: Nod could not finish it, or it commented and did not approve (the first
  *  blocking reason says why), or an earlier approval still stands over a commit that did not pass. */
@@ -32,10 +33,27 @@ export function dayLabel(ts: number): string {
 }
 
 export function OverviewPage() {
-  const { ov, draft, catalog, go, refresh } = useStore();
+  const { ov, draft, catalog, go, refresh, loaded } = useStore();
+  const engineKey = (pid: string) => `engine:${pid}`;
   const s = ov.status;
   const plugin = (pid: string) => catalog.find((p) => p.id === pid);
-  const forges = accounts(draft).filter((a) => a.enabled).map((a) => a.kind);
+  // A code host or engine in use that does not work, said with what it means: a broken account brings no requests;
+  // a broken engine fails its reviews, unless the backup engine works (the backend switches to it by itself). A broken
+  // backup alone is not worth the overview; the Plugins list marks it.
+  const health = usePluginHealth(loaded.config);
+  const cfg = loaded.config;
+  const fb = cfg.review.fallback;
+  const fbOk = !!fb && !!health[`engine:${fb}`] && healthOf(health[`engine:${fb}`]) !== "bad";
+  const broken = Object.entries(health).filter(([k, r]) => healthOf(r) === "bad" && k !== `engine:${fb}`).map(([k, r]) => {
+    const bad = r.find((c) => !c.ok)!;
+    const pid = k.slice(k.indexOf(":") + 1);
+    const forge = k.startsWith("forge:") ? accounts(cfg).find((a) => a.id === pid) : undefined;
+    const x = forge ? (plugin(forge.kind)?.name ?? forge.kind) + (accounts(cfg).length > 1 ? ` (${forge.id})` : "") : plugin(pid)?.name ?? pid;
+    const tone: "bad" | "warn" = forge || !fbOk ? "bad" : "warn";
+    const title = forge ? t("ov.broken_forge", { x }) : fbOk ? t("ov.broken_fb", { x, y: plugin(fb)?.name ?? fb }) : t("ov.broken_engine", { x });
+    return { k, tone, title, detail: [bad.detail, bad.fix].filter(Boolean).join(t("ov.broken_sep")) };
+  });
+  const brokenTone = broken.some((b) => b.tone === "bad") ? "bad" : "warn";
   const channels = activeChannels(draft);
   const problem = s.state === "error" || s.state === "paused";
 
@@ -74,14 +92,28 @@ export function OverviewPage() {
         </div>
       )}
 
+      {broken.length > 0 && (
+        <div class={`banner ${brokenTone}`}>
+          <Icon name="alert" />
+          <div class="grow">
+            <div class="banner-title">{broken.map((b) => b.title).join(t("ov.broken_join"))}</div>
+            <div class="small">{broken.map((b) => b.detail).join(t("ov.broken_join"))}</div>
+          </div>
+          <Button kind="primary" small onClick={() => go("plugins", `__plugin:${broken[0].k}`)}>{t("ov.broken_go")}</Button>
+        </div>
+      )}
+
       {ov.legacy.length > 0 && <Note>{t("ov.legacy")} {ov.legacy.join("；")}</Note>}
 
       <Digest />
 
       <div class="chain">
-        {[...forges, draft.review.engine, ...channels].map((pid, i) => {
+        {[...accounts(draft).filter((a) => a.enabled).map((a) => [a.kind, `forge:${a.id}`]), [draft.review.engine, engineKey(draft.review.engine)],
+          ...channels.map((c) => [c, ""])].map(([pid, hk], i) => {
           const p = plugin(pid);
-          return <span class="chain-item" key={`${pid}-${i}`}><Tile icon={p?.icon ?? "plugin"} size={18} />{p?.name ?? pid}</span>;
+          const h = hk ? healthOf(health[hk]) : null;
+          return <span class={`chain-item${h ? " " + h : ""}`} key={`${pid}-${i}`} title={h ? t(h === "bad" ? "pl.broken" : "pl.attention") : undefined}>
+            <Tile icon={p?.icon ?? "plugin"} size={18} />{p?.name ?? pid}{h && <Icon name="alert" size={12} />}</span>;
         })}
         {channels.length === 0 && <span class="chain-item muted">{t("ov.no_channel")}</span>}
         <button class="link small" onClick={() => go("plugins")}>{t("ov.change")}</button>

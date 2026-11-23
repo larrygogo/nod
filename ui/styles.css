@@ -366,6 +366,8 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .chain { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; color: var(--text-2); font-size: 12px; margin-top: -6px; }
 .chain-item { display: inline-flex; align-items: center; gap: 6px; }
 .chain-item .tile { border-radius: 5px; }
+.chain-item.bad { color: var(--bad); }
+.chain-item.warn { color: var(--warn); }
 .block { display: flex; flex-direction: column; gap: 8px; }
 .block-head { display: flex; align-items: baseline; justify-content: space-between; }
 .block-title { font-size: 13px; font-weight: var(--w-semibold); color: var(--text-2); }
