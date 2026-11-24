@@ -259,8 +259,57 @@ fn github_check(c: &mut Ctx, acc: &ForgeAccount) {
     )
     .detail_account(&acc.id);
 }
+/// What is wrong with `review.claude_config_dir`, if anything: Claude would read its sign-in from a folder that
+/// cannot hold one (2026-11-24: the home folder was entered, and every review failed to authenticate).
+fn config_dir_problem(lang: &str, raw: &str, home: &std::path::Path) -> Option<String> {
+    if raw.trim().is_empty() {
+        return None;
+    }
+    let dir = std::path::PathBuf::from(crate::review::expand_path(raw.trim()));
+    let same = |a: &std::path::Path, b: &std::path::Path| {
+        let n = |p: &std::path::Path| {
+            p.to_string_lossy()
+                .trim_end_matches(['/', '\\'])
+                .replace('\\', "/")
+                .to_lowercase()
+        };
+        n(a) == n(b)
+    };
+    if same(&dir, home) {
+        Some(l(
+            lang,
+            "填的是用户目录，不是 Claude 的配置目录，Claude 在这里找不到登录。用终端里的账号就留空；用别的账号就填那个账号的配置目录",
+            "This is your home folder, not a Claude config directory, so Claude finds no sign-in there. Leave it empty for the account you use in a terminal, or enter the other account's config directory",
+        ))
+    } else if !dir.is_dir() {
+        Some(format!(
+            "{} {}",
+            dir.display(),
+            l(
+                lang,
+                "不存在。用终端里的账号就留空",
+                "does not exist. Leave it empty for the account you use in a terminal",
+            )
+        ))
+    } else {
+        None
+    }
+}
+
 fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
     let lang = c.lang;
+    if let Some(why) = config_dir_problem(lang, &cfg.review.claude_config_dir, &crate::paths::home_dir()) {
+        c.push(
+            "claude_config_dir",
+            ("Claude 配置目录", "Claude config directory"),
+            false,
+            why,
+            Some((
+                ("在插件设置里改", "Change it in the plugin settings"),
+                FIX_PLUGINS,
+            )),
+        );
+    }
     match which(claude) {
         None => {
             c.push(
@@ -663,6 +712,22 @@ fn _assert_object_safe(_: &dyn Notifier) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_config_dir_that_cannot_hold_a_sign_in_is_named() {
+        let d = tempfile::tempdir().unwrap();
+        let home = d.path();
+        assert_eq!(config_dir_problem("zh-CN", "", home), None);
+        // the home folder, however it is written
+        let h = home.to_string_lossy().to_string();
+        assert!(config_dir_problem("zh-CN", &h, home).unwrap().contains("用户目录"));
+        assert!(config_dir_problem("en", &format!("{h}/"), home).is_some());
+        // a profile folder that exists is fine; one that does not is named
+        let prof = home.join(".claude");
+        assert!(config_dir_problem("en", &prof.to_string_lossy(), home).unwrap().contains("does not exist"));
+        std::fs::create_dir(&prof).unwrap();
+        assert_eq!(config_dir_problem("en", &prof.to_string_lossy(), home), None);
+    }
 
     #[test]
     fn missing_claude_offers_install() {

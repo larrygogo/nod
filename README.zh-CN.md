@@ -101,7 +101,7 @@ Nod（托盘里常驻） ──► 通知「审查中」（飞书卡片 / Webhoo
 | `approve.repos` / `approve.authors` | 全部 | 只在这些仓库、只对这些作者自动 approve（例如 `dependabot[bot]`） |
 | `approve.exclude_repos` / `exclude_authors` | | 这些仓库或作者永远不自动 approve |
 | `review.model` | Claude Code 默认模型 | 例如小仓库可以换成更快的模型 |
-| `review.claude_config_dir` | | 指定使用哪个 Claude Code 账号配置（`CLAUDE_CONFIG_DIR`） |
+| `review.claude_config_dir` | | 留空即可，用终端里登录的账号；只有让 Nod 用另一个 Claude 账号时才填那个账号的配置目录（`CLAUDE_CONFIG_DIR`，平时是 `~/.claude`），不是用户目录 |
 | `review.engine` | `claude` | 默认审查引擎：`claude`、`codex`、`gemini`、`api` 或 `ext:<插件名>` |
 | `review.per_repo` | | 按仓库改用别的引擎，例如 `[{ repo = "my-org/infra", engine = "codex" }]` |
 | `[[forges]]` | 一个 GitHub 账号 | 代码平台账号：`id`、`kind`（`github`、`gitee`、`gitea`）、`url`、`enabled` |
