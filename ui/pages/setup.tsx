@@ -1,7 +1,8 @@
 // First launch: code host → review engine → notifications → done.
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { activeChannels, api, getPath, setPath, type Check, type Config, type Plugin } from "../api";
 import { useStore } from "../app";
+import { GithubSignIn } from "./plugins";
 import { Icon, Tile } from "../icons";
 import { lang, setLang, t } from "../i18n";
 import { Badge, Button, Note, SecretInput, Select, Switch, TextInput, errText, isAddress } from "../ui";
@@ -40,11 +41,34 @@ function Choice({ p, selected, onPick, multi, children }: {
   );
 }
 
-function FieldList({ p, get, set }: { p: Plugin; get: (k: string) => unknown; set: (k: string, v: unknown) => void }) {
-  if (!p.fields.length) return null;
+type Get = (k: string) => unknown;
+type Set = (k: string, v: unknown) => void;
+
+/** A plugin's settings for first-run: what it needs is shown, what works as it is (a detected program path, the
+ *  default model, GitHub Enterprise) is folded under one line. `openIfSet`: open it when one of those already has a
+ *  value (GitHub Enterprise typed in earlier); not for engines, whose program path is filled in by detection. */
+function PluginFields({ p, get, set, more, openIfSet }: { p: Plugin; get: Get; set: Set; more?: string; openIfSet?: boolean }) {
+  const need = p.fields.filter((f) => !f.optional);
+  const opt = p.fields.filter((f) => f.optional);
+  // decided once: bound to the values, clearing the last character typed there would fold the block under the cursor
+  const [openAtFirst] = useState(() => !!openIfSet && opt.some((f) => { const v = get(f.key); return v !== undefined && v !== "" && v !== false && v !== null; }));
+  return (
+    <>
+      {need.length > 0 && <FieldList fields={need} get={get} set={set} />}
+      {opt.length > 0 && (
+        <details class="more-opts" open={openAtFirst}>
+          <summary><Icon name="chevron" size={12} />{more ?? t("ob.more", { x: opt.map((f) => f.label.replace(/（.*）|\(.*\)/, "").trim()).join(t("set.sum.sep")) })}</summary>
+          <FieldList fields={opt} get={get} set={set} />
+        </details>
+      )}
+    </>
+  );
+}
+
+function FieldList({ fields, get, set }: { fields: Plugin["fields"]; get: Get; set: Set }) {
   return (
     <div class="fields">
-      {p.fields.map((f) => (
+      {fields.map((f) => (
         <label class={`field${f.kind === "bool" ? " inline" : ""}`}>
           <span class="field-label">{f.label}</span>
           {f.kind === "bool" ? <Switch on={!!get(f.key)} onChange={(v) => set(f.key, v)} />
@@ -78,7 +102,7 @@ export function Setup() {
   }, []);
   const accKind = draft.forges?.[0]?.kind;
   // a result belongs to what was checked: clear it when the step or the choice changes
-  useEffect(() => { setChecks(null); setMsg(null); }, [step, accKind, draft.review.engine]);
+  useEffect(() => { checkRun.current++; setChecks(null); setMsg(null); setChecking(false); }, [step, accKind, draft.review.engine]);
 
   const forges = catalog.filter((p) => p.kind === "forge");
   const engines = catalog.filter((p) => p.kind === "engine");
@@ -87,11 +111,31 @@ export function Setup() {
   const forge = forges.find((p) => p.id === acc?.kind) ?? forges[0];
   const engine = engines.find((p) => p.id === draft.review.engine) ?? engines[0];
 
-  const runCheck = async (f: () => Promise<Check[]>) => {
-    setChecking(true); setChecks(null);
-    try { setChecks(await f()); } catch (e) { setMsg({ tone: "bad", text: errText(e) }); } finally { setChecking(false); }
+  // only the latest check may show its result: switching engines while one runs must not show the old engine's
+  const checkRun = useRef(0);
+  // the engine step's own check does not call the model, so it cannot say the sign-in works: it says what it knows
+  const [quick, setQuick] = useState(false);
+  const runCheck = async (f: () => Promise<Check[]>, isQuick = false) => {
+    const me = ++checkRun.current;
+    setQuick(isQuick);
+    setChecking(true); setChecks(null); setMsg(null);
+    try { const r = await f(); if (me === checkRun.current) setChecks(r); }
+    catch (e) { if (me === checkRun.current) setMsg({ tone: "bad", text: errText(e) }); }
+    finally { if (me === checkRun.current) setChecking(false); }
   };
+  // the engine step checks by itself once nothing it needs is empty (a detected CLI needs nothing): no button to find
+  const engineReady = !!engine && engine.fields.every((f) => f.optional || f.kind === "bool" || f.secret || !!getPath(draft, f.key));
+  useEffect(() => {
+    // without a model call (no usage spent, nothing left running when you switch again); "Check" does the full one
+    if (step === 1 && engine && engineReady) runCheck(() => api.checkPlugin(draft, "engine", engine.id, [], false), true);
+  }, [step, engine?.id]);
   const allOk = checks?.every((c) => c.ok);
+  // Only Claude's full check calls the model to see the sign-in; the quick one stops at "installed". Codex and the API
+  // check their sign-in either way; Gemini's sign-in is not checked at all.
+  // a third-party engine's check only finds it installed, whichever button ran it
+  const quickNote = step === 1 && engine?.id.startsWith("ext:") ? "ck.installed_only"
+    : step === 1 && engine?.id === "gemini" ? "ck.gemini_unchecked"
+    : quick && engine?.id === "claude" ? "ck.installed" : "ck.all_ok";
 
   const steps = [t("ob.s1"), t("ob.s2"), t("ob.s3")];
   return (
@@ -119,7 +163,13 @@ export function Setup() {
           <div class="choices">
             {forges.map((p) => <Choice p={p} selected={forge?.id === p.id} onPick={() => edit((c) => {
               c.forges = [{ id: p.id.replace("ext:", ""), kind: p.id, url: "", enabled: true, token: "" }];
-            })}>{forge?.id === p.id && acc && p.fields.length > 0 && <FieldList p={p} get={(k) => getPath(acc, k)} set={(k, v) => edit((c) => setPath(c.forges![0], k, v))} />}</Choice>)}
+            })}>{forge?.id === p.id && acc && (p.id === "github"
+              // GitHub: signing in is the usual way, so it comes first; Enterprise and a token are for the few who need them
+              ? <>
+                <GithubSignIn account={acc} usingToken={!!acc.token} onSignedIn={() => runCheck(() => api.checkPlugin(draft, "forge", acc.id))} />
+                <PluginFields p={p} more={t("ob.gh_more")} openIfSet get={(k) => getPath(acc, k)} set={(k, v) => edit((c) => setPath(c.forges![0], k, v))} />
+              </>
+              : <PluginFields p={p} get={(k) => getPath(acc, k)} set={(k, v) => edit((c) => setPath(c.forges![0], k, v))} />)}</Choice>)}
           </div>
           <div class="setup-check">
             <Button icon="check" busy={checking} onClick={() => runCheck(() => api.checkPlugin(draft, "forge", acc!.id))}>{t("btn.check")}</Button>
@@ -131,12 +181,12 @@ export function Setup() {
           <h2>{t("ob.s2")}</h2><p class="muted">{t("ob.s2_help")}</p>
           <div class="choices">
             {engines.map((p) => <Choice p={p} selected={engine?.id === p.id} onPick={() => edit((c) => { c.review.engine = p.id; })}>
-              {p.fields.length > 0 && <FieldList p={p} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} />}
+              <PluginFields p={p} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} />
             </Choice>)}
           </div>
           <div class="setup-check">
             <Button icon="check" busy={checking} onClick={() => runCheck(() => api.checkPlugin(draft, "engine", engine.id))}>{t("btn.check")}</Button>
-            {checking ? <span class="muted small">{t("ck.running")}</span> : !checks && <span class="muted small">{t("ob.check_first")}</span>}
+            {checking ? <span class="muted small">{t(!quick && engine?.id === "claude" ? "ck.running" : "ck.running_quick")}</span> : !checks && <span class="muted small">{t("ob.check_first")}</span>}
           </div>
         </>}
 
@@ -148,7 +198,7 @@ export function Setup() {
               return <Choice multi p={p} selected={on} onPick={() => edit((c) => {
                 const cur = activeChannels(c).filter((x) => x !== p.id);
                 c.notify.channels = on ? cur : [...cur, p.id]; c.notify.channel = "none";
-              })}>{p.fields.length > 0 && <FieldList p={p} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} />}</Choice>;
+              })}><PluginFields p={p} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} /></Choice>;
             })}
           </div>
           <div class="setup-check">
@@ -162,7 +212,7 @@ export function Setup() {
           <label class="field inline autostart"><Switch on={autostart} onChange={setAutostart} /><span>{t("ob.autostart")}</span></label>
         </>}
 
-        {checks && <div class={`setup-result ${allOk ? "good" : "bad"}`}>{allOk && <Note tone="good">{t("ck.all_ok")}</Note>}<Checks checks={checks} /></div>}
+        {checks && <div class={`setup-result ${allOk ? "good" : "bad"}`}>{allOk && <Note tone="good">{t(quickNote)}</Note>}<Checks checks={checks} /></div>}
         {msg && msg.tone !== "bad" && <Note tone={msg.tone}>{msg.text}</Note>}
         </div>
 

@@ -144,6 +144,20 @@ fn is_zero_f(n: &f64) -> bool {
 }
 
 impl Entry {
+    /// This commit was not approved, but an earlier approval of yours (Nod's, or "Approve now") still counts on the
+    /// code host, so the PR can be merged on it. The window, the tray and the notification all call this "Approved".
+    pub fn earlier_approval_counts(&self) -> bool {
+        self.event.as_deref() != Some("APPROVE")
+            && self.status != "direct_approved"
+            && (!self.approve_ids.is_empty() || self.direct_approve_id.is_some())
+            // what the code host says now: your own approval where it tells (GitHub; someone else's approval does not
+            // make yours count), else the PR's decision, else (Gitea) Nod's own record
+            && self.last_pr_status.as_ref().is_none_or(|s| match s.mine_approved {
+                Some(m) => m,
+                None => s.decision.is_empty() || s.decision == "APPROVED",
+            })
+    }
+
     /// The latest round for `sha`, if there is one.
     pub fn round_mut(&mut self, sha: &str) -> Option<&mut Round> {
         self.rounds.iter_mut().rev().find(|r| r.sha == sha)
@@ -423,6 +437,24 @@ impl Engine {
 
     /// A whole round failed (signed out of GitHub, network…). At most once every 6 hours.
     pub fn alert(&self, text: &str) {
+        self.send_alert(&tf(
+            self.lang(),
+            "note.system_failed",
+            &[("err", &truncate(text, 400))],
+        ));
+    }
+
+    /// The code host has been unreachable for `min` minutes in a row: say so in words, with the last error.
+    pub fn alert_offline(&self, min: u64, last: &str) {
+        self.send_alert(&tf(
+            self.lang(),
+            "note.offline",
+            &[("min", &min.to_string()), ("err", &truncate(last, 300))],
+        ));
+    }
+
+    /// At most one alert every six hours, whatever it says.
+    fn send_alert(&self, text: &str) {
         let p = paths::data_dir().join("alert.json");
         let last = fs::read_to_string(&p)
             .ok()
@@ -437,11 +469,7 @@ impl Engine {
             return;
         }
         let _ = fs::write(&p, serde_json::json!({"at": now()}).to_string());
-        if let Err(e) = self.notifier.alert(&tf(
-            self.lang(),
-            "note.system_failed",
-            &[("err", &truncate(text, 400))],
-        )) {
+        if let Err(e) = self.notifier.alert(text) {
             warn!("alert failed: {e}");
         }
     }
@@ -815,7 +843,12 @@ impl Engine {
             } else {
                 e.reviewed_at + self.cfg.review.ci_wait_max_min * 60.0
             };
-            if !commented && !self.cfg.dry_run && !verdict.findings.is_empty() {
+            // Only new issues are worth a review of their own now: ones raised before go with the approval.
+            let anything_new = verdict
+                .findings
+                .iter()
+                .any(|f| review::raised_before(&f.title).is_none());
+            if !commented && !self.cfg.dry_run && anything_new {
                 let body = review::build_review(
                     self.lang(),
                     &pr,

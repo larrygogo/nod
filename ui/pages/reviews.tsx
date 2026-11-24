@@ -5,6 +5,7 @@ import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
 import { ago, has, t, type Key } from "../i18n";
 import { Badge, Button, Dialog, Empty, Note, Segmented, TextInput, errText } from "../ui";
+import { SEV, isApproved, isNotApproved, needsYou, sevCounts } from "../derive";
 
 /** Nod's review result. The PR's own state (merged, closed) is shown apart, by prState. */
 /** "15:30" today, "11-20 15:30" another day. */
@@ -16,7 +17,9 @@ export function clock(ts: number): string {
 
 export function statusLabel(r: Row): string {
   if (r.status === "retry" && r.wait_until > 0) return t("st.waiting");
-  const k = (r.status === "posted" || r.status === "closed") && r.earlier_approved ? "st.posted.APPROVE"
+  // approved by you after Nod held back: say so, or its reasons below read like Nod approved despite them
+  const k = (r.status === "posted" || r.status === "closed") && r.direct ? "st.direct_approved"
+    : (r.status === "posted" || r.status === "closed") && r.earlier_approved ? "st.posted.APPROVE"
     : (r.status === "posted" || r.status === "closed") && r.event ? `st.posted.${r.event}`
     : r.status === "closed" && r.commented ? "st.posted.COMMENT"
     : r.status === "closed" && r.summary ? (r.pr_state === "merged" ? "st.merged_first" : "st.closed_first")
@@ -30,23 +33,25 @@ export function prState(r: Row): { text: string; tone: string } | null {
   return tone ? { text: t(`pr.${r.pr_state}` as Key), tone } : null;
 }
 export function tone(r: Row): string {
-  if (r.status === "direct_approved" || r.event === "APPROVE" || ((r.status === "closed" || r.status === "posted") && r.earlier_approved)) return "good";
+  if (isApproved(r)) return "good";
   if (r.status === "failed") return "bad";
   if (r.status === "retry" && r.wait_until > 0) return "warn";
   if (["queued", "reviewing", "awaiting_ci", "retry"].includes(r.status)) return "busy";
   if (r.event === "COMMENT") return "warn";
   return "muted";
 }
-const SEV = ["high", "medium", "low", "nit"];
 
 /** "4 findings · 1 high": the count, and the worst severity when it matters. */
-export function findingsText(r: Row): { text: string; tone: string } | null {
+/** "3 issues · 1 high" for a row, and `short` ("1 high", or "3 issues" when none is high or medium) for the narrow
+ *  review list, where the long form leaves the title a few characters. */
+export function findingsText(r: Row): { text: string; short: string; tone: string } | null {
   const n = r.findings.length;
   if (!n) return null;
   const high = r.findings.filter((f) => f.severity === "high").length;
   const medium = r.findings.filter((f) => f.severity === "medium").length;
   const worst = high ? t("rv.n_high", { n: high }) : medium ? t("rv.n_medium", { n: medium }) : "";
-  return { text: (n === 1 ? t("rv.one_finding") : t("rv.n_findings", { n })) + (worst ? " · " + worst : ""), tone: high ? "bad" : medium ? "warn" : "" };
+  const count = n === 1 ? t("rv.one_finding") : t("rv.n_findings", { n });
+  return { text: count + (worst ? " · " + worst : ""), short: worst || count, tone: high ? "bad" : medium ? "warn" : "" };
 }
 
 export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () => void; selected?: boolean; flag?: { text: string; hint: string } }) {
@@ -58,31 +63,68 @@ export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () 
       <span class={`state-dot ${tone(r)}`} />
       <span class="grow">
         <span class="row-title ellipsis">{r.title || r.key}</span>
-        <span class="row-sub ellipsis">{flag && <span class="row-flag" title={flag.hint}>{flag.text}</span>}{r.key} · {r.author} · {ago(r.at)}{pr && <> · <span class={`pr-state ${pr.tone}`}>{pr.text}</span></>}</span>
+        <span class="row-sub ellipsis">{flag && <span class="row-flag" title={flag.hint}>{flag.text}</span>}<Key k={r.key} /> · {r.author} · {ago(r.at)}{pr && <> · <span class={`pr-state ${pr.tone}`}>{pr.text}</span></>}</span>
       </span>
       <span class="row-right">
         <span class={`state-label ${tone(r)}`}>{statusLabel(r)}</span>
-        {f && <span class={`find ${f.tone}`}>{f.text}</span>}
+        {f && <span class={`find ${f.tone}`} title={f.text}><span class="find-full">{f.text}</span><span class="find-short">{f.short}</span></span>}
       </span>
     </button>
   );
 }
 
-type Filter = "all" | "approved" | "commented" | "active" | "failed";
+// "needs" is the overview's "N more": open PRs that wait on you; not a tab, a removable bar above the list
+/** "owner/repo#12": the owner is dropped in the narrow review list (CSS), so the PR number is not the part cut off. */
+function Key({ k }: { k: string }) {
+  const i = k.indexOf("/");
+  return i > 0 && k.indexOf("/", i + 1) < 0 ? <span title={k}><span class="key-owner">{k.slice(0, i + 1)}</span>{k.slice(i + 1)}</span> : <>{k}</>;
+}
+
+type Filter = "all" | "approved" | "commented" | "active" | "failed" | "needs";
 const match: Record<Filter, (r: Row) => boolean> = {
   all: () => true,
-  approved: (r) => r.event === "APPROVE" || r.status === "direct_approved" || ((r.status === "closed" || r.status === "posted") && r.earlier_approved),
-  commented: (r) => r.event === "COMMENT" || (r.status === "closed" && r.commented),
+  approved: isApproved,
+  commented: isNotApproved,
   active: (r) => ["queued", "reviewing", "awaiting_ci", "retry"].includes(r.status),
   failed: (r) => r.status === "failed",
+  needs: needsYou,
 };
+
+/** An empty list says why: a search that found nothing names what was searched and offers to clear it; an empty
+ *  filter says what it means ("no failed reviews" is good news, not "no matching reviews"). */
+function NoRows({ q, filter, anything, onClear, onAll }: { q: string; filter: Filter; anything: boolean; onClear: () => void; onAll: () => void }) {
+  if (!anything) return <Empty icon="list">{t("ov.empty")}</Empty>;
+  // searched inside a filter: the filter may be what hides it, so offer to search everything instead
+  if (q && filter !== "all") return <Empty icon="search" action={<Button kind="quiet" small onClick={onAll}>{t("rv.search_all")}</Button>}>
+    {t("rv.none_q_in", { q, f: filterName(filter) })}</Empty>;
+  if (q) return <Empty icon="search" action={<Button kind="quiet" small onClick={onClear}>{t("rv.clear_search")}</Button>}>{t("rv.none_q", { q })}</Empty>;
+  const icon = filter === "failed" || filter === "needs" ? "check" : "info";
+  return <Empty icon={icon}>{t(`rv.none_${filter}` as "rv.none")}</Empty>;
+}
+
+const filterName = (f: Filter) => t(({ all: "rv.all", approved: "rv.f.approved", commented: "rv.f.commented", active: "rv.f.active",
+  failed: "rv.f.failed", needs: "rv.f.needs" } as const)[f]);
 
 export function ReviewsPage() {
   const { ov, review, go } = useStore();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [hand, setHand] = useState(review === "__hand__");
-  useEffect(() => { if (review === "__hand__") { setHand(true); go("reviews", null as unknown as string); } }, [review]);
+  // a PR just sent for review by hand: opened as soon as its row is there (it may take a poll to appear)
+  const [want, setWant] = useState<string | null>(null);
+  useEffect(() => {
+    const r = want && ov.rows.find((x) => x.key === want);
+    if (r) {
+      setWant(null); setQ(""); setFilter("all"); go("reviews", `${r.account}/${r.key}`);
+      // it may sit far down the list
+      setTimeout(() => document.querySelector(".split-list .review-row.selected")?.scrollIntoView({ block: "nearest" }), 50);
+    }
+  }, [want, ov.rows]);
+  useEffect(() => {
+    if (review === "__hand__") { setHand(true); go("reviews", null as unknown as string); }
+    // the overview's "N more" opens the list filtered
+    if (review?.startsWith("__filter:")) { setFilter(review.slice(9) as Filter); go("reviews", null as unknown as string); }
+  }, [review]);
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -101,23 +143,44 @@ export function ReviewsPage() {
         <header class="page-head"><h1>{t("rv.title")}</h1>
           <Button icon="hand" small onClick={() => setHand(true)}>{t("btn.by_hand")}</Button></header>
         <div class="toolbar">
-          <div class="search"><Icon name="search" /><TextInput value={q} onInput={setQ} placeholder={t("rv.search")} /></div>
+          {/* Esc or the × clears it, like a system search field */}
+          <div class="search" onKeyDown={(e) => { if (e.key === "Escape" && q) { e.stopPropagation(); setQ(""); } }}>
+            <Icon name="search" /><TextInput value={q} onInput={setQ} placeholder={t("rv.search")} />
+            {q && <button class="search-clear" aria-label={t("rv.clear_search")} title={t("rv.clear_search")}
+              onClick={(e) => { setQ(""); (e.currentTarget.parentElement?.querySelector("input") as HTMLInputElement | null)?.focus(); }}><Icon name="x" size={12} /></button>}
+          </div>
           <Segmented value={filter} onChange={(v) => setFilter(v as Filter)} options={[
             ["all", t("rv.all")], ["approved", t("rv.f.approved")], ["commented", t("rv.f.commented")],
             ["active", t("rv.f.active")], ["failed", t("rv.f.failed")],
           ]} />
+          {want && (
+            <div class="filter-bar"><Icon name="refresh" size={14} /><span class="grow">{t(ov.status.state === "paused" ? "rv.want_paused" : "rv.want", { k: want })}</span>
+              <button class="icon-btn" aria-label={t("btn.cancel")} title={t("btn.cancel")} onClick={() => setWant(null)}><Icon name="x" size={14} /></button></div>
+          )}
+          {filter === "needs" && (
+            <div class="filter-bar"><Icon name="hand" size={14} /><span class="grow">{t("rv.f.needs_n", { n: ov.rows.filter(needsYou).length })}</span>
+              <button class="icon-btn" aria-label={t("rv.f.clear")} title={t("rv.f.clear")} onClick={() => setFilter("all")}><Icon name="x" size={14} /></button></div>
+          )}
         </div>
         <div class="list scroll">
-          {rows.length === 0 ? <Empty icon="search">{ov.rows.length ? t("rv.none") : t("ov.empty")}</Empty>
-            : rows.map((r) => <ReviewRow r={r} selected={!!selected && id(r) === id(selected)} onClick={() => go("reviews", id(r))} />)}
+          {rows.length === 0 ? <NoRows q={q.trim()} filter={filter} anything={ov.rows.length > 0} onClear={() => setQ("")} onAll={() => setFilter("all")} />
+            : rows.map((r) => <ReviewRow key={id(r)} r={r} selected={!!selected && id(r) === id(selected)} onClick={() => go("reviews", id(r))} />)}
         </div>
       </div>
       <div class="split-detail">
-        {selected ? <><button class="link back" onClick={() => go("reviews", null as unknown as string)}><Icon name="chevron" size={14} /> {t("rv.title")}</button><Detail r={selected} /></> : <Empty icon="file">{t("rv.pick")}</Empty>}
+        {selected ? <><button class="link back" onClick={() => go("reviews", null as unknown as string)}><Icon name="chevron" size={14} /> {t("rv.title")}</button><Detail r={selected} /></> : (wide && rows.length === 0) ? null : <Empty icon="file">{t("rv.pick")}</Empty>}
       </div>
-      {hand && <HandDialog onClose={() => setHand(false)} />}
+      {hand && <HandDialog onClose={(k) => { setHand(false); if (typeof k === "string" && k) setWant(k); }} />}
     </div>
   );
+}
+
+/** The review prompt (src-tauri/assets/review.*.md) marks an issue already raised in the PR's discussion by a fixed
+ *  suffix on its title; shown as a tag instead, so titles stay readable. */
+// the same marks review.rs raised_before() accepts: either kind of brackets, a full stop after
+const RAISED = /\s*[（(]\s*(已有评论提过|raised in (the )?discussion)\s*[)）][\s。.]*$/i;
+export function splitRaised(title: string): [string, boolean] {
+  return RAISED.test(title) ? [title.replace(RAISED, ""), true] : [title, false];
 }
 
 /** The findings of one review, worst first. */
@@ -125,12 +188,17 @@ function FindingList({ findings }: { findings: Row["findings"] }) {
   if (findings.length === 0) return <p class="muted">{t("rv.no_findings")}</p>;
   return (
     <ul class="findings">
-      {[...findings].sort((a, b) => SEV.indexOf(a.severity) - SEV.indexOf(b.severity)).map((f) => (
+      {[...findings].sort((a, b) => SEV.indexOf(a.severity as never) - SEV.indexOf(b.severity as never)).map((f) => (
         <li>
           <span class={`sev ${f.severity}`}>{t(`sev.${f.severity}` as Key)}</span>
           <div class="grow">
-            <div>{f.title}</div>
-            <div class="mono small muted">{f.path}{f.line ? `:${f.line}` : ""} · {f.introduced_by_pr ? t("rv.introduced") : t("rv.old")}</div>
+            <div>{splitRaised(f.title)[0]}{splitRaised(f.title)[1] && <span class="raised">{t("rv.raised")}</span>}
+              {/* most issues come with the PR; the ones that were already there are the exception worth a word (they do
+                  not hold back an approval) */}
+              {!f.introduced_by_pr && <span class="raised">{t("rv.old")}</span>}</div>
+            {/* a long path is cut from the left, so the file name and line stay in view */}
+            {f.path && <div class="find-path mono small muted" title={`${f.path}${f.line ? `:${f.line}` : ""}`}>
+              <bdi>{f.path}{f.line ? `:${f.line}` : ""}</bdi></div>}
           </div>
         </li>
       ))}
@@ -139,6 +207,41 @@ function FindingList({ findings }: { findings: Row["findings"] }) {
 }
 
 type Round = Row["rounds"][number];
+
+/** Several reviews of one PR, drawn: one column per review, oldest first, stacked by severity, so "fewer issues each
+ *  round" (or not) is seen at a glance. The sentence says the same in words, counting high and medium. */
+function RoundTrend({ rounds }: { rounds: Round[] }) {
+  // a round with no summary was not reviewed (e.g. approved directly before Nod got to it): it says nothing about issues
+  const xs = [...rounds].reverse().filter((x) => x.summary || x.findings.length > 0);
+  if (xs.length < 2) return null;
+  const max = Math.max(1, ...xs.map((x) => x.findings.length));
+  const serious = (x: Round) => { const c = sevCounts(x.findings); return c.high + c.medium; };
+  const first = serious(xs[0]), last = serious(xs[xs.length - 1]);
+  const line = last < first ? t("rd.trend_down", { n: xs.length, a: first, b: last })
+    : last > first ? t("rd.trend_up", { n: xs.length, a: first, b: last }) : t("rd.trend_same", { n: xs.length, a: last });
+  return (
+    <figure class="trend">
+      <figcaption>{line}</figcaption>
+      <div class="trend-bars" style={{ gridTemplateColumns: `repeat(${xs.length}, minmax(0, 28px))` }}>
+        {xs.map((x, i) => {
+          const c = sevCounts(x.findings);
+          const o = roundOutcome(x);
+          return (
+            <div class="trend-col" title={`${x.sha} · ${clock(x.at)} · ${o.text} · ${x.findings.length ? t("rd.n_findings", { n: x.findings.length }) : t("rd.no_findings")}`}>
+              <div class="trend-stack">
+                {SEV.slice().reverse().map((s) => c[s] > 0 && <span class={`seg ${s}`} style={{ height: `${(c[s] / max) * 100}%` }} />)}
+                {x.findings.length === 0 && <span class="seg none" />}
+              </div>
+              <span class={`trend-n ${o.tone}`}>{x.event === "APPROVE" && !x.withdrawn ? <Icon name="check" size={11} /> : i + 1}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div class="trend-legend">{(["high", "medium", "low", "nit"] as const).map((s) => <span><i class={s} />{t(`sev.${s}` as Key)}</span>)}
+        <span><Icon name="check" size={11} />{t("rd.approved")}</span></div>
+    </figure>
+  );
+}
 
 /** What went up to GitHub for one review. */
 function roundOutcome(x: Round): { text: string; tone: string } {
@@ -221,14 +324,17 @@ export function Detail({ r }: { r: Row }) {
         </div>
         <h2>{r.title || r.key}</h2>
         <div class="muted small detail-sub">
-          <span>{r.key} · {r.author} · {ago(r.at)}</span>
-          {r.url && <button class="link small" onClick={() => api.url(r.url)}>{t("btn.open_pr")} <Icon name="external" size={12} /></button>}
-          {r.review_url && <button class="link small" onClick={() => api.url(r.review_url!)}>
-            {t(r.status === "closed" && !r.event ? "btn.open_last_review" : "btn.open_review")} <Icon name="external" size={12} /></button>}
+          <span><span class="nowrap">{r.key}</span> · <span class="nowrap">{r.author}</span> · <span class="nowrap">{ago(r.at)}</span></span>
+          {/* the two links wrap together: one left alone on the next line reads like a stray */}
+          <span class="detail-links">
+            {r.url && <button class="link small" onClick={() => api.url(r.url)}>{t("btn.open_pr")} <Icon name="external" size={12} /></button>}
+            {r.review_url && <button class="link small" onClick={() => api.url(r.review_url!)}>
+              {t(r.status === "closed" && !r.event ? "btn.open_last_review" : "btn.open_review")} <Icon name="external" size={12} /></button>}
+          </span>
         </div>
         <div class="detail-bar">
           <div class="detail-meta">
-            <span><Tile icon={catalog.find((p) => p.id === r.platform)?.icon ?? "plugin"} size={18} /> {pname(r.platform)} · {r.account}</span>
+            <span><Tile icon={catalog.find((p) => p.id === r.platform)?.icon ?? "plugin"} size={18} /> {pname(r.platform)}{r.account.toLowerCase() !== r.platform.toLowerCase() && pname(r.platform).toLowerCase() !== r.account.toLowerCase() ? ` · ${r.account}` : ""}</span>
             {r.engine && <span><Tile icon={engineIcon} size={18} /> {pname(r.engine)}</span>}
           </div>
           <div class="detail-actions">
@@ -258,6 +364,8 @@ export function Detail({ r }: { r: Row }) {
       {waiting && <Note tone="warn">{t("rv.quota_wait", { at: clock(r.wait_until) })}</Note>}
       {r.error && (waiting ? <p class="muted small" style={{ wordBreak: "break-word" }}>{r.error}</p> : <Note tone="bad">{r.error}</Note>)}
 
+      {r.rounds.length >= 2 && <RoundTrend rounds={r.rounds} />}
+
       {(r.summary || r.findings.length > 0 || tone(r) === "busy") && (
         <section class="round current">
           <h3>
@@ -269,7 +377,7 @@ export function Detail({ r }: { r: Row }) {
           {r.summary && <p class="summary">{r.summary}</p>}
           {!r.summary && !r.error && tone(r) === "busy" && <p class="muted">{t("rv.waiting")}</p>}
           {r.reasons.length > 0 && !(r.status === "closed" && !r.event && r.summary) && (
-            <div class="sub"><h4>{t(r.status === "closed" ? "rv.closed_note" : "rv.blocked")}</h4><ul class="reasons">{r.reasons.map((x) => <li>{x}</li>)}</ul></div>
+            <div class="sub"><h4>{t(r.direct ? "rv.direct_why" : r.status === "closed" ? "rv.closed_note" : "rv.blocked")}</h4><ul class="reasons">{r.reasons.map((x) => <li>{x}</li>)}</ul></div>
           )}
           {(r.summary || r.findings.length > 0) && (
             <div class="sub"><h4>{t("rv.findings")} <span class="muted">{r.findings.length || ""}</span></h4><FindingList findings={r.findings} /></div>
@@ -283,18 +391,25 @@ export function Detail({ r }: { r: Row }) {
           {earlier.map((x) => {
             const o = roundOutcome(x);
             const n = x.findings.length;
+            // the review marks issues already raised in the discussion: list the new ones, fold the rest
+            const fresh = x.findings.filter((f) => !splitRaised(f.title)[1]);
+            const again = x.findings.filter((f) => splitRaised(f.title)[1]);
             return (
-              <details class="round">
+              <details key={`${x.sha}|${x.at}`} class="round">
                 <summary>
                   <span class="mono">{x.sha}</span>
                   <span class="muted">{ago(x.at)}</span>
                   <span class={`state-label ${o.tone}`}>{o.text}</span>
-                  <span class="muted grow">{n ? t("rd.n_findings", { n }) : t("rd.no_findings")}</span>
+                  <span class="muted grow">{n ? t("rd.n_findings", { n }) : t("rd.no_findings")}{again.length > 0 && fresh.length > 0 && <> · {t("rd.n_new", { n: fresh.length })}</>}</span>
                   <Icon name="chevron" size={14} />
                 </summary>
                 <div class="round-body">
                   {x.summary && <p class="summary">{x.summary}</p>}
-                  {(x.summary || n > 0) && <FindingList findings={x.findings} />}
+                  {(x.summary || n > 0) && (again.length === 0 ? <FindingList findings={x.findings} /> : <>
+                    {fresh.length > 0 && <FindingList findings={fresh} />}
+                    <details class="raised-fold"><summary><Icon name="chevron" size={13} />{t(fresh.length ? "rd.more_raised" : "rd.all_raised", { n: again.length })}</summary>
+                      <FindingList findings={again} /></details>
+                  </>)}
                   <div class="round-links">
                     {x.comment_url && x.comment_url !== x.url && <button class="link small" onClick={() => api.url(x.comment_url!)}>{t("rd.open_comments")} <Icon name="external" size={12} /></button>}
                     {x.url && <button class="link small" onClick={() => api.url(x.url!)}>{t("btn.open_review")} <Icon name="external" size={12} /></button>}
@@ -326,28 +441,30 @@ export function recognizePr(text: string): string | null {
   return /^[^/#\s]+(\/[^/#\s]+)+#\d+$/.test(k) ? k : null;
 }
 
-function HandDialog({ onClose }: { onClose: () => void }) {
+/** `onClose(k)`: closed after starting a review of `k`, which the page then opens. */
+function HandDialog({ onClose }: { onClose: (started?: string) => void }) {
   const [pr, setPr] = useState("");
   const [msg, setMsg] = useState<{ tone: "info" | "good" | "bad"; text: string } | null>(null);
   const [running, setRunning] = useState(false);
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState<string | null>(null);
   const key = recognizePr(pr);
   const review = async () => {
     if (!key || running || started) return;
     setRunning(true); setMsg(null);
-    try { setMsg({ tone: "good", text: t("hand.started", { k: await api.track(pr) }) }); setStarted(true); }
+    try { const k = await api.track(pr); setMsg({ tone: "good", text: t("hand.started", { k }) }); setStarted(k); }
     catch (e) { setMsg({ tone: "bad", text: errText(e) }); }
     finally { setRunning(false); }
   };
   return (
-    <Dialog title={t("hand.title")} onClose={onClose}>
+    // closing it (×, Esc, outside) opens nothing: only "Open this review" does
+    <Dialog title={t("hand.title")} onClose={() => onClose()}>
       <p class="muted">{t("hand.intro")}</p>
       <div onKeyDown={(e) => { if (e.key === "Enter") review(); }}>
-        <TextInput value={pr} onInput={(v) => { setPr(v); setStarted(false); setMsg(null); }} placeholder="https://github.com/owner/repo/pull/123" mono autoFocus />
+        <TextInput value={pr} onInput={(v) => { setPr(v); setStarted(null); setMsg(null); }} placeholder="https://github.com/owner/repo/pull/123" mono autoFocus />
       </div>
       <p class={`small ${key ? "hand-key" : "muted"}`}>{pr.trim() ? (key ? t("hand.recognized", { k: key }) : t("hand.unrecognized")) : t("hand.formats")}</p>
       <div class="hand-main">
-        {started ? <Button kind="primary" onClick={onClose}>{t("hand.see_records")}</Button>
+        {started ? <Button kind="primary" onClick={() => onClose(started)}>{t("hand.see_review")}</Button>
           : <Button kind="primary" icon="play" busy={running} disabled={!key} onClick={review}>{t("hand.review")}</Button>}
       </div>
       {msg && <Note tone={msg.tone}>{msg.text}</Note>}

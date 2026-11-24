@@ -8,24 +8,46 @@ import { Card, TagInput, cleanLogin, cleanRepo, Note, Row, Section, Segmented, S
 
 /** One side of an always-approve rule: typed freely, checked and tidied (a pasted link becomes owner/repo) when the
  *  field is left. Empty means "any". */
-function RuleField({ value, kind, placeholder, list, onChange }: {
-  value: string; kind: "repo" | "login"; placeholder: string; list: string; onChange: (v: string) => void;
+function RuleField({ value, kind, placeholder, suggest, onChange }: {
+  value: string; kind: "repo" | "login"; placeholder: string; suggest: string[]; onChange: (v: string) => void;
 }) {
   const [text, setText] = useState(value);
   const [bad, setBad] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const [hi, setHi] = useState(-1);
   useEffect(() => { setText(value); }, [value]);
-  const commit = () => {
-    const raw = text.trim();
+  // the app's own suggestion menu, like TagInput's: the system <datalist> popup cannot be styled in the web view
+  const q = text.trim().toLowerCase();
+  const options = focus ? suggest.filter((x) => x.toLowerCase() !== q && (!q || x.toLowerCase().includes(q))).slice(0, 6) : [];
+  const commit = (raw0 = text) => {
+    const raw = raw0.trim();
+    setHi(-1);
     if (!raw) { setBad(false); onChange(""); return; }
     const c = (kind === "repo" ? cleanRepo : cleanLogin)(raw);
     setBad(!c);
     if (c) { setText(c); onChange(c); }
   };
+  const key = (e: KeyboardEvent) => {
+    if (e.key === "ArrowDown" && options.length) { e.preventDefault(); setHi((i) => Math.min(i + 1, options.length - 1)); }
+    else if (e.key === "ArrowUp" && options.length) { e.preventDefault(); setHi((i) => Math.max(i - 1, -1)); }
+    else if (e.key === "Escape") { setHi(-1); setFocus(false); }
+    else if (e.key === "Enter") { e.preventDefault(); const o = hi >= 0 ? options[hi] : undefined; if (o) setText(o); commit(o ?? text); }
+  };
   return (
-    <input class={`input mono${bad ? " invalid" : ""}`} value={text} placeholder={placeholder} list={list} spellcheck={false}
-      title={bad ? t(kind === "repo" ? "tag.bad_repo" : "tag.bad_login", { x: text }) : undefined}
-      onInput={(e) => { setText((e.target as HTMLInputElement).value); setBad(false); }}
-      onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} />
+    <div class="tags-wrap">
+      <input class={`input mono${bad ? " invalid" : ""}`} value={text} placeholder={placeholder} spellcheck={false}
+        title={bad ? t(kind === "repo" ? "tag.bad_repo" : "tag.bad_login", { x: text }) : undefined}
+        onInput={(e) => { setText((e.target as HTMLInputElement).value); setBad(false); setHi(-1); setFocus(true); }}
+        onFocus={() => setFocus(true)} onBlur={() => { setFocus(false); commit(); }} onKeyDown={key} />
+      {options.length > 0 && (
+        <ul class="select-menu tags-menu" role="listbox">
+          {options.map((o, i) => (
+            <li role="option" aria-selected={false} class={i === hi ? "hi" : ""} onMouseEnter={() => setHi(i)}
+              onMouseDown={(e) => { e.preventDefault(); setText(o); setFocus(false); commit(o); }}><span class="mono ellipsis">{o}</span></li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -36,16 +58,14 @@ function AlwaysRules({ repoHints, loginHints }: { repoHints: string[]; loginHint
   const set = (i: number, k: "repo" | "author", v: string) => edit((c) => { c.approve.always![i][k] = v; });
   return (
     <div class="always">
-      <datalist id="always-repos">{repoHints.map((r) => <option value={r} />)}</datalist>
-      <datalist id="always-authors">{loginHints.map((r) => <option value={r} />)}</datalist>
       {rules.length > 0 && (
         <div class="always-row head muted small"><span>{t("set.always.repo")}</span><span /><span>{t("set.always.author")}</span><span /></div>
       )}
       {rules.map((r, i) => (
         <div class="always-row">
-          <RuleField kind="repo" value={r.repo} placeholder={t("set.always.any_repo")} list="always-repos" onChange={(v) => set(i, "repo", v)} />
+          <RuleField kind="repo" value={r.repo} placeholder={t("set.always.any_repo")} suggest={repoHints} onChange={(v) => set(i, "repo", v)} />
           <span class="muted small">{t("set.always.and")}</span>
-          <RuleField kind="login" value={r.author} placeholder={t("set.always.any_author")} list="always-authors" onChange={(v) => set(i, "author", v)} />
+          <RuleField kind="login" value={r.author} placeholder={t("set.always.any_author")} suggest={loginHints} onChange={(v) => set(i, "author", v)} />
           <button class="icon-btn" aria-label={t("btn.remove")} onClick={() => edit((c) => { c.approve.always!.splice(i, 1); })}><Icon name="trash" /></button>
         </div>
       ))}
@@ -126,14 +146,10 @@ export function SettingsPage() {
           is added on top. Two rule sets, one page. */}
       {tab === "review" && <Section title={t("set.scope")} help={t("set.scope_help")}>
         <Card>
-          <Row label={t("set.scope.repos")} help={t("set.list_help")} wide>
-            <TagInput kind="repo" suggest={repoHints} value={draft.scope.repos} onChange={(v) => edit((c) => { c.scope.repos = v; })} placeholder="my-org/*" /></Row>
-          <Row label={t("set.scope.exclude")} wide>
-            <TagInput kind="repo" suggest={repoHints} value={draft.scope.exclude_repos} onChange={(v) => edit((c) => { c.scope.exclude_repos = v; })} /></Row>
-          <Row label={t("set.scope.authors")} wide>
-            <TagInput kind="login" suggest={loginHints} value={draft.scope.authors ?? []} onChange={(v) => edit((c) => { c.scope.authors = v; })} placeholder="alice" /></Row>
-          <Row label={t("set.scope.exclude_authors")} wide>
-            <TagInput kind="login" suggest={loginHints} value={draft.scope.exclude_authors ?? []} onChange={(v) => edit((c) => { c.scope.exclude_authors = v; })} placeholder="renovate[bot]" /></Row>
+          <Lists verb="review" repoHints={repoHints} loginHints={loginHints} value={{
+            repos: draft.scope.repos, authors: draft.scope.authors ?? [],
+            exclude_repos: draft.scope.exclude_repos, exclude_authors: draft.scope.exclude_authors ?? [],
+          }} onChange={(k, v) => edit((c) => { c.scope[k] = v; })} />
           <Row label={t("set.scope.team")} help={t("set.scope.team_help")}>
             <Switch on={draft.scope.team_requests} label={t("set.scope.team")} onChange={(v) => edit((c) => { c.scope.team_requests = v; })} /></Row>
         </Card>
@@ -146,14 +162,9 @@ export function SettingsPage() {
               onChange={(v) => edit((c) => { c.approve.mode = v ? "auto" : "never"; })} />
           </Row>
           {draft.approve.mode !== "never" && <>
-            <Row label={t("set.approve.repos")} help={t("set.list_help")} wide>
-              <TagInput kind="repo" suggest={repoHints} value={draft.approve.repos} onChange={(v) => edit((c) => { c.approve.repos = v; })} placeholder="my-org/*" /></Row>
-            <Row label={t("set.approve.authors")} wide>
-              <TagInput kind="login" suggest={loginHints} value={draft.approve.authors} onChange={(v) => edit((c) => { c.approve.authors = v; })} placeholder="dependabot[bot]" /></Row>
-            <Row label={t("set.approve.exclude_repos")} wide>
-              <TagInput kind="repo" suggest={repoHints} value={draft.approve.exclude_repos} onChange={(v) => edit((c) => { c.approve.exclude_repos = v; })} /></Row>
-            <Row label={t("set.approve.exclude_authors")} wide>
-              <TagInput kind="login" suggest={loginHints} value={draft.approve.exclude_authors} onChange={(v) => edit((c) => { c.approve.exclude_authors = v; })} /></Row>
+            <ApproveRules />
+            <Lists verb="approve" repoHints={repoHints} loginHints={loginHints} value={draft.approve}
+              onChange={(k, v) => edit((c) => { c.approve[k] = v; })} />
             <Row label={t("set.ci_wait")}>{num((c) => c.review.ci_wait_max_min, (c, v) => { c.review.ci_wait_max_min = v; })}</Row>
             <Row label={t("set.ci_grace")} help={t("set.ci_grace_help")}>{num((c) => c.review.ci_none_grace_min, (c, v) => { c.review.ci_none_grace_min = v; })}</Row>
           </>}
@@ -161,18 +172,19 @@ export function SettingsPage() {
       </Section>}
 
       {tab === "review" && <Section title={t("set.always")} help={t("set.always_help")}>
-        <Card><AlwaysRules repoHints={repoHints} loginHints={loginHints} /></Card>
-      </Section>}
-
-      {tab === "review" && <Section title={t("set.review_run")}>
         <Card>
-          <Row label={t("set.timeout")}>{num((c) => c.review.timeout_min, (c, v) => { c.review.timeout_min = v; })}</Row>
-          <Row label={t("set.attempts")}>{num((c) => c.review.max_attempts, (c, v) => { c.review.max_attempts = v; })}</Row>
-          <Row label={t("set.rereview")}>{num((c) => c.review.rereview_days, (c, v) => { c.review.rereview_days = v; })}</Row>
-          <Row label={t("set.poll")}>{num((c) => c.daemon.poll_seconds, (c, v) => { c.daemon.poll_seconds = v; })}</Row>
-          <Row label={t("set.refresh")}>{num((c) => c.daemon.refresh_seconds, (c, v) => { c.daemon.refresh_seconds = v; })}</Row>
+          {/* what "always" gives up, one per line, in the same shape as the approval rules above */}
+          <div class="approve-rules always-note">
+            <div class="approve-rules-title">{t("set.always.title")}</div>
+            <ul>{(["set.always.findings", "set.always.ci", "set.always.failed", "set.always.switch"] as const).map((k) =>
+              <li><Icon name="alert" size={13} />{t(k)}</li>)}
+              {/* what it still never does (review::always_approve): own PRs, drafts, closed PRs */}
+              <li class="still"><Icon name="info" size={13} />{t("set.always.still")}</li></ul>
+          </div>
+          <AlwaysRules repoHints={repoHints} loginHints={loginHints} />
         </Card>
       </Section>}
+
 
       {tab === "review" && <Section title={t("set.footer")}>
         <Card>
@@ -188,6 +200,18 @@ export function SettingsPage() {
           )}
         </Card>
       </Section>}
+
+      {/* rarely touched: folded, so the page is about what gets reviewed and approved */}
+      {tab === "review" && <details class="section advanced">
+        <summary><Icon name="chevron" size={14} /><h2>{t("set.review_run")}</h2><span class="muted">{t("set.review_run_hint")}</span></summary>
+        <Card>
+          <Row label={t("set.timeout")}>{num((c) => c.review.timeout_min, (c, v) => { c.review.timeout_min = v; })}</Row>
+          <Row label={t("set.attempts")}>{num((c) => c.review.max_attempts, (c, v) => { c.review.max_attempts = v; })}</Row>
+          <Row label={t("set.rereview")}>{num((c) => c.review.rereview_days, (c, v) => { c.review.rereview_days = v; })}</Row>
+          <Row label={t("set.poll")}>{num((c) => c.daemon.poll_seconds, (c, v) => { c.daemon.poll_seconds = v; })}</Row>
+          <Row label={t("set.refresh")}>{num((c) => c.daemon.refresh_seconds, (c, v) => { c.daemon.refresh_seconds = v; })}</Row>
+        </Card>
+      </details>}
 
       {tab === "about" && <>
       <Section title={t("set.files")}>
@@ -207,6 +231,60 @@ export function SettingsPage() {
         </Card>
       </Section>
       </>}
+    </div>
+  );
+}
+
+type ListKey = "repos" | "authors" | "exclude_repos" | "exclude_authors";
+
+/** "a、b 等 3 个仓库" / "a, b and 1 more": a list short enough for one sentence. Chinese counts all of them, English
+ *  the rest. */
+function few(xs: string[], kind: "repo" | "login") {
+  const head = xs.slice(0, 2).join(t("set.sum.sep"));
+  return xs.length > 2 ? t(kind === "repo" ? "set.sum.more_repos" : "set.sum.more_authors", { x: head, n: xs.length, rest: xs.length - 2 }) : head;
+}
+/** No space between a Chinese word and the particle after it ("3 个仓库里"), one after a name ("my-org/* 里"). */
+const tidy = (x: string) => x.replace(/([一-鿿]) (里|提)/g, "$1$2");
+
+/** The four lists that narrow a rule (which PRs get reviewed, which get approved), read out as one sentence first:
+ *  four empty fields say nothing until you work out that empty means "everything". Then the fields themselves, as a
+ *  grid of repository/author by only/never, so the two that pair up sit side by side. */
+function Lists({ verb, value, onChange, repoHints, loginHints }: {
+  verb: "review" | "approve"; value: Record<ListKey, string[]>; onChange: (k: ListKey, v: string[]) => void;
+  repoHints: string[]; loginHints: string[];
+}) {
+  const { repos, authors, exclude_repos: xr, exclude_authors: xa } = value;
+  const what = [repos.length ? t("set.sum.in_only", { x: few(repos, "repo") }) : "", authors.length ? t("set.sum.by_only", { x: few(authors, "login") }) : ""]
+    .filter(Boolean).join(t("set.sum.join"));
+  const skip = [xr.length ? t("set.sum.in", { x: few(xr, "repo") }) : "", xa.length ? t("set.sum.by", { x: few(xa, "login") }) : ""]
+    .filter(Boolean).join(t("set.sum.or"));
+  const line = tidy(t(what ? `set.sum.${verb}` : `set.sum.${verb}_all`, { what, skip: skip ? t("set.sum.skip", { x: skip }) : "" }));
+  const field = (k: ListKey, kind: "repo" | "login", placeholder: string) => (
+    <TagInput kind={kind} suggest={kind === "repo" ? repoHints : loginHints} value={value[k]} placeholder={placeholder}
+      onChange={(v) => onChange(k, v)} />
+  );
+  return (
+    <div class="lists">
+      <p class="lists-sum">{line}</p>
+      <div class="lists-grid">
+        <span /><span class="muted small">{t("set.list.repo")}</span><span class="muted small">{t("set.list.author")}</span>
+        <span class="lists-label">{t(`set.list.only_${verb}`)}</span>
+        {field("repos", "repo", t("set.list.any_repo"))}{field("authors", "login", t("set.list.any_author"))}
+        <span class="lists-label">{t(`set.list.never_${verb}`)}</span>
+        {field("exclude_repos", "repo", t("set.list.none"))}{field("exclude_authors", "login", t("set.list.none"))}
+      </div>
+      <p class="muted small">{t("set.list_help")}</p>
+    </div>
+  );
+}
+
+/** The fixed approval rules (review::decide in src-tauri/src/review.rs), one per line, so they can be counted at a glance. */
+function ApproveRules() {
+  const rules = ["set.rule.high", "set.rule.medium", "set.rule.engine", "set.rule.ci", "set.rule.own", "set.rule.lists"] as const;
+  return (
+    <div class="approve-rules">
+      <div class="approve-rules-title">{t("set.rule.title")}</div>
+      <ul>{rules.map((k) => <li><Icon name="check" size={13} />{t(k)}</li>)}</ul>
     </div>
   );
 }

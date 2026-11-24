@@ -530,7 +530,7 @@ impl FeishuNotifier {
         FeishuNotifier {
             client: FeishuClient::new(&f.app_id, &cfg.feishu_secret(), &f.domain),
             lang: cfg.language.clone(),
-            recipient: f.recipient.clone(),
+            recipient: crate::config::feishu_recipient(&f.recipient),
             me: me.into(),
             direct_on_own: cfg.test_direct_button_on_own_pr,
             dry_run: cfg.dry_run,

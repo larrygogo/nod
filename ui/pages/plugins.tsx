@@ -3,6 +3,7 @@
 // (catalog), so a third-party plugin gets the same settings UI as a built-in one.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { accounts, activeChannels, api, getPath, setPath, type Account, type Check, type Config, type DeviceCode, type Field, type GithubSession, type Plugin } from "../api";
+import { healthOf, recordHealth, usePluginHealth } from "../health";
 import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
 import { t } from "../i18n";
@@ -34,20 +35,38 @@ function FieldInput({ f, value, onChange, secretName }: {
   );
 }
 
-function Fields({ fields, get, set, secretName }: {
+/** `fold`: put the optional fields under one line (GitHub: Enterprise and a token are for a few people), open when
+ *  one of them is already in use. Decided once, so clearing the last character there does not fold it away. */
+function Fields({ fields, get, set, secretName, fold }: {
   fields: Field[]; get: (k: string) => unknown; set: (k: string, v: unknown) => void; secretName: (k: string) => string;
+  fold?: { label: string; open: boolean };
 }) {
+  const [openAtFirst] = useState(() => !!fold?.open);
   if (!fields.length) return null;
-  return (
+  const list = (fs: Field[]) => (
     <div class="fields">
-      {fields.map((f) => (
-        <label class={`field${f.kind === "bool" ? " inline" : ""}`}>
+      {fs.map((f) => (
+        <label key={f.key} class={`field${f.kind === "bool" ? " inline" : ""}`}>
           <span class="field-label">{f.label}</span>
           <FieldInput f={f} value={get(f.key)} onChange={(v) => set(f.key, v)} secretName={secretName(f.key)} />
           {f.help && <span class="muted small">{f.help}</span>}
         </label>
       ))}
     </div>
+  );
+  if (!fold) return list(fields);
+  const need = fields.filter((f) => !f.optional);
+  const opt = fields.filter((f) => f.optional);
+  return (
+    <>
+      {need.length > 0 && list(need)}
+      {opt.length > 0 && (
+        <details class="more-opts" open={openAtFirst}>
+          <summary><Icon name="chevron" size={12} />{fold.label}</summary>
+          {list(opt)}
+        </details>
+      )}
+    </>
   );
 }
 
@@ -69,11 +88,18 @@ function Checks({ checks }: { checks: Check[] }) {
 }
 
 /** The right-hand pane for one plugin: what it is, what it can do, its settings and its self-test. */
-function Pane({ p, sub, control, children, onCheck, testLabel, extra, account }: {
+function Pane({ p, sub, control, children, onCheck, testLabel, extra, account, health, namesUser }: {
   p: Plugin; sub?: string; control?: preact.ComponentChildren; children?: preact.ComponentChildren; account?: preact.ComponentChildren;
   onCheck?: () => Promise<Check[] | string>; testLabel?: string; extra?: preact.ComponentChildren;
+  /** what the page found when it opened (saved settings, no model call), shown until the user runs a check */
+  health?: Check[];
+  /** the account section already says who is signed in (OAuth): a clean result found by itself would repeat it */
+  namesUser?: boolean;
 }) {
-  const [result, setResult] = useState<Check[] | string | null>(null);
+  const [ran, setResult] = useState<Check[] | string | null>(null);
+  const result = ran ?? health ?? null;
+  // something wrong is the first thing to read, above the settings that fix it; a clean result stays at the bottom
+  const trouble = Array.isArray(result) && healthOf(result) !== null;
   const [err, setErr] = useState<string | null>(null);
   return (
     <article class="pane">
@@ -87,6 +113,7 @@ function Pane({ p, sub, control, children, onCheck, testLabel, extra, account }:
       </header>
       <p class="pane-desc">{p.description}</p>
       {p.badges.length > 0 && <div class="caps">{p.badges.map((b) => <Badge tone={b.tone === "warn" ? "warn" : "cap"}>{b.text}</Badge>)}</div>}
+      {trouble && <section class="pane-section"><Checks checks={result as Check[]} /></section>}
       {account && <section class="pane-section"><h3>{t("gh.account")}</h3>{account}</section>}
       <section class="pane-section">
         <h3>{t("pl.settings")}</h3>
@@ -103,7 +130,9 @@ function Pane({ p, sub, control, children, onCheck, testLabel, extra, account }:
           </div>
           {err && <Note tone="bad">{err}</Note>}
           {typeof result === "string" && <Note tone="good">{t("btn.sent")}</Note>}
-          {Array.isArray(result) && <Checks checks={result} />}
+          {/* a clean result the page found by itself is only shown where nothing above says it already (GitHub's
+              account section says who is signed in); one the user asked for is always shown */}
+          {Array.isArray(result) && !trouble && (ran !== null || !namesUser) && <Checks checks={result} />}
         </section>
       )}
       {extra}
@@ -141,6 +170,21 @@ function Group({ title, help, action, children }: {
   );
 }
 
+/** A group's items with the ones not in use folded behind one line ("6 more"), so the list shows what is set up.
+ *  The selected item always shows; with nothing in use, everything shows, to pick from. */
+function Folded({ items, more }: { items: { key: string; inUse: boolean; selected: boolean; node: preact.ComponentChildren }[]; more: string }) {
+  const [open, setOpen] = useState(false);
+  const visible = items.filter((x) => x.inUse || x.selected);
+  if (open || visible.length === 0 || visible.length === items.length) return <>{items.map((x) => x.node)}</>;
+  const rest = items.length - visible.length;
+  return (
+    <>
+      {visible.map((x) => x.node)}
+      <button class="pl-more" onClick={() => setOpen(true)}><Icon name="chevron" size={13} />{more.replace("{n}", String(rest))}</button>
+    </>
+  );
+}
+
 /** Keychain name of a field: built-in fields use their config path; third-party plugin fields
  *  (`plugins.<name>.<key>`) are stored as `plugin.<name>.<key>`. */
 const pluginSecretName = (k: string) => (k.startsWith("plugins.") ? "plugin." + k.slice("plugins.".length) : k);
@@ -174,11 +218,34 @@ export function PluginsPage() {
   const [showPane, setShowPane] = useState(false);
   const pick = (id: string) => { setAdding(false); setSel(id); setShowPane(true); };
 
+  // Everything in use is checked when the page opens, with the saved settings and without calling a model: the list
+  // then says which one is broken, instead of every line reading "On" until you think of pressing Self-test.
+  const { health } = usePluginHealth(loaded.config);
+  // a self-test on the saved settings is the newest answer: the list and the overview take it over
+  const saved = !cleared.length && JSON.stringify(draft) === JSON.stringify(loaded.config);
+  const selfTest = (k: string, run: () => Promise<Check[]>) => async () => {
+    const r = await run();
+    if (saved) recordHealth(loaded.config, k, r);
+    return r;
+  };
+  // the overview's "Claude Code is not working" opens this page on that plugin
+  const { review, go } = useStore();
+  useEffect(() => {
+    if (review?.startsWith("__plugin:")) { pick(review.slice(9)); go("plugins", null as unknown as string); }
+  }, [review]);
+  // a problem replaces the line's usual state word; a working one keeps it
+  const flag = (k: string, normal?: preact.ComponentChildren) => {
+    const h = healthOf(health[k]);
+    return h ? <span class={`onoff ${h}`}>{t(h === "bad" ? "pl.broken" : "pl.attention")}</span> : normal;
+  };
+
   // the selection may point at an account that was just removed: fall back to the first one
   const current = sel.startsWith("forge:") && !list.some((a) => `forge:${a.id}` === sel) ? `forge:${list[0]?.id}` : sel;
   const name = (id: string) => catalog.find((p) => p.id === id)?.name ?? id;
 
   let pane: preact.ComponentChildren = null;
+  // a personal access token is in use: typed in, or kept in the keychain and not being cleared
+  const tokenIn = (a: Account) => !!a.token || (!!loaded.secrets[`forge.${a.id}.token`] && !cleared.includes(`forge.${a.id}.token`));
   if (adding) {
     pane = <AddAccount kinds={forgeKinds} taken={list.map((a) => a.id)} onDone={(id) => { setAdding(false); if (id) setSel(`forge:${id}`); }} />;
   } else if (current.startsWith("forge:")) {
@@ -188,13 +255,15 @@ export function PluginsPage() {
     pane = !a ? null : !p ? <Note tone="bad">{a.id}: {a.kind}</Note> : (
       <Pane key={`${a.id}|${a.kind}`} p={p} sub={`${a.id}${hostOf(a) ? " · " + hostOf(a) : ""}`}
         control={<Switch on={a.enabled} label={t("pl.enabled")} onChange={(v) => edit((c) => { materialize(c); c.forges![i].enabled = v; })} />}
-        onCheck={() => api.checkPlugin(draft, "forge", a.id, cleared)}
-        account={a.kind === "github" ? <GithubSignIn account={a} usingToken={!!a.token || (!!loaded.secrets[`forge.${a.id}.token`] && !cleared.includes(`forge.${a.id}.token`))} /> : undefined}
+        onCheck={selfTest(`forge:${a.id}`, () => api.checkPlugin(draft, "forge", a.id, cleared))} health={health[`forge:${a.id}`]}
+        account={a.kind === "github" ? <GithubSignIn account={a} usingToken={tokenIn(a)} /> : undefined}
+        namesUser={a.kind === "github" && !tokenIn(a)}
         extra={list.length > 1 && <section class="pane-section"><Button kind="danger" icon="trash" onClick={() => edit((c) => { materialize(c); c.forges!.splice(i, 1); })}>{t("pl.remove_account")}</Button></section>}>
         {p.fields.length > 0 && <Fields fields={p.fields}
           get={(k) => getPath(a, k)}
           set={(k, v) => edit((c) => { materialize(c); setPath(c.forges![i], k, v); })}
-          secretName={(k) => (k === "token" ? `forge.${a.id}.token` : k.startsWith("settings.") ? `forge.${a.id}.${k}` : "")} />}
+          secretName={(k) => (k === "token" ? `forge.${a.id}.token` : k.startsWith("settings.") ? `forge.${a.id}.${k}` : "")}
+          fold={a.kind === "github" ? { label: t("ob.gh_more"), open: !!a.url || !!getPath(a, "settings.client_id") || tokenIn(a) } : undefined} />}
       </Pane>
     );
   } else if (current.startsWith("engine:")) {
@@ -208,7 +277,7 @@ export function PluginsPage() {
             onClick={() => edit((c) => { c.review.fallback = isFallback ? "" : p.id; })}>{t(isFallback ? "pl.no_fallback" : "pl.use_fallback")}</Button>
           <Button onClick={() => edit((c) => { c.review.engine = p.id; if (c.review.fallback === p.id) c.review.fallback = ""; })}>{t("pl.use_default")}</Button>
         </>}
-        onCheck={() => api.checkPlugin(draft, "engine", p.id, cleared)}>
+        onCheck={selfTest(`engine:${p.id}`, () => api.checkPlugin(draft, "engine", p.id, cleared))} health={health[`engine:${p.id}`]}>
         {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName} />}
       </Pane>
     );
@@ -224,7 +293,8 @@ export function PluginsPage() {
         })} />}
         testLabel={t("btn.test")}
         onCheck={() => api.testChannel(draft, p.id, cleared)}>
-        {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName} />}
+        {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName}
+          fold={p.id === "feishu" ? { label: t("pl.lark_more"), open: !!draft.notify.feishu?.domain && !/^(https?:\/\/)?open\.feishu\.cn\/?$/i.test(draft.notify.feishu.domain.trim()) } : undefined} />}
       </Pane>
     );
   } else if (current === "third") {
@@ -241,22 +311,29 @@ export function PluginsPage() {
             {list.map((a) => {
               const p = forgeKinds.find((k) => k.id === a.kind);
               return <Item key={`${a.id}|${a.kind}`} icon={p?.icon ?? "plugin"} name={p?.name ?? a.kind} sub={`${a.id}${hostOf(a) ? " · " + hostOf(a) : ""}`}
-                state={<On on={a.enabled} />} selected={isSel(`forge:${a.id}`)} onClick={() => pick(`forge:${a.id}`)} />;
+                state={a.enabled ? flag(`forge:${a.id}`, <On on />) : <On on={false} />} selected={isSel(`forge:${a.id}`)} onClick={() => pick(`forge:${a.id}`)} />;
             })}
             {adding && <div class="pl-item selected"><span class="tile-icon small"><Icon name="plus" size={14} /></span><span class="pl-name">{t("pl.add_account")}</span></div>}
           </Group>
           <Group title={t("pl.engines")} help={t("pl.engines_help")}>
-            {engines.map((p) => <Item key={p.id} icon={p.icon} name={p.name}
-              state={draft.review.engine === p.id ? <span class="onoff on">{t("pl.default")}</span>
-                : draft.review.fallback === p.id ? <span class="onoff">{t("pl.fallback")}</span> : undefined}
-              selected={isSel(`engine:${p.id}`)} onClick={() => pick(`engine:${p.id}`)} />)}
+            <Folded more={t("pl.more_engines")} items={engines.map((p) => ({
+              key: p.id, selected: isSel(`engine:${p.id}`),
+              inUse: draft.review.engine === p.id || draft.review.fallback === p.id || rules.some((r) => r.engine === p.id),
+              node: <Item key={p.id} icon={p.icon} name={p.name}
+                state={flag(`engine:${p.id}`, draft.review.engine === p.id ? <span class="onoff on">{t("pl.default")}</span>
+                  : draft.review.fallback === p.id ? <span class="onoff">{t("pl.fallback")}</span> : undefined)}
+                selected={isSel(`engine:${p.id}`)} onClick={() => pick(`engine:${p.id}`)} />,
+            }))} />
             <Item icon="rules" name={t("pl.per_repo")}
               sub={rules.length ? rules.map((r) => `${r.repo || "…"} → ${name(r.engine)}`).join(", ") : t("pl.rules_none")}
               selected={isSel("rules")} onClick={() => pick("rules")} />
           </Group>
           <Group title={t("pl.channels")} help={t("pl.channels_help")}>
-            {channels.map((p) => <Item key={p.id} icon={p.icon} name={p.name} state={<On on={on.includes(p.id)} />}
-              selected={isSel(`notify:${p.id}`)} onClick={() => pick(`notify:${p.id}`)} />)}
+            <Folded more={t("pl.more_channels")} items={channels.map((p) => ({
+              key: p.id, selected: isSel(`notify:${p.id}`), inUse: on.includes(p.id),
+              node: <Item key={p.id} icon={p.icon} name={p.name} state={<On on={on.includes(p.id)} />}
+                selected={isSel(`notify:${p.id}`)} onClick={() => pick(`notify:${p.id}`)} />,
+            }))} />
           </Group>
           <Group title={t("pl.third")}>
             <Item icon="plugin" name={t("pl.third")} sub={third.length ? third.map((p) => p.name).join(", ") : t("pl.no_third")}
@@ -277,7 +354,7 @@ export function PluginsPage() {
 
 /** Sign in with Nod's OAuth App: show a one-time code, open github.com/login/device, poll until the user approves.
  *  Same flow as GitHub Desktop and the GitHub CLI; nothing to paste back into Nod. */
-function GithubSignIn({ account, usingToken }: { account: Account; usingToken: boolean }) {
+export function GithubSignIn({ account, usingToken, onSignedIn }: { account: Account; usingToken: boolean; onSignedIn?: () => void }) {
   const [session, setSession] = useState<GithubSession | null>(null);
   const [code, setCode] = useState<DeviceCode | null>(null);
   const [copied, setCopied] = useState(false);
@@ -320,7 +397,7 @@ function GithubSignIn({ account, usingToken }: { account: Account; usingToken: b
         if (me !== run.current) { if (r.state === "done") refresh(); return; }
         if (r.state === "pending") continue;
         if (r.state === "slow_down") { wait = Math.max(r.interval, wait + 5); continue; }
-        if (r.state === "done") { setSession({ signed_in: true, login: r.login, has_client_id: true }); break; }
+        if (r.state === "done") { setSession({ signed_in: true, login: r.login, has_client_id: true }); onSignedIn?.(); break; }
         setErr(r.state === "expired" ? t("gh.expired") : r.state === "denied" ? t("gh.denied") : r.message);
         break;
       }
@@ -408,13 +485,21 @@ function AddAccount({ kinds, taken, onDone }: { kinds: Plugin[]; taken: string[]
 function Rules({ engines }: { engines: Plugin[] }) {
   const { draft, edit } = useStore();
   const rules = draft.review.per_repo ?? [];
+  const name = (id: string) => engines.find((e) => e.id === id)?.name ?? id;
+  const other = engines.find((e) => e.id !== draft.review.engine);
+  // a rule added here gets the cursor in its repository field; rules already there on opening do not
+  const [added, setAdded] = useState(0);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (added) list.current?.querySelector<HTMLInputElement>(".rule:last-child input")?.focus(); }, [added]);
   return (
     <article class="pane">
       <header class="pane-head"><Tile icon="rules" size={40} />
         <div class="grow"><h2>{t("pl.per_repo")}</h2><div class="muted small">{t("pl.per_repo_help")}</div></div></header>
       <section class="pane-section">
-        {rules.length === 0 && <p class="muted">{t("pl.rules_none")}</p>}
-        <div class="rules">
+        {/* say what happens now, not "None": every repository goes to the default engine; an example shows what a
+            rule is for */}
+        {rules.length === 0 && <p class="muted">{t("pl.rules_empty", { engine: name(draft.review.engine), other: other?.name ?? "Codex" })}</p>}
+        {rules.length > 0 && <div class="rules" ref={list}>
           {rules.map((r, i) => (
             <div class="rule">
               <TextInput value={r.repo} mono placeholder={t("pl.repo_pattern")} onInput={(v) => edit((c) => { c.review.per_repo[i].repo = v; })} />
@@ -423,9 +508,10 @@ function Rules({ engines }: { engines: Plugin[] }) {
               <button class="icon-btn" aria-label={t("btn.remove")} onClick={() => edit((c) => { c.review.per_repo.splice(i, 1); })}><Icon name="trash" /></button>
             </div>
           ))}
-        </div>
+        </div>}
+        {rules.length > 0 && <p class="muted small">{t("pl.rules_rest", { engine: name(draft.review.engine) })}</p>}
         <div class="pane-actions">
-          <Button icon="plus" onClick={() => edit((c) => { (c.review.per_repo ??= []).push({ repo: "", engine: engines.find((e) => e.id !== c.review.engine)?.id ?? "claude" }); })}>{t("pl.add_rule")}</Button>
+          <Button icon="plus" onClick={() => { setAdded((n) => n + 1); edit((c) => { (c.review.per_repo ??= []).push({ repo: "", engine: engines.find((e) => e.id !== c.review.engine)?.id ?? "claude" }); }); }}>{t("pl.add_rule")}</Button>
         </div>
       </section>
     </article>
@@ -439,7 +525,10 @@ function Third({ plugins }: { plugins: Plugin[] }) {
         <div class="pane-control"><Button icon="folder" onClick={() => api.open("plugins")}>{t("btn.open_folder")}</Button></div></header>
       <p class="pane-desc">{t("pl.third_help")}</p>
       <section class="pane-section">
-        {plugins.length === 0 ? <Empty icon="puzzle">{t("pl.no_third")}</Empty> : (
+        {/* empty: say what a plugin could add and where to read how, instead of a bare "None" */}
+        {plugins.length === 0 ? <Empty icon="puzzle" action={<Button kind="quiet" icon="external"
+            onClick={() => api.url("https://github.com/larrygogo/nod/blob/main/docs/plugins.md")}>{t("pl.third_docs")}</Button>}>
+            {t("pl.no_third_long")}</Empty> : (
           <div class="stack">
             {plugins.map((p) => p.kind === "invalid"
               ? <Note tone="bad"><b>{p.name}</b> · {t("pl.invalid")}: {p.error}</Note>

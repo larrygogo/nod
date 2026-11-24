@@ -103,7 +103,14 @@ impl Engine for Codex {
             bail!(
                 "Codex exited {:?} without a verdict: {}",
                 o.status,
-                crate::util::truncate(format!("{}{}", o.stderr, o.stdout).trim(), 300)
+                crate::util::cli_error(
+                    &format!(
+                        "{}
+{}",
+                        o.stderr, o.stdout
+                    ),
+                    300
+                )
             );
         }
         let mut v = verdict_from_text(&text)?;

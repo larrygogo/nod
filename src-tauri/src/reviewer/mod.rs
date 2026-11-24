@@ -388,6 +388,8 @@ pub fn classify(msg: &str, now: f64) -> Trouble {
         "unauthorized",
         "api key not valid",
         "oauth token has expired",
+        // Gemini CLI with no sign-in configured
+        "please set an auth method",
     ];
     if unavailable.iter().any(|w| m.contains(w)) || Regex::new(r"\b401\b").unwrap().is_match(&m) {
         return Trouble::Unavailable;
@@ -707,5 +709,62 @@ mod tests {
         cfg.review.fallback = "claude".into();
         assert!(with_fallback(&cfg, "k", "claude", run("usage limit reached")).is_err());
         assert_eq!(*ran.borrow(), ["claude"]);
+    }
+
+    /// Codex prints a banner, echoes the whole prompt (the PR text, which may hold error lines of its own), retries,
+    /// and only then says what failed. The review error is that last word, so a signed-out Codex is seen as such and
+    /// the backup engine takes over (it was cut to the first 300 characters before, which held only the banner).
+    /// Shape taken from codex-cli 0.169.0 run signed out.
+    #[test]
+    fn a_signed_out_codex_is_recognised_behind_its_banner() {
+        let banner = "OpenAI Codex v0.169.0 (research preview)\n--------\nworkdir: C:\\tmp\\wt\nmodel: gpt-5\n\
+                      provider: openai\napproval: never\nsandbox: read-only\n\
+                      session id: 01a20698-0000-0000-0000-000000000000\n--------\nuser\n";
+        let prompt = "You are reviewing a pull request. ".repeat(200)
+            + "\nerror: linking with link.exe failed: exit code: 1181\n\
+               Error: rate limit exceeded while calling upstream\nERROR: pasted into the PR text\n";
+        let retries: String = (1..=9)
+            .map(|i| format!("ERROR: Reconnecting... {}/5\n", i.min(5)))
+            .collect();
+        let tail = format!(
+            "\n{retries}ERROR: unexpected status 401 Unauthorized: Missing bearer or basic authentication in header\n"
+        );
+        let msg = format!(
+            "Codex exited Some(1) without a verdict: {}",
+            crate::util::cli_error(&format!("{banner}{prompt}{tail}"), 300)
+        );
+        assert_eq!(classify(&msg, 0.0), Trouble::Unavailable, "{msg}");
+        // the engine's own last word is not an ERROR line (a crash): an ERROR line echoed from the PR text must not
+        // decide; the crash is Other, so the review fails instead of handing over
+        let msg = crate::util::cli_error(
+            &format!("{banner}{prompt}thread 'main' panicked at src/main.rs:1:1:\nboom\n"),
+            300,
+        );
+        assert_eq!(classify(&msg, 0.0), Trouble::Other, "{msg}");
+        assert!(!msg.contains('\n'), "one line for the notification: {msg}");
+        // the engine's 401 followed by a line of its own still counts
+        let msg = crate::util::cli_error(&format!("{banner}{prompt}{tail}tokens used: 0\n"), 300);
+        assert_eq!(classify(&msg, 0.0), Trouble::Unavailable, "{msg}");
+        // no ERROR line: the end of the output, where the error is, not the banner
+        let msg = crate::util::cli_error(
+            &format!("{banner}{prompt}you have hit your usage limit"),
+            300,
+        );
+        assert!(
+            matches!(classify(&msg, 0.0), Trouble::Quota { .. }),
+            "{msg}"
+        );
+    }
+
+    /// Gemini with no sign-in prints a JSON error: its message is the error, and it counts as unavailable, so the
+    /// backup engine takes over. Shape taken from Gemini CLI 0.68.0 with an empty home.
+    #[test]
+    fn a_gemini_without_sign_in_hands_over_to_the_backup() {
+        let msg = crate::util::cli_error(
+            r#"{"error":{"message":"Please set an Auth method in your settings.json or specify one of the following environment variables before running: GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI","code":41}}"#,
+            300,
+        );
+        assert!(msg.starts_with("Please set an Auth method"), "{msg}");
+        assert_eq!(classify(&msg, 0.0), Trouble::Unavailable);
     }
 }

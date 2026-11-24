@@ -109,7 +109,7 @@ the account's `url` and `token` (the token comes from the system keychain).
 | `forge.requestedPrs` | `{teams}` | `[["owner/repo", 12], …]` — open PRs that request your review |
 | `forge.fetchPr` | `{repo, number}` | `{repo, number, title, author, url, head, base, draft, state: "open"\|"closed"\|"merged", body}` |
 | `forge.ciState` | `{pr}` | `"success"\|"failure"\|"pending"\|"none"` |
-| `forge.prStatus` | `{repo, number}` | `{state, draft, decision, head, ci, title, url, author, additions?, deletions?, changed_files?, head_ref, base_ref}` |
+| `forge.prStatus` | `{repo, number}` | `{state, draft, decision, head, ci, title, url, author, additions?, deletions?, changed_files?, head_ref, base_ref, mine_approved?}` — `mine_approved`: whether your own approval still stands (omit if the host cannot tell; `decision` is used instead) |
 | `forge.discussion` | `{pr}` | existing comments as text (for the reviewer's context) |
 | `forge.diffLines` | `{pr}` | `{"path": [line, …]}` — lines inline comments may be placed on |
 | `forge.postReview` | `{pr, review: {commit_id, event: "APPROVE"\|"COMMENT", body, comments: [{path, line, side, body}]}}` | `{url, id}` |

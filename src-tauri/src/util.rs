@@ -321,6 +321,37 @@ pub fn keep_last(s: &str, n: usize) -> String {
     chars[chars.len().saturating_sub(n)..].iter().collect()
 }
 
+/// What a CLI said went wrong, short enough for a log line and a notification. reviewer::classify reads it to decide
+/// on the backup engine and on waiting out a quota, so it must be the engine's own last word:
+/// - Codex prints a banner, echoes the whole prompt (the PR text and discussion, which may hold "error:" lines of
+///   their own), retries ("ERROR: Reconnecting... 1/5"), and ends with what failed ("ERROR: unexpected status 401
+///   Unauthorized …"): that last line, when it is an ERROR line that is not a retry;
+/// - Gemini prints a JSON object `{"error": {"message": …}}`: its message;
+/// - otherwise the end of the output on one line, where an error is, not the start. An ERROR line with more output
+///   after it may be one echoed from the PR text, or the engine's own followed by a line like "tokens used: 0": it
+///   and what follows count, the echo before it does not.
+pub fn cli_error(out: &str, n: usize) -> String {
+    let t = out.trim();
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(t) {
+        if let Some(m) = v["error"]["message"].as_str().or(v["error"].as_str()) {
+            return truncate(m.trim(), n);
+        }
+    }
+    let last = t
+        .lines()
+        .map(str::trim)
+        .rfind(|l| l.starts_with("ERROR") && !l.contains("Reconnecting"));
+    let tail = match last {
+        Some(l) if t.ends_with(l) => return truncate(l, n),
+        Some(l) => t.rfind(l).map_or(t, |i| &t[i..]),
+        None => t,
+    };
+    keep_last(tail.trim(), n)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub fn now() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

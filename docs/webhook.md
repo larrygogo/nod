@@ -37,7 +37,8 @@ have channels of their own on the Plugins page.
   "pr": {
     "state": "open", "draft": false, "decision": "REVIEW_REQUIRED", "head": "1f3c…", "ci": "success",
     "title": "Add monthly export filter", "url": "https://github.com/acme/api/pull/42", "author": "alice",
-    "additions": 128, "deletions": 14, "changed_files": 5, "head_ref": "feat/export", "base_ref": "main"
+    "additions": 128, "deletions": 14, "changed_files": 5, "head_ref": "feat/export", "base_ref": "main",
+    "mine_approved": false
   },
   "verdict": {
     "summary": "One boundary bug lets next month's orders into the export.",

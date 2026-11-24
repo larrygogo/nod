@@ -14,17 +14,21 @@ export interface Row {
   account: string; platform: string; engine: string;
   key: string; title: string; url: string; author: string; status: string; pr_state: string; event: string | null;
   summary: string | null; findings: Finding[]; reasons: string[]; review_url: string | null; error: string | null; wait_until: number; sha: string; head: string; action_msg: string; direct_busy: boolean; my_approvals: boolean;
-  rounds: { sha: string; at: number; engine: string; summary: string; findings: Finding[]; event: string | null; url: string | null; comment_url: string | null; direct: boolean; withdrawn: boolean }[]; earlier_approved: boolean; commented: boolean; at: number;
+  rounds: { sha: string; at: number; engine: string; summary: string; findings: Finding[]; event: string | null; url: string | null; comment_url: string | null; direct: boolean; withdrawn: boolean }[]; earlier_approved: boolean; commented: boolean; direct: boolean; at: number;
 }
 export interface Overview {
   version: string; configured: boolean; status: Status; rows: Row[]; legacy: string[]; old_install: boolean; autostart: boolean;
 }
 export interface Check {
   id: string; name: string; ok: boolean; warn: boolean; detail: string; fix: string; action: string | null; account: string | null;
+  /** an engine failure the backup engine takes over at review time (not installed, signed out) */
+  fallback?: boolean;
 }
 export interface Field {
   key: string; label: string; kind: "text" | "password" | "number" | "bool" | "select";
   options: [string, string][]; placeholder: string; help: string; secret: boolean;
+  /** works when left as it is; first-run setup folds it away */
+  optional?: boolean;
 }
 export interface Plugin {
   id: string; kind: "forge" | "engine" | "notify" | "invalid"; name: string; description: string; icon: string;
@@ -54,7 +58,7 @@ export const api = {
   save: (cfg: Config, clear: string[] = []) => invoke<string[]>("save_config", { cfg, clear }),
   catalog: (lang?: string) => invoke<Plugin[]>("catalog", { lang }),
   checkAll: (cfg: Config, live: boolean, clear: string[] = []) => invoke<Check[]>("check_tools", { cfg, live, clear }),
-  checkPlugin: (cfg: Config, kind: string, id: string, clear: string[] = []) => invoke<Check[]>("check_plugin", { cfg, kind, id, clear }),
+  checkPlugin: (cfg: Config, kind: string, id: string, clear: string[] = [], live = true) => invoke<Check[]>("check_plugin", { cfg, kind, id, clear, live }),
   testChannel: (cfg: Config, channel: string, clear: string[] = []) => invoke<string>("test_notification", { cfg, channel, clear }),
   fix: (action: string) => invoke<void>("fix", { action }),
   pause: (paused: boolean) => invoke<void>("set_paused", { paused }),

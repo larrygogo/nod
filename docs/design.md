@@ -14,20 +14,43 @@ with a detail pane). What we took and why:
 
 ## Information architecture
 
-- **Overview** — one status line under the title (and a banner with the fix only when something is wrong), today's
-  numbers as one strip, the plugins in use as a short chain, "worth a look" (failed reviews, comments with high
-  findings) only when there is something, then the latest reviews as one full-width list.
-- **Reviews** — every review: search, filter by state and platform, detail pane with verdict, reasons and findings.
+- **Overview** — one status line under the title (and a banner with the fix only when something is wrong — including
+  a code host or engine in use that fails its local check, said with its consequence: no requests from that account,
+  reviews failing, or "using the backup engine for now" when the backup works), then the
+  digest: one sentence that answers "does anything wait on me?" (open PRs Nod did not approve, or whose review failed,
+  with up to three of them as shortcuts and what is reviewing or waiting for CI right now), one sentence on the last
+  seven days — rolling, not the calendar week, so a Monday is not empty — ("reviewed 8 PRs in 39 rounds, approved 6,
+  held back 1 with a high-severity issue"), and those seven days drawn next to it. A reason is never invented: a
+  review with no recorded reason says so, and after an error the digest does not claim that nothing waits on you. Then the plugins in use as a short chain and the latest reviews grouped by day, newest first; rows that
+  wait on you are flagged in place, never pinned. No strip of today's counters: most days it read "0 0 0 0".
+- **Reviews** — every review: search, filter by outcome (approved / not approved / in progress / failed), detail pane
+  with verdict, reasons and findings. A PR reviewed more than once shows its rounds as small stacked columns (one per
+  review, by severity) with a sentence ("5 reviews: high and medium issues went from 6 to 1"); earlier rounds stay
+  folded.
   "Review a PR by hand" (dry run / track) lives here.
 - **Plugins** — list and pane, like macOS System Settings or Raycast's extension settings. The list groups code
   hosts (accounts, with "+" to add one), review engines (plus the per-repository rules), notification channels and
   third-party plugins; each line shows its state (On / Off / Default) so the list is also the summary. The pane shows
-  the selected one: what it is, what it can see/do, its settings and its self-test. Narrow windows show the list, then
+  the selected one: what it is, what it can see/do, its settings and its self-test. Opening the page checks every
+  account and engine in use with the saved settings and no model call; a broken one says "Not working" (or "Needs a
+  look") in the list instead of "On", and its pane leads with the problem and the fix, above the settings. A clean result the page found by itself
+  is not repeated where the pane already says it (GitHub's account section names who is signed in). GitHub's
+  Enterprise and token fields (and Feishu's Lark address) fold under one line, as in Setup, open when one is in use.
+  An empty pane says what happens now and what it is for ("every repository is reviewed by Claude Code; add a rule to
+  send my-org/infra to Codex"), never a bare "None".
+- **Empty lists say why.** A search that finds nothing names what was searched and offers "Clear search" (the field
+  also clears with Esc or its ×); an empty filter says what it means — "No failed reviews" is good news, not "No
+  matching reviews". A search inside a filter that finds nothing says so and offers to search all reviews, since the
+  filter may be what hides it. Narrow windows show the list, then
   the pane with a back link.
 - **Settings** — one group at a time behind a segmented control: general (language, theme, start at sign-in),
-  approval rules, review scope, reviewing, about (files, version).
+  review (which PRs are reviewed and which are approved: each opens with one sentence that reads the lists back — "Nod reviews only PRs in my-org/*, except those by renovate[bot]" — then the four lists as a repository/author by only/never grid, so empty fields no longer have to be decoded as "everything"; automatic approval with its fixed rules listed one per line, the always-approve
+  list, the comment footer, and "Running" — timeouts, retries, polling — folded at the end), about (files, version).
 - **Setup** — first launch: code host → review engine → notifications → done. One option per line; the picked option
-  opens its settings right below itself; the step buttons stay fixed at the bottom.
+  opens its settings right below itself; the step buttons stay fixed at the bottom. GitHub leads with "Sign in" (the
+  same device flow as Plugins) and checks by itself once signed in; settings that work as they are (catalog fields
+  marked `optional`: Enterprise, a token, a detected CLI path, the default model) fold under one line. The engine
+  step checks on its own when nothing it needs is empty, so "Next" is ready without hunting for a button.
 
 ## Window
 
@@ -38,7 +61,10 @@ with a detail pane). What we took and why:
   settings.
 - Colour means state. Capability tags are neutral outlines; only warnings ("cannot be withdrawn", "no system sandbox")
   are amber. Status words are coloured text, not filled pills, in lists.
-- Numbers get words: "3 findings · 1 high", never bare coloured counters.
+- Numbers get words: "3 findings · 1 high", never bare coloured counters. A chart always comes with the sentence it
+  proves and a legend.
+- States follow the approval, not the comment: comments always go up, so a review reads "approved", "not approved"
+  (with the reason), "waiting for CI" or "reviewing" — never "commented" as if it were the opposite of approved.
 
 ## Tokens
 
@@ -57,6 +83,7 @@ lines and no pure black.
 | `--text` / `-2` / `-3` | `#1d2129` / `#4e5969` / `#5f6673` | `#e8e9ed` / `#a9aeb8` / `#8f949e` | all ≥ 4.5:1 |
 | `--accent` | `#165dff` (hover `#4080ff`, pressed `#0e42d2`, as text `#0e42d2`) | `#165dff` (as text `#6aa1ff`) | primary action, links |
 | `--good` `--warn` `--bad` | `#007a33` `#a34700` `#cb2634` on light tints | `#3dd68c` `#ffb65d` `#ff8a8a` | state only |
+| `--good-fill` `--warn-fill` `--bad-fill` | `#23c16b` `#ff9a2e` `#f2555a` | same as the text shades | chart bars and legends (the text shades are too dark for a shape) |
 
 - **Neutrals**: one cool grey (HSL 222°); neighbouring layers differ by 1.5–2 % lightness, so surfaces separate by
   tone and shadow rather than by lines.

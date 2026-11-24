@@ -43,6 +43,8 @@ const TABLE: &[(&str, &str, &str)] = &[
         "Findings (🔴 High blocks approval; 🟠 Medium should be fixed in this PR; 🟡 Low can wait; ⚪ Nit is optional):",
     ),
     ("review.old_issue", " · 老问题", " · pre-existing"),
+    ("review.raised_mark", " · 之前提过", " · raised before"),
+    ("review.still_open", "之前提过、仍未修的 {n} 条（不再逐行重发）", "{n} raised before and still open (not commented again line by line)"),
     ("review.outside_diff", "（`{loc}`，不在 diff 内）", " (`{loc}`, outside the diff)"),
     (
         "review.footer",
@@ -89,6 +91,7 @@ const TABLE: &[(&str, &str, &str)] = &[
         "The review text looked like it contained credentials ({kinds}); it was not posted and the PR was not approved.",
     ),
     ("note.quota_wait", "{engine} 额度用完或被限流，{at} 左右自动重试；恢复前不会 approve。", "{engine} is out of quota or rate limited; Nod tries again around {at} and does not approve until then."),
+    ("note.offline", "已经 {min} 分钟连不上代码平台，这段时间没有审查新的 PR。通常是网络或代理的问题，恢复后会自动继续。最后一次的错误：{err}", "The code host has been unreachable for {min} minutes, so no new PR was reviewed. This is usually the network or a proxy; reviewing resumes by itself. Last error: {err}"),
     ("note.system_failed", "自动审查整轮失败，没有审查任何 PR。原因：{err}", "A whole polling round failed; no PR was reviewed. Error: {err}"),
     // direct approve feedback
     ("direct.working", "⏳ 正在直接通过…", "⏳ Approving…"),
@@ -178,7 +181,8 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("card.alert_title", "⚠️ 自动审查整轮失败", "⚠️ Nod round failed"),
     ("card.test_title", "Nod 连通测试", "Nod connectivity test"),
     ("sys.approved", "已 approve", "Approved"),
-    ("sys.commented", "已评论", "Commented"),
+    // the comments always go up: what a notification has to say is whether it was approved
+    ("sys.commented", "未 approve", "Not approved"),
     ("sys.waiting", "引擎额度用完，稍后重试", "Engine out of quota; will retry"),
     ("sys.failed", "审查失败", "Review failed"),
     ("sys.direct", "已直接通过", "Approved directly"),

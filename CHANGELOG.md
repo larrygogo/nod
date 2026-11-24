@@ -79,7 +79,26 @@ First public release: a desktop app.
   engine gives, else after 15 minutes, doubling up to 6 hours) instead of giving up after two quick tries; these
   waits do not use up `max_attempts`, and you are told once. Other errors wait a minute before the retry.
 - Fallback engine (`review.fallback`, Plugins → engine → *Make fallback*): reviews instead when the chosen engine is
-  out of quota, signed out or not installed.
+  out of quota, signed out or not installed. This now works for Codex and Gemini too: their error used to be cut to the
+  start of the output (a banner and the echoed prompt), so a signed-out or out-of-quota Codex failed the review
+  instead of handing over or waiting for the quota.
+- Plugins and Overview check the code hosts and engines in use when opened (installed, signed in; no model call): a
+  broken one is marked in the list, and the overview says what it means, such as "reviews go to the backup engine" or
+  "new reviews will fail".
+- Issues still open from an earlier review (or raised in the discussion) are no longer commented again on their
+  lines with every new commit: the review lists them once, folded ("13 raised before and still open"), and only new
+  issues get line comments. A PR with ten commits used to collect the same fourteen comments ten times. One that
+  still blocks the approval stays in the open list, marked "raised before". With nothing new to say, no review goes
+  up while CI runs: the list comes once, with the approval.
+- "Approved by an earlier approval" now means your own approval still stands on GitHub. When a new commit dismissed
+  it, someone else's approval no longer makes the window, tray or notification say the PR is approved by you.
+- A dropped connection to the code host (such as "tls connection init failed: unexpected end of file") no longer
+  sends a "whole round failed" notification: only one that lasts ten minutes does, saying in words that the code host
+  has been unreachable and reviewing resumes by itself. Other failures (signed out, no access) are still told at once.
+- A desktop notification for a review that was not approved says "Not approved" (it used to say "Commented", though
+  the comments go up either way) and gives the reasons, such as "high-severity issue found", instead of the summary.
+- The tray's latest reviews say how each one ended in words ("Not approved · Fix login", "Waiting for CI · …")
+  instead of ✓ / • / ✕ marks, and its idle line reads the same as the window's.
 - *Review again* on a failed or waiting review, and pasting the link of a failed PR into **Review**, starts it over;
   before, the same commit was never reviewed again.
 - Webhook recognises chat and push apps and sends in their format: Feishu / Lark, DingTalk, WeCom, Slack, Discord,

@@ -33,11 +33,29 @@ pub struct Check {
     pub action: Option<&'static str>,
     /// The code-host account the check is about (several accounts can be checked at once).
     pub account: Option<String>,
+    /// An engine failure of the kind the backup engine takes over at review time (not installed, signed out: what
+    /// `reviewer::classify` calls Unavailable). Any other failure ends the review without trying the backup, so the
+    /// window must not promise it.
+    pub fallback: bool,
 }
 
 impl Check {
     fn detail_account(&mut self, id: &str) -> &mut Self {
         self.account = Some(id.to_string());
+        self
+    }
+    /// For failures that are this kind by where they happen (the program is not there at all).
+    fn backup_takes_over(&mut self) -> &mut Self {
+        self.fallback = !self.ok;
+        self
+    }
+    /// For failures known only by what the engine printed: the same words decide at review time, so ask the same
+    /// classifier. A sign-in check can fail for many reasons (a wrong model name, a timeout); only "signed out" or
+    /// "out of quota" makes the review switch to the backup engine.
+    fn backup_if(&mut self, printed: &str) -> &mut Self {
+        self.fallback = !self.ok
+            && crate::reviewer::classify(printed, crate::util::now())
+                != crate::reviewer::Trouble::Other;
         self
     }
 }
@@ -99,6 +117,7 @@ impl Ctx<'_> {
             fix,
             action,
             account: None,
+            fallback: false,
         });
         self.v.last_mut().unwrap()
     }
@@ -256,7 +275,8 @@ fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
                     ),
                     FIX_INSTALL_CLAUDE,
                 )),
-            );
+            )
+            .backup_takes_over();
         }
         Some(exe) => {
             let exe = exe.to_string_lossy().to_string();
@@ -273,6 +293,7 @@ fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
             );
             if ok && live_claude {
                 let (good, detail) = claude_live(&exe, cfg);
+                let detail_raw = detail.clone();
                 c.push(
                     "claude_login",
                     ("Claude 登录", "Claude sign-in"),
@@ -285,7 +306,8 @@ fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
                         ),
                         FIX_CLAUDE_LOGIN,
                     )),
-                );
+                )
+                .backup_if(&detail_raw);
             }
         }
     }
@@ -407,7 +429,8 @@ pub fn engine_check(c: &mut Ctx, cfg: &Config, engine: &str, live: bool) {
                         ),
                         install,
                     )),
-                );
+                )
+                .backup_takes_over();
                 return;
             };
             let p = path.to_string_lossy().to_string();
@@ -422,7 +445,12 @@ pub fn engine_check(c: &mut Ctx, cfg: &Config, engine: &str, live: bool) {
                 );
                 return;
             }
-            if engine == "codex" && live {
+            // `codex login status` reads the local sign-in, no model call: checked even without `live`, so a backup
+            // engine that is signed out is not promised to take over
+            // CODEX_API_KEY in the environment signs `codex exec` in (reviewer::codex keeps it) while `login status` still
+            // says "Not logged in": with the key set there is nothing to check here
+            let env_key = std::env::var("CODEX_API_KEY").is_ok_and(|k| !k.trim().is_empty());
+            if engine == "codex" && !env_key {
                 let (signed, text) = out(&[&p, "login", "status"], 30);
                 c.push(
                     "engine_login",
@@ -436,7 +464,8 @@ pub fn engine_check(c: &mut Ctx, cfg: &Config, engine: &str, live: bool) {
                         ),
                         login,
                     )),
-                );
+                )
+                .backup_if(&text);
             }
             c.push(
                 "engine",
@@ -494,14 +523,19 @@ pub fn engine_check(c: &mut Ctx, cfg: &Config, engine: &str, live: bool) {
                         None,
                     );
                 }
-                Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Status(403, _)) => {
-                    c.push(
+                // 401 at review time reads "HTTP 401" and the backup engine takes over; a 403 does not (it may be a
+                // permission on one model, reviewer::classify does not count it)
+                Err(ureq::Error::Status(code @ (401 | 403), _)) => {
+                    let ch = c.push(
                         "engine",
                         (&name, &name),
                         false,
                         l(lang, "密钥被拒绝", "the key was rejected"),
                         Some((("检查 API 密钥", "Check the API key"), FIX_PLUGINS)),
                     );
+                    if code == 401 {
+                        ch.backup_takes_over();
+                    }
                 }
                 // some compatible servers have no /models: reachable is good enough
                 Err(ureq::Error::Status(_, _)) => {
@@ -638,6 +672,65 @@ mod tests {
         assert!(!c.ok);
         assert_eq!(c.action, Some(FIX_INSTALL_CLAUDE));
         assert!(c.detail.contains("not found"));
+    }
+
+    /// The overview says "reviews go to the backup engine" only for failures the backup really takes over at review
+    /// time: a program that is not installed (reviewer::classify: Unavailable) yes; an API engine without a model
+    /// (its review error is classified Other, so the review fails) no.
+    /// A sign-in check that failed is marked by what the engine printed, with the classifier the review uses:
+    /// signed out or out of quota hands over to the backup; a wrong model name or anything else does not.
+    #[test]
+    fn sign_in_failures_are_marked_by_what_was_printed() {
+        let mut c = Ctx::new("en");
+        c.push(
+            "claude_login",
+            ("x", "x"),
+            false,
+            "Not logged in · Please run /login",
+            None,
+        )
+        .backup_if("Not logged in · Please run /login");
+        c.push(
+            "claude_login",
+            ("x", "x"),
+            false,
+            "\"model: nope not_found_error\"",
+            None,
+        )
+        .backup_if("\"model: nope not_found_error\"");
+        c.push("claude_login", ("x", "x"), true, "model x", None)
+            .backup_if("model x");
+        let v = c.done();
+        assert!(v[0].fallback);
+        assert!(!v[1].fallback);
+        assert!(
+            !v[2].fallback,
+            "a passing check is never a failure the backup takes over"
+        );
+    }
+
+    #[test]
+    fn only_failures_the_backup_takes_over_say_so() {
+        let mut cfg = Config::default();
+        cfg.review.codex.exe = "definitely-not-a-codex-binary".into();
+        let mut c = Ctx::new("en");
+        engine_check(&mut c, &cfg, "codex", false);
+        let v = c.done();
+        assert!(!v[0].ok && v[0].fallback);
+        assert_eq!(
+            crate::reviewer::classify("Codex CLI (\"x\") not found on PATH", 0.0),
+            crate::reviewer::Trouble::Unavailable
+        );
+
+        cfg.review.api.model.clear();
+        let mut c = Ctx::new("en");
+        engine_check(&mut c, &cfg, "api", false);
+        let v = c.done();
+        assert!(!v[0].ok && !v[0].fallback);
+        assert_eq!(
+            crate::reviewer::classify("review.api.model is not set", 0.0),
+            crate::reviewer::Trouble::Other
+        );
     }
 
     /// An older configuration (the implicit `github` account, used with `gh` before) shows "not signed in" with a

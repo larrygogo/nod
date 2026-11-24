@@ -150,6 +150,9 @@ struct Row {
     earlier_approved: bool,
     /// The comments for this commit are on GitHub (posted while the approval waited for CI).
     commented: bool,
+    /// The approval on record is yours by hand ("Approve now"), after Nod itself did not approve: its reasons are why
+    /// Nod held back, not why the PR is unapproved.
+    direct: bool,
     at: f64,
 }
 
@@ -217,12 +220,13 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
                 })
             })
             .collect(),
-        earlier_approved: e.event.as_deref() != Some("APPROVE")
-            && e.status != "direct_approved"
-            && (!e.approve_ids.is_empty() || e.direct_approve_id.is_some())
-            // what the code host says now; without a decision (Gitea), Nod's own record
-            && e.last_pr_status.as_ref().is_none_or(|s| s.decision.is_empty() || s.decision == "APPROVED"),
+        earlier_approved: e.earlier_approval_counts(),
         commented: !e.sha.is_empty() && e.comment_sha == e.sha,
+        direct: e.status == "direct_approved"
+            || (e.event.as_deref() == Some("APPROVE")
+                && e.direct_approve_id.is_some_and(|id| {
+                    e.review_url.as_deref().is_some_and(|u| u.ends_with(&id.to_string()))
+                })),
         at: e.posted_at.max(e.queued_at).max(e.direct_at),
     }
 }
@@ -482,8 +486,12 @@ async fn check_plugin(
     kind: String,
     id: String,
     clear: Option<Vec<String>>,
+    // false: only what the machine can answer by itself (installed, signed in), no model call. The Plugins page checks
+    // everything in use this way each time it opens; the Self-test button asks for the full check.
+    live: Option<bool>,
 ) -> Result<Vec<doctor::Check>, String> {
     let c = from_window(cfg, &clear.unwrap_or_default())?;
+    let live = live.unwrap_or(true);
     tauri::async_runtime::spawn_blocking(move || {
         let mut ctx = doctor::Ctx::new(&c.language);
         match kind.as_str() {
@@ -495,7 +503,7 @@ async fn check_plugin(
                     .ok_or_else(|| format!("no account {id}"))?;
                 doctor::forge_check(&mut ctx, &acc, &c);
             }
-            "engine" => doctor::engine_check(&mut ctx, &c, &id, true),
+            "engine" => doctor::engine_check(&mut ctx, &c, &id, live),
             _ => return Err(format!("cannot check {kind}")),
         }
         Ok(ctx.done())
@@ -912,7 +920,7 @@ fn adopt_login_shell_path() {
     }
 }
 
-/// The five latest reviews for the tray menu: a mark and the title, with the review's (or PR's) link.
+/// The five latest reviews for the tray menu: the outcome in words and the title, with the review's (or PR's) link.
 fn recent_items(lang: &str) -> Vec<(String, String)> {
     let mut rows: Vec<Row> = supervisor::load_all()
         .iter()
@@ -923,19 +931,151 @@ fn recent_items(lang: &str) -> Vec<(String, String)> {
     rows.into_iter()
         .take(5)
         .map(|r| {
-            let mark = match (r.status.as_str(), r.event.as_deref()) {
-                ("direct_approved", _) | (_, Some("APPROVE")) => "✓",
-                ("failed", _) => "✕",
-                (_, Some(_)) => "•",
-                _ => "…",
-            };
             (
-                format!("{mark}  {}", r.title),
+                format!("{} · {}", tray_word(lang, &r), r.title),
                 r.review_url.unwrap_or(r.url),
             )
         })
         .filter(|(_, url)| url.starts_with("https://") || url.starts_with("http://"))
         .collect()
+}
+
+/// A review's outcome in the window's words (ui/pages/reviews.tsx `statusLabel`, same order of checks), so the tray
+/// never says something the window does not: words, not a ✓ / • / ✕ the reader has to decode.
+fn tray_word(lang: &str, r: &Row) -> &'static str {
+    let en = lang == "en";
+    let w = |zh: &'static str, e: &'static str| if en { e } else { zh };
+    let done = r.status == "posted" || r.status == "closed";
+    match r.status.as_str() {
+        _ if done && r.direct => w("已直接通过", "Approved directly"),
+        "retry" if r.wait_until > 0.0 => w("等引擎额度", "Waiting for quota"),
+        _ if done && r.earlier_approved => w("已 approve", "Approved"),
+        _ if done && r.event.as_deref() == Some("APPROVE") => w("已 approve", "Approved"),
+        _ if done && r.event.is_some() => w("未 approve", "Not approved"),
+        "closed" if r.commented => w("未 approve", "Not approved"),
+        "closed" if r.summary.is_some() && r.pr_state == "merged" => {
+            w("合并前未发出", "Merged before posting")
+        }
+        "closed" if r.summary.is_some() => w("关闭前未发出", "Closed before posting"),
+        "closed" => w("未发评审", "Not posted"),
+        "queued" => w("排队中", "Queued"),
+        "reviewing" => w("审查中", "Reviewing"),
+        "reviewed" => w("已审完", "Reviewed"),
+        "awaiting_ci" => w("等 CI", "Waiting for CI"),
+        "direct_approved" => w("已直接通过", "Approved directly"),
+        "failed" => w("失败", "Failed"),
+        "retry" => w("将重试", "Will retry"),
+        "withdrawn" => w("已撤回 approve", "Approval withdrawn"),
+        "aborted" => w("已中止", "Stopped"),
+        "stale" => w("已过期", "Outdated"),
+        "out_of_scope" => w("不在范围内", "Out of scope"),
+        "dry-run" => w("试审结果", "Dry run"),
+        "posted" => w("已发布", "Posted"),
+        _ => w("审查中", "Reviewing"),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn tray_items_say_what_the_window_says() {
+    let r = |status: &str, event: Option<&str>| Row {
+        account: String::new(),
+        platform: String::new(),
+        engine: String::new(),
+        key: String::new(),
+        title: String::new(),
+        url: String::new(),
+        author: String::new(),
+        status: status.into(),
+        pr_state: "open".into(),
+        event: event.map(Into::into),
+        summary: None,
+        findings: vec![],
+        reasons: vec![],
+        review_url: None,
+        error: None,
+        wait_until: 0.0,
+        sha: String::new(),
+        head: String::new(),
+        action_msg: String::new(),
+        direct_busy: false,
+        my_approvals: false,
+        rounds: vec![],
+        earlier_approved: false,
+        commented: false,
+        direct: false,
+        at: 0.0,
+    };
+    assert_eq!(
+        tray_word("zh-CN", &r("posted", Some("APPROVE"))),
+        "已 approve"
+    );
+    assert_eq!(
+        tray_word("zh-CN", &r("posted", Some("COMMENT"))),
+        "未 approve"
+    );
+    // an earlier approval still counts on the code host
+    assert_eq!(
+        tray_word(
+            "zh-CN",
+            &Row {
+                earlier_approved: true,
+                ..r("posted", Some("COMMENT"))
+            }
+        ),
+        "已 approve"
+    );
+    // out of quota: hours of waiting must not read as "Reviewing"
+    assert_eq!(
+        tray_word(
+            "en",
+            &Row {
+                wait_until: 1.0,
+                ..r("retry", None)
+            }
+        ),
+        "Waiting for quota"
+    );
+    assert_eq!(tray_word("en", &r("retry", None)), "Will retry");
+    assert_eq!(tray_word("en", &r("aborted", None)), "Stopped");
+    // you approved by hand after Nod held back, then the PR was merged
+    assert_eq!(
+        tray_word(
+            "en",
+            &Row {
+                direct: true,
+                ..r("closed", Some("APPROVE"))
+            }
+        ),
+        "Approved directly"
+    );
+    assert_eq!(
+        tray_word("en", &r("direct_approved", None)),
+        "Approved directly"
+    );
+    assert_eq!(tray_word("en", &r("awaiting_ci", None)), "Waiting for CI");
+    // comments went up while waiting for CI, then the PR was merged
+    assert_eq!(
+        tray_word(
+            "en",
+            &Row {
+                commented: true,
+                ..r("closed", None)
+            }
+        ),
+        "Not approved"
+    );
+    assert_eq!(
+        tray_word(
+            "en",
+            &Row {
+                summary: Some("x".into()),
+                pr_state: "merged".into(),
+                ..r("closed", None)
+            }
+        ),
+        "Merged before posting"
+    );
 }
 
 fn status_loop(app: AppHandle, t: tray::Tray) {

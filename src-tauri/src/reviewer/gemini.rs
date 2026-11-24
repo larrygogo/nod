@@ -94,7 +94,7 @@ impl Engine for Gemini {
             anyhow!(
                 "Gemini exited {:?}: {}",
                 o.status,
-                crate::util::truncate(o.stderr.trim(), 300)
+                crate::util::cli_error(&o.stderr, 300)
             )
         })?;
         if let Some(err) = res.get("error").filter(|e| !e.is_null()) {

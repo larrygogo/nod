@@ -1,39 +1,86 @@
-// Overview: is it working (and the fix if not), today's numbers, what needs you, the latest reviews.
+// Overview: is it working (and the fix if not); one sentence on whether anything waits on you and what Nod did this
+// week, with the week drawn next to it; then the latest reviews by day, newest first, flagged in place.
+import type { Row } from "../api";
 import { accounts, activeChannels, api } from "../api";
 import { useStore, stateLabel } from "../app";
 import { Icon, Tile } from "../icons";
-import { ago, t, type Key } from "../i18n";
-import { Button, Empty, Note } from "../ui";
+import { ago, lang, t, type Key } from "../i18n";
+import { Button, Note } from "../ui";
+import { daily, dayStart, needsYou, week } from "../derive";
 import { ReviewRow } from "./reviews";
+import { healthOf, usePluginHealth } from "../health";
 
-/** Why a review needs you, in words: Nod could not finish it (failed), or it only commented and the PR is still
- *  open, so whether to approve is your call. The first blocking reason says why it did not approve. */
-function needWhy(r: { status: string; reasons: string[]; earlier_approved: boolean }): { text: string; hint: string } {
+/** Why a review waits on you, in words: Nod could not finish it, or it commented and did not approve (the first
+ *  blocking reason says why), or an earlier approval still stands over a commit that did not pass. */
+export function needWhy(r: Row): { text: string; hint: string } {
   if (r.status === "failed") return { text: t("ov.need_failed"), hint: t("ov.need_failed_hint") };
   if (r.earlier_approved) return { text: t("ov.need_stale"), hint: t("ov.need_stale_hint") + " " + r.reasons.join("；") };
   return {
-    text: r.reasons[0] ? t("ov.need_reason", { r: r.reasons[0] }) : t("ov.need_comment"),
+    text: r.reasons[0] ?? t("ov.need_comment"),
     hint: r.reasons.length ? t("ov.need_comment_hint") + " " + r.reasons.join("；") : t("ov.need_comment_hint"),
   };
 }
 
+const id = (r: Row) => `${r.account}/${r.key}`;
+/** "owner/repo#12" → "repo#12": enough to recognise a PR in a short line. */
+const short = (key: string) => key.split("/").pop() ?? key;
+
+export function dayLabel(ts: number): string {
+  const d = dayStart(ts), today = dayStart(Date.now() / 1000);
+  if (d === today) return t("day.today");
+  if (d === dayStart(Date.now() / 1000, 1)) return t("day.yesterday");
+  return new Date(ts * 1000).toLocaleDateString(lang(), { month: "short", day: "numeric" });
+}
+
 export function OverviewPage() {
-  const { ov, draft, catalog, go, refresh } = useStore();
+  const { ov, draft, catalog, go, refresh, loaded } = useStore();
+  const engineKey = (pid: string) => `engine:${pid}`;
   const s = ov.status;
-  const plugin = (id: string) => catalog.find((p) => p.id === id);
-  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-  const today = ov.rows.filter((r) => r.at * 1000 >= dayStart.getTime());
-  const count = (f: (r: typeof today[0]) => boolean) => today.filter(f).length;
-  const open = (r: typeof ov.rows[0]) => r.pr_state !== "merged" && r.pr_state !== "closed";
-  const needs = ov.rows.filter((r) => open(r) && (r.status === "failed"
-    || (r.status === "posted" && r.event === "COMMENT"))).slice(0, 5);
-  const needKeys = new Set(needs.map((r) => `${r.account}/${r.key}`));
-  // One list, newest first: rows that need you are flagged in place instead of pinned above newer reviews.
-  const latest = ov.rows.slice(0, 8);
-  const recent = [...latest, ...needs.filter((r) => !latest.includes(r))].sort((a, b) => b.at - a.at);
-  const forges = accounts(draft).filter((a) => a.enabled).map((a) => a.kind);
+  const plugin = (pid: string) => catalog.find((p) => p.id === pid);
+  // A code host or engine in use that does not work, said with what it means (decided once every check is back):
+  //  - a code host: no review requests come in from that account;
+  //  - the default engine: its reviews fail, unless the failure is one the backup engine takes over at review time
+  //    (the check marks it: not installed, signed out) and the backup's own check passed;
+  //  - an engine only some repositories use: those repositories' reviews fail;
+  //  - an engine used only as the backup: not worth the overview (the Plugins list marks it).
+  const { health, ready } = usePluginHealth(loaded.config);
+  const cfg = loaded.config;
+  const fb = cfg.review.fallback;
+  const fbOk = !!fb && !!health[`engine:${fb}`] && healthOf(health[`engine:${fb}`]) !== "bad";
+  // the quick check sees a Codex or API backup's sign-in, not Claude's or Gemini's (that would cost a model call)
+  const fbSignInChecked = fb === "codex" || fb === "api";
+  // Gemini without approval allowed only comments: PRs that would have been approved by the rules are not
+  const fbNoApprove = fb === "gemini" && !cfg.review.gemini?.allow_approve;
+  const repoEngines = new Set((cfg.review.per_repo ?? []).map((r) => r.engine));
+  const broken = !ready ? [] : Object.entries(health).filter(([, r]) => healthOf(r) === "bad").flatMap(([k, r]) => {
+    const bad = r.find((c) => !c.ok)!;
+    const pid = k.slice(k.indexOf(":") + 1);
+    const forge = k.startsWith("forge:") ? accounts(cfg).find((a) => a.id === pid) : undefined;
+    const isDefault = !forge && pid === cfg.review.engine;
+    if (!forge && !isDefault && !repoEngines.has(pid)) return [];
+    const x = forge ? (plugin(forge.kind)?.name ?? forge.kind) + (accounts(cfg).length > 1 ? ` (${forge.id})` : "") : plugin(pid)?.name ?? pid;
+    const covered = !forge && pid !== fb && bad.fallback && fbOk;
+    const y = plugin(fb)?.name ?? fb;
+    const title = forge ? t("ov.broken_forge", { x })
+      : covered ? t("ov.broken_fb", { x, y })
+      : isDefault ? t("ov.broken_engine", { x }) : t("ov.broken_repo", { x });
+    // the title is the outcome; what it rests on (the backup's sign-in not checked, it will not approve) and the
+    // cause with its fix go on the line below
+    const caveats = covered ? [!fbSignInChecked && t("ov.fb_unchecked", { y }), fbNoApprove && t("ov.fb_no_approve", { y })].filter(Boolean) as string[] : [];
+    return [{ k, tone: (covered ? "warn" : "bad") as "bad" | "warn", title, detail: [bad.detail, bad.fix, ...caveats].filter(Boolean).join(t("ov.broken_sep")) }];
+  });
+  const brokenTone = broken.some((b) => b.tone === "bad") ? "bad" : "warn";
   const channels = activeChannels(draft);
   const problem = s.state === "error" || s.state === "paused";
+
+  // One list, newest first, by day: rows that need you are flagged in place, never pinned above newer reviews.
+  const latest = ov.rows.slice(0, 12);
+  const groups: { label: string; rows: Row[] }[] = [];
+  for (const r of latest) {
+    const label = dayLabel(r.at);
+    if (groups[groups.length - 1]?.label === label) groups[groups.length - 1].rows.push(r);
+    else groups.push({ label, rows: [r] });
+  }
 
   return (
     <div class="page">
@@ -61,42 +108,121 @@ export function OverviewPage() {
         </div>
       )}
 
+      {broken.length > 0 && (
+        <div class={`banner ${brokenTone}`}>
+          <Icon name="alert" />
+          <div class="grow">
+            <div class="banner-title">{broken.map((b) => b.title).join(t("ov.broken_join"))}</div>
+            <div class="small">{broken.map((b) => b.detail).join(t("ov.broken_join"))}</div>
+          </div>
+          <Button kind="primary" small onClick={() => go("plugins", `__plugin:${broken[0].k}`)}>{t("ov.broken_go")}</Button>
+        </div>
+      )}
+
       {ov.legacy.length > 0 && <Note>{t("ov.legacy")} {ov.legacy.join("；")}</Note>}
 
-      <section class="metrics" aria-label={t("ov.today")}>
-        <div class="metrics-title">{t("ov.today")}</div>
-        <Metric label={t("ov.reviewed")} value={count((r) => !!r.event || r.status === "failed")} />
-        <Metric label={t("ov.approved")} value={count((r) => r.event === "APPROVE" || r.status === "direct_approved")} tone="good" />
-        <Metric label={t("ov.commented")} value={count((r) => r.event === "COMMENT")} tone="warn" />
-        <Metric label={t("ov.failed")} value={count((r) => r.status === "failed")} tone="bad" />
-      </section>
+      <Digest />
 
       <div class="chain">
-        {[...forges, draft.review.engine, ...channels].map((id, i) => {
-          const p = plugin(id);
-          return <span class="chain-item" key={`${id}-${i}`}><Tile icon={p?.icon ?? "plugin"} size={18} />{p?.name ?? id}</span>;
+        {[...accounts(draft).filter((a) => a.enabled).map((a) => [a.kind, `forge:${a.id}`]), [draft.review.engine, engineKey(draft.review.engine)],
+          ...channels.map((c) => [c, ""])].map(([pid, hk], i) => {
+          const p = plugin(pid);
+          const h = hk ? healthOf(health[hk]) : null;
+          return <span class={`chain-item${h ? " " + h : ""}`} key={`${pid}-${i}`} title={h ? t(h === "bad" ? "pl.broken" : "pl.attention") : undefined}>
+            <Tile icon={p?.icon ?? "plugin"} size={18} />{p?.name ?? pid}{h && <Icon name="alert" size={12} />}</span>;
         })}
         {channels.length === 0 && <span class="chain-item muted">{t("ov.no_channel")}</span>}
         <button class="link small" onClick={() => go("plugins")}>{t("ov.change")}</button>
       </div>
 
-      <section class="block">
-        <header class="block-head">
-          <h2 class="block-title">{t("ov.recent")}</h2>
-          {ov.rows.length > 0 && <button class="link small" onClick={() => go("reviews")}>{t("btn.all_reviews")} <Icon name="chevron" size={14} /></button>}
-        </header>
-        {ov.rows.length === 0 ? <div class="list-card"><Empty icon="list">{t("ov.empty")}</Empty></div>
-          : recent.length > 0 && <div class="list-card">{recent.map((r) => <ReviewRow r={r} flag={needKeys.has(`${r.account}/${r.key}`) ? needWhy(r) : undefined} onClick={() => go("reviews", `${r.account}/${r.key}`)} />)}</div>}
-      </section>
+      {groups.map((g, i) => (
+        <section class="block" key={g.label}>
+          <header class="block-head">
+            <h2 class="block-title">{g.label}</h2>
+            {i === 0 && <button class="link small" onClick={() => go("reviews")}>{t("btn.all_reviews")} <Icon name="chevron" size={14} /></button>}
+          </header>
+          <div class="list-card">{g.rows.map((r) => <ReviewRow key={id(r)} r={r} flag={needsYou(r) ? needWhy(r) : undefined} onClick={() => go("reviews", id(r))} />)}</div>
+        </section>
+      ))}
     </div>
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number; tone?: string }) {
+/** The first thing on the page: does anything wait on you (and which), what is happening now, and the week in one
+ *  sentence with the days drawn next to it. */
+function Digest() {
+  const { ov, go } = useStore();
+  const needs = ov.rows.filter(needsYou);
+  const reviewing = ov.rows.filter((r) => r.status === "reviewing" || r.status === "queued");
+  // after an error the rows may be stale: do not claim that nothing waits on you
+  const stale = ov.status.state === "error";
+  const ci = ov.rows.filter((r) => r.status === "awaiting_ci");
+  const w = week(ov.rows);
+  // English needs the singular for one; Chinese counts the same either way
+  const n = (k: number, one: string, many: string) => (lang() === "en" ? `${k} ${k === 1 ? one : many}` : String(k));
+  // two clauses that wrap between each other, never leaving two characters alone on the last line
+  const sentence = !w.prs ? t("ov.week_none") : <>
+    <span class="clause">{t("ov.week", { prs: n(w.prs, "PR", "PRs"), rounds: n(w.rounds, "round", "rounds") })}</span>
+    <span class="clause">{t("ov.week_ok", { ok: w.approved }) + (w.held ? t("ov.week_held", { n: w.held }) : "") + t("ov.week_end")}</span>
+  </>;
+  const lead = !ov.rows.length ? t("ov.lead_new") : needs.length ? t(needs.length === 1 ? "ov.lead_need_one" : "ov.lead_need", { n: needs.length })
+    : stale ? t("ov.lead_stale") : t("ov.lead_clear");
+  const tone = !ov.rows.length || (stale && !needs.length) ? "" : needs.length ? "warn" : "good";
   return (
-    <div class={`metric ${value > 0 ? tone ?? "" : ""}`}>
-      <div class="metric-value">{value}</div>
-      <div class="metric-label">{label}</div>
-    </div>
+    <section class="digest">
+      <div class="grow">
+        <div class={`digest-lead ${tone}`}>
+          {tone && <Icon name={needs.length ? "hand" : "check"} />}
+          <span>{lead}</span>
+        </div>
+        <p class="digest-sub">{ov.rows.length ? sentence : t("ov.lead_new_sub")}</p>
+        {!ov.rows.length && <div class="digest-chips"><Button small icon="hand" onClick={() => go("reviews", "__hand__")}>{t("ov.first_review")}</Button></div>}
+        {(needs.length > 0 || reviewing.length > 0 || ci.length > 0) && (
+          <div class="digest-chips">
+            {needs.slice(0, 3).map((r) => (
+              <button key={id(r)} class="chip warn" title={needWhy(r).hint} onClick={() => go("reviews", id(r))}>
+                <b class="mono">{short(r.key)}</b><span class="ellipsis">{needWhy(r).text}</span>
+              </button>
+            ))}
+            {needs.length > 3 && <button class="chip" onClick={() => go("reviews", "__filter:needs")}>{t("ov.more_needs", { n: needs.length - 3 })}</button>}
+            {reviewing.slice(0, 2).map((r) => (
+              <button key={id(r)} class="chip busy" onClick={() => go("reviews", id(r))}><span class="spinner" />
+                <span class="ellipsis">{t(r.status === "queued" ? "ov.now_queued" : "ov.now_reviewing", { k: short(r.key) })}</span></button>
+            ))}
+            {reviewing.length > 2 && <button class="chip busy" onClick={() => go("reviews", "__filter:active")}><span class="ellipsis">{t("ov.more_active", { n: reviewing.length - 2 })}</span></button>}
+            {ci.length > 0 && <button class="chip busy" onClick={() => go("reviews", id(ci[0]))}><Icon name="check" size={12} />
+              <span class="ellipsis">{t("ov.now_ci", { n: ci.length })}</span></button>}
+          </div>
+        )}
+      </div>
+      {ov.rows.length > 0 && <WeekBars rows={ov.rows} />}
+    </section>
+  );
+}
+
+/** Seven columns, one per day: reviews Nod approved (green) under the ones it only commented on (amber). */
+function WeekBars({ rows }: { rows: Row[] }) {
+  const d = daily(rows, 7);
+  const max = Math.max(1, ...d.map((x) => x.approved + x.commented));
+  // "周一" / "Mon", not the one-letter form: a lone "一" reads as a dash
+  const wd = (ts: number) => new Date(ts * 1000).toLocaleDateString(lang(), { weekday: "short" });
+  return (
+    <figure class="week" aria-label={t("ov.week_chart")}>
+      <div class="week-bars">
+        {d.map((x, i) => (
+          <div class="week-col" title={t("ov.week_tip", { d: dayLabel(x.day), ok: x.approved, no: x.commented })}>
+            <div class="week-stack">
+              {x.commented > 0 && <span class="seg warn" style={{ height: `${(x.commented / max) * 100}%` }} />}
+              {x.approved > 0 && <span class="seg good" style={{ height: `${(x.approved / max) * 100}%` }} />}
+              {x.approved + x.commented === 0 && <span class="seg none" />}
+            </div>
+            <span class={`week-day${i === d.length - 1 ? " today" : ""}`}>{wd(x.day)}</span>
+          </div>
+        ))}
+      </div>
+      <figcaption class="week-legend">
+        <span><i class="good" />{t("ov.legend_ok")}</span><span><i class="warn" />{t("ov.legend_no")}</span>
+      </figcaption>
+    </figure>
   );
 }

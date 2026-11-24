@@ -697,6 +697,32 @@ fn clean_without_findings_posts_only_the_approval_after_ci() {
     assert!(body.contains("结论：Approve"), "{body}");
 }
 
+/// Only issues raised before (a busy PR, commit after commit): no review of their own while CI runs; they go once,
+/// folded, with the approval.
+#[test]
+fn issues_raised_before_wait_for_the_approval_instead_of_a_review_of_their_own() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        let mut v = minor();
+        for x in &mut v.findings {
+            x.title = format!("{}（已有评论提过）", x.title);
+        }
+        w.verdict = Some(v);
+        w.ci = "pending".into();
+    }
+    en.review_one(&f.pr());
+    assert_eq!(e(&en).status, "awaiting_ci");
+    assert!(f.w().posts.is_empty());
+    f.w().ci = "success".into();
+    en.finish_safe("o/r#1");
+    assert_eq!(f.w().posts, vec!["APPROVE"]);
+    let b = f.w().bodies[0].clone();
+    let body = b["body"].as_str().unwrap();
+    assert!(body.contains("<details>"), "{body}");
+    assert!(b["comments"].as_array().is_none_or(|c| c.is_empty()), "{b}");
+}
+
 #[test]
 fn ci_failing_after_the_comments_says_why_without_repeating_them() {
     let (f, en, _d) = setup();
