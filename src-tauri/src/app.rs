@@ -135,6 +135,8 @@ struct Row {
     error: Option<String>,
     /// A retry waits for the engine's quota until this time (unix seconds); 0 = not waiting for quota.
     wait_until: f64,
+    /// While waiting: the engine cannot run (signed out, not installed) rather than out of quota.
+    wait_signin: bool,
     /// The commit this record is about (short), and in full (what "Approve" in the window approves).
     sha: String,
     head: String,
@@ -201,6 +203,11 @@ fn row(lang: &str, acc: &(String, String), key: &str, e: &Entry) -> Row {
         review_url: e.review_url.clone(),
         error: e.error.clone(),
         wait_until: if e.waits > 0 && e.status == "retry" { e.retry_at } else { 0.0 },
+        wait_signin: e.waits > 0
+            && e.status == "retry"
+            && e.error.as_deref().is_some_and(|m| {
+                crate::reviewer::classify(m, 0.0) == crate::reviewer::Trouble::Unavailable
+            }),
         sha: e.sha.chars().take(7).collect(),
         head: e.sha.clone(),
         action_msg: e.action_msg.clone(),
@@ -948,6 +955,7 @@ fn tray_word(lang: &str, r: &Row) -> &'static str {
     let done = r.status == "posted" || r.status == "closed";
     match r.status.as_str() {
         _ if done && r.direct => w("已直接通过", "Approved directly"),
+        "retry" if r.wait_until > 0.0 && r.wait_signin => w("等引擎登录", "Engine signed out"),
         "retry" if r.wait_until > 0.0 => w("等引擎额度", "Waiting for quota"),
         _ if done && r.earlier_approved => w("已 approve", "Approved"),
         _ if done && r.event.as_deref() == Some("APPROVE") => w("已 approve", "Approved"),
@@ -995,6 +1003,7 @@ fn tray_items_say_what_the_window_says() {
         review_url: None,
         error: None,
         wait_until: 0.0,
+        wait_signin: false,
         sha: String::new(),
         head: String::new(),
         action_msg: String::new(),
@@ -1035,6 +1044,18 @@ fn tray_items_say_what_the_window_says() {
             }
         ),
         "Waiting for quota"
+    );
+    // signed out: waiting on the user, not on time
+    assert_eq!(
+        tray_word(
+            "zh-CN",
+            &Row {
+                wait_until: 1.0,
+                wait_signin: true,
+                ..r("retry", None)
+            }
+        ),
+        "等引擎登录"
     );
     assert_eq!(tray_word("en", &r("retry", None)), "Will retry");
     assert_eq!(tray_word("en", &r("aborted", None)), "Stopped");

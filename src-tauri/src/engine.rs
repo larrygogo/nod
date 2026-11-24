@@ -345,6 +345,23 @@ pub fn quota_backoff(n: u32) -> f64 {
     (900.0 * 2f64.powi(n.saturating_sub(1).min(10) as i32)).min(6.0 * 3600.0)
 }
 
+/// An engine that is signed out is tried again at least this often, so fixing the sign-in is noticed soon.
+pub const SIGNIN_RETRY_MAX_S: f64 = 1800.0;
+
+/// How to get an engine that cannot run working again, in a few words.
+fn signin_fix(lang: &str, engine: &str) -> String {
+    let zh = lang != "en";
+    match engine {
+        "" | "claude" if zh => "在终端运行 claude，输入 /login 重新登录（想长期不过期可改用 claude setup-token）",
+        "" | "claude" => "run claude in a terminal and type /login (claude setup-token gives a sign-in that lasts a year)",
+        "codex" if zh => "在终端运行 codex login 重新登录",
+        "codex" => "run codex login in a terminal",
+        _ if zh => "到插件页检查审查引擎",
+        _ => "check the review engine on the Plugins page",
+    }
+    .to_string()
+}
+
 const RECALL: [&str; 6] = [
     "posted",
     "stale",
@@ -685,6 +702,15 @@ impl Engine {
                         e.retry_at = until.unwrap_or_else(|| now() + quota_backoff(e.waits));
                         e.status = "retry".into();
                         (false, e.waits == 1, String::new())
+                    } else if trouble == crate::reviewer::Trouble::Unavailable {
+                        // Signed out or not installed: nothing wrong with this PR, and every PR fails the same way
+                        // until the user fixes the engine. Wait like for a quota, checking often enough that a fixed
+                        // sign-in is picked up within half an hour.
+                        e.attempts = e.attempts.saturating_sub(1);
+                        e.waits += 1;
+                        e.retry_at = now() + quota_backoff(e.waits).min(SIGNIN_RETRY_MAX_S);
+                        e.status = "retry".into();
+                        (false, e.waits == 1, String::new())
                     } else if e.attempts >= self.cfg.review.max_attempts {
                         e.status = "failed".into();
                         (true, false, self.stale_approve_note(e))
@@ -696,13 +722,22 @@ impl Engine {
                 });
                 self.store.save();
                 if first_wait {
-                    let engine = review::engine_name(&self.cfg.engine_for(&pr.repo, &self.me));
+                    let id = self.cfg.engine_for(&pr.repo, &self.me);
+                    let engine = review::engine_name(&id);
                     let until = self.store.get(&key).map(|e| e.retry_at).unwrap_or_default();
-                    let msg = tf(
-                        self.lang(),
-                        "note.quota_wait",
-                        &[("engine", &engine), ("at", &util::clock(until))],
-                    );
+                    let msg = if trouble == crate::reviewer::Trouble::Unavailable {
+                        tf(
+                            self.lang(),
+                            "note.signin_wait",
+                            &[("engine", &engine), ("fix", &signin_fix(self.lang(), &id))],
+                        )
+                    } else {
+                        tf(
+                            self.lang(),
+                            "note.quota_wait",
+                            &[("engine", &engine), ("at", &util::clock(until))],
+                        )
+                    };
                     self.note(&key, "wait", &msg, None);
                 }
                 if failed && review::always_approve(&self.cfg, pr, &self.me) {

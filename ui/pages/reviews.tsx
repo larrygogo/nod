@@ -16,7 +16,7 @@ export function clock(ts: number): string {
 }
 
 export function statusLabel(r: Row): string {
-  if (r.status === "retry" && r.wait_until > 0) return t("st.waiting");
+  if (r.status === "retry" && r.wait_until > 0) return t(r.wait_signin ? "st.waiting_signin" : "st.waiting");
   // approved by you after Nod held back: say so, or its reasons below read like Nod approved despite them
   const k = (r.status === "posted" || r.status === "closed") && r.direct ? "st.direct_approved"
     : (r.status === "posted" || r.status === "closed") && r.earlier_approved ? "st.posted.APPROVE"
@@ -361,7 +361,7 @@ export function Detail({ r }: { r: Row }) {
         <Note>{t(r.commented ? "rv.closed_commented" : r.earlier_approved ? "rv.not_posted_earlier" : "rv.not_posted", { sha: r.sha })}</Note>
       )}
       {r.action_msg && !r.direct_busy && r.status !== "direct_approved" && <Note tone="warn">{r.action_msg}</Note>}
-      {waiting && <Note tone="warn">{t("rv.quota_wait", { at: clock(r.wait_until) })}</Note>}
+      {waiting && <Note tone="warn">{r.wait_signin ? t("rv.signin_wait") : t("rv.quota_wait", { at: clock(r.wait_until) })}</Note>}
       {r.error && (waiting ? <p class="muted small" style={{ wordBreak: "break-word" }}>{r.error}</p> : <Note tone="bad">{r.error}</Note>)}
 
       {r.rounds.length >= 2 && <RoundTrend rounds={r.rounds} />}
