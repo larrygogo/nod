@@ -1,6 +1,6 @@
 [package]
 name = "nod"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.89"
 description = "Your personal code-review agent: reviews the pull requests you're asked to review on your own machine with Claude Code, approves only by your rules, and keeps you posted."
