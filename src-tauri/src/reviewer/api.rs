@@ -379,6 +379,10 @@ fn converse(
                         "未执行：工具调用额度已经用完。".to_string()
                     }
                 } else {
+                    crate::info!(
+                        "{key}: the model calls {name} {}",
+                        crate::util::truncate(&args, 200)
+                    );
                     tools.call(name, &args)
                 };
                 let t = json!({"role": "tool", "tool_call_id": c["id"], "content": out});
@@ -1107,6 +1111,104 @@ Connection: close
             m["content"].as_str().unwrap().starts_with("Time is up"),
             "{m}"
         );
+    }
+
+    /// Live check against the endpoint in your own settings (it costs tokens): reviews one commit of this repository.
+    /// `NOD_LIVE_API=1 cargo test live_review -- --ignored --nocapture`; `NOD_LIVE_COMMIT` (default ec6cdaf) picks
+    /// the commit, `NOD_LIVE_KB` overrides `max_diff_kb` (a small value makes the model fetch diffs with get_diff).
+    #[test]
+    #[ignore]
+    fn live_review_against_the_configured_endpoint() {
+        if std::env::var("NOD_LIVE_API").as_deref() != Ok("1") {
+            return;
+        }
+        let commit = std::env::var("NOD_LIVE_COMMIT").unwrap_or_else(|_| "ec6cdaf".into());
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let git = |args: &[&str], cwd: &Path| {
+            let o = std::process::Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .output()
+                .unwrap();
+            assert!(
+                o.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+            String::from_utf8_lossy(&o.stdout).into_owned()
+        };
+        let d = tempfile::tempdir().unwrap();
+        let wt = d.path().join("wt");
+        let ctx = d.path().join("wt-ctx");
+        git(
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                wt.to_str().unwrap(),
+                &commit,
+            ],
+            &repo,
+        );
+        fs::create_dir_all(&ctx).unwrap();
+        let base = format!("{commit}^");
+        fs::write(
+            ctx.join("diff.patch"),
+            git(&["diff", "-U8", &base, &commit], &wt),
+        )
+        .unwrap();
+        fs::write(
+            ctx.join("diffstat.txt"),
+            git(&["diff", "--stat=200", &base, &commit], &wt),
+        )
+        .unwrap();
+        fs::write(
+            ctx.join("commits.txt"),
+            git(
+                &["log", "--format=%h %an %s", &format!("{base}..{commit}")],
+                &wt,
+            ),
+        )
+        .unwrap();
+        let mut cfg = crate::config::load().unwrap();
+        if let Ok(kb) = std::env::var("NOD_LIVE_KB") {
+            cfg.review.api.max_diff_kb = kb.parse().unwrap();
+        }
+        let mut p = pr("live");
+        p.repo = "larrygogo/nod".into();
+        p.title = git(&["log", "-1", "--format=%s", &commit], &wt)
+            .trim()
+            .to_string();
+        p.head = commit.clone();
+        let res = Api.ask(&cfg, &p, &wt, &ctx, "", "GitHub");
+        let _ = git(
+            &["worktree", "remove", "--force", wt.to_str().unwrap()],
+            &repo,
+        );
+        let v = res.unwrap();
+        eprintln!(
+            "LIVE model={} requests={:?} {}s budget={}KB unseen={:?} minor={:?}
+summary: {}
+findings: {}
+approve_recommended: {} unable: {:?}",
+            v.meta.model,
+            v.meta.turns,
+            v.meta.duration_s,
+            budget(&cfg) / 1024,
+            v.meta.unseen,
+            v.meta.unseen_minor,
+            v.summary,
+            v.findings.len(),
+            v.approve_recommended,
+            v.unable_reason
+        );
+        for f in &v.findings {
+            eprintln!("  [{}] {}:{} {}", f.severity, f.path, f.line, f.title);
+        }
     }
 
     #[test]
