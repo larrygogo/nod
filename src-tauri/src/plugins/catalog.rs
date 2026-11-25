@@ -153,7 +153,12 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           "claude",
           vec![
               f("review.claude", l.t("claude 程序", "claude program"), "text").ph("claude").opt(),
-              f("review.claude_config_dir", l.t("配置目录（换账号时填）", "Config directory (for another account)"), "text").opt(),
+              f("review.claude_config_dir", l.t("配置目录（留空即可）", "Config directory (leave empty)"), "text")
+                  .ph(&l.t("留空：用你在终端里登录的账号", "Empty: the account you signed in with in a terminal"))
+                  .help(l.t(
+                      "只有想让 Nod 用另一个 Claude 账号时才填：填那个账号的配置目录（相当于 CLAUDE_CONFIG_DIR，平时是 ~/.claude），不是用户目录。",
+                      "Only to use another Claude account: that account's config directory (CLAUDE_CONFIG_DIR, normally ~/.claude), not your home folder.",
+                  )).opt(),
               f("review.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text").opt(),
           ],
           vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("good", l.t("只读，不能执行命令", "Read-only, no commands"))],

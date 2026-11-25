@@ -129,7 +129,7 @@ the next time the app starts. Every option is described in
 | `approve.repos` / `approve.authors` | all | auto-approve only in these repositories / for these authors (e.g. `dependabot[bot]`) |
 | `approve.exclude_repos` / `exclude_authors` | | never auto-approve these |
 | `review.model` | Claude Code's default | e.g. a faster model for small repositories |
-| `review.claude_config_dir` | | which Claude Code profile to use (`CLAUDE_CONFIG_DIR`) |
+| `review.claude_config_dir` | | leave empty for the account you use in a terminal; only for another Claude account, its config directory (`CLAUDE_CONFIG_DIR`, normally `~/.claude`), not your home folder |
 | `review.engine` | `claude` | default engine: `claude`, `codex`, `gemini`, `api` or `ext:<plugin>` |
 | `review.per_repo` | | another engine for some repositories, e.g. `[{ repo = "my-org/infra", engine = "codex" }]` |
 | `[[forges]]` | one GitHub account | code-host accounts: `id`, `kind` (`github`, `gitee`, `gitea`), `url`, `enabled` |

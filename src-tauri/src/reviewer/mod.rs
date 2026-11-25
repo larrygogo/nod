@@ -388,6 +388,11 @@ pub fn classify(msg: &str, now: f64) -> Trouble {
         "unauthorized",
         "api key not valid",
         "oauth token has expired",
+        // Claude Code when its sign-in expired and the refresh token no longer works:
+        // "Failed to authenticate: OAuth session expired and could not be refreshed"
+        "failed to authenticate",
+        "session expired",
+        "could not be refreshed",
         // Gemini CLI with no sign-in configured
         "please set an auth method",
     ];
@@ -659,6 +664,14 @@ mod tests {
         );
         assert_eq!(
             classify("HTTP 401: unauthorized", now),
+            Trouble::Unavailable
+        );
+        // reqgenie#255, 2026-11-24
+        assert_eq!(
+            classify(
+                "Claude returned an error: \"Failed to authenticate: OAuth session expired and could not be refreshed\"",
+                now
+            ),
             Trouble::Unavailable
         );
         assert_eq!(

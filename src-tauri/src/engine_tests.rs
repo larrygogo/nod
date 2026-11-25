@@ -571,6 +571,36 @@ fn out_of_quota_waits_without_using_up_attempts() {
     );
 }
 
+/// reqgenie#255: Claude Code's sign-in expired. Not this PR's fault: no attempts used up, no "needs you" card with the
+/// raw English error, but a wait that says how to fix it, retried at least every half hour.
+#[test]
+fn a_signed_out_engine_waits_instead_of_failing_the_pr() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        w.claude_fail = true;
+        w.fail_msg = "Claude returned an error: \"Failed to authenticate: OAuth session expired and could not be refreshed\"".into();
+        w.requested = vec![("o/r".into(), 1)];
+    }
+    for _ in 0..4 {
+        en.store.with("o/r#1", |e| e.retry_at = 0.0);
+        en.review_one(&f.pr());
+    }
+    let x = e(&en);
+    assert_eq!((x.status.as_str(), x.attempts, x.waits), ("retry", 0, 4));
+    assert!(x.retry_at <= util::now() + crate::engine::SIGNIN_RETRY_MAX_S + 1.0);
+    let note = x.note.unwrap();
+    assert_eq!(note.kind, "wait");
+    assert!(note.text.contains("/login"), "{}", note.text);
+    assert!(f.w().posts.is_empty());
+
+    // signed in again: the next try reviews it
+    en.store.with("o/r#1", |e| e.retry_at = util::now() - 1.0);
+    f.w().claude_fail = false;
+    en.review_one(&f.pr());
+    assert_eq!(e(&en).status, "posted");
+}
+
 #[test]
 fn quota_backoff_doubles_up_to_six_hours() {
     use crate::engine::quota_backoff;
@@ -913,6 +943,30 @@ fn collect_todo_and_rereview() {
         w.requested.clear();
     }
     assert_eq!(en.collect_todo().unwrap()[0].head, "ccccccc3"); // new commit: again
+}
+
+/// Comments posted while waiting for CI, then a new commit: GitHub has dropped the review request and nothing was
+/// "posted" yet, but the new commit is still picked up on the next poll (kaptra-worker-template#5).
+#[test]
+fn stale_after_comments_is_rereviewed() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        w.verdict = Some(minor());
+        w.ci = "pending".into();
+        w.requested.clear();
+    }
+    en.review_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
+    f.w().pr_head = "ccccccc3".into();
+    en.finish_safe("o/r#1");
+    assert_eq!(e(&en).status, "stale");
+    assert_eq!(e(&en).posted_at, 0.0);
+    let todo = en.collect_todo().unwrap();
+    assert_eq!(todo.len(), 1);
+    assert_eq!(todo[0].head, "ccccccc3");
+    en.review_one(&todo[0]);
+    assert!(en.collect_todo().unwrap().is_empty()); // same commit: not again
 }
 
 #[test]
