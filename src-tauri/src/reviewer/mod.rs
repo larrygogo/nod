@@ -4,6 +4,7 @@
 //! what happens with the verdict (comment or approve) is decided by the fixed rules in `review::decide`.
 
 pub mod api;
+pub mod api_tools;
 pub mod claude;
 pub mod codex;
 pub mod gemini;

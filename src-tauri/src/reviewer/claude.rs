@@ -92,7 +92,7 @@ impl Engine for Claude {
                 .and_then(|m| m.keys().next().cloned())
                 .unwrap_or_default(),
             engine: "claude".into(),
-            no_approve: false,
+            ..Default::default()
         };
         Ok(v)
     }

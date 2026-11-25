@@ -183,16 +183,24 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("warn", l.t("无系统沙箱，默认不 approve", "No OS sandbox; does not approve by default"))],
           "https://geminicli.com/docs"),
         p("api", "engine", l.t("OpenAI 兼容 API", "OpenAI-compatible API").as_str(),
-          l.t("OpenAI、DeepSeek、通义千问、Ollama 等兼容接口。只看 diff，看不到仓库。", "Any OpenAI-compatible service: OpenAI, DeepSeek, Qwen, OpenRouter, a local Ollama… The model sees only the diff, not the repository."),
+          l.t(
+              "OpenAI、DeepSeek、通义千问、Ollama 等兼容接口。模型用只读工具按需读这个 PR 的代码；接口不支持工具时只看 diff。",
+              "Any OpenAI-compatible service: OpenAI, DeepSeek, Qwen, OpenRouter, a local Ollama… The model reads the PR's code as it needs through read-only tools; an endpoint without tool support gets only the diff.",
+          ),
           "api",
           vec![
               f("review.api.base_url", l.t("接口地址", "Base URL"), "text").ph("https://api.deepseek.com/v1")
                   .help(l.t("Ollama 填 http://localhost:11434/v1", "For Ollama: http://localhost:11434/v1")),
               f("review.api.model", l.t("模型", "Model"), "text").ph("deepseek-chat"),
               f("review.api.key", l.t("API 密钥（本地模型可留空）", "API key (may be empty for local models)"), "password"),
-              f("review.api.max_diff_kb", l.t("diff 最多发送（KB）", "Send at most this much diff (KB)"), "number").opt(),
+              f("review.api.max_diff_kb", l.t("每次审查最多发送（KB）", "Send at most this much per review (KB)"), "number")
+                  .ph(&l.t("0 = 自动", "0 = automatic"))
+                  .help(l.t(
+                      "0 = 自动：本机的 Ollama、LM Studio 用 24，其它用 200。Ollama 的默认上下文很小，超出会被悄悄截掉：先用 OLLAMA_CONTEXT_LENGTH 调大，再调高这里。放不下、模型也没取来看的文件，Nod 不会 approve。",
+                      "0 = automatic: 24 for Ollama or LM Studio on this machine, 200 otherwise. Ollama's default context is small and it cuts longer input silently: raise it with OLLAMA_CONTEXT_LENGTH first, then raise this. Nod does not approve when the model did not see every changed file.",
+                  )).opt(),
           ],
-          vec![b("warn", l.t("只看 diff", "Sees only the diff")), b("good", l.t("不接触本机文件", "Never touches local files"))], ""),
+          vec![b("good", l.t("按需读仓库（只读）", "Reads the repository as needed (read-only)")), b("good", l.t("不执行命令", "Runs no commands"))], ""),
         // ------------------------------------------------------------ notifications
         p("system", "notify", l.t("系统通知", "Desktop notifications").as_str(),
           l.t("审查完成或出错时弹系统通知，点击打开 PR。", "A desktop notification when a review is posted or something fails; click it to open the PR."),

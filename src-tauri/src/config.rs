@@ -134,7 +134,8 @@ pub struct ApiEngine {
     pub model: String,
     /// Stored in the system keychain; only kept here when the keychain is unavailable.
     pub key: String,
-    /// The diff is cut to this many KiB before it is sent.
+    /// The whole conversation (the diff in the message plus what the tools return) sends at most this many KiB.
+    /// 0 = by endpoint: small for one on this machine (Ollama, LM Studio), 200 for any other.
     pub max_diff_kb: u64,
 }
 
@@ -144,7 +145,7 @@ impl Default for ApiEngine {
             base_url: "https://api.openai.com/v1".into(),
             model: String::new(),
             key: String::new(),
-            max_diff_kb: 200,
+            max_diff_kb: 0,
         }
     }
 }

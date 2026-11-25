@@ -25,6 +25,7 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("reason.approve_disabled", "已配置为只评论，不自动 approve", "auto-approval is turned off (approve.mode = never)"),
     ("reason.approve_repo", "这个仓库不在自动 approve 名单里", "this repository is not on the auto-approve list"),
     ("reason.engine_no_approve", "这个审查引擎隔离较弱，按设置不自动 approve", "this review engine is not isolated enough to approve (see its settings)"),
+    ("reason.unseen", "有文件的改动 AI 没有看到", "the AI did not see the changes of some files"),
     ("reason.approve_author", "这个作者不在自动 approve 名单里", "this author is not on the auto-approve list"),
     // GitHub review body
     ("review.approve", "**结论：Approve。** {summary}", "**Verdict: Approve.** {summary}"),
@@ -42,6 +43,9 @@ const TABLE: &[(&str, &str, &str)] = &[
         "问题清单（🔴 高会阻塞 approve；🟠 中建议本 PR 修；🟡 低可排后；⚪ nit 顺手改）：",
         "Findings (🔴 High blocks approval; 🟠 Medium should be fixed in this PR; 🟡 Low can wait; ⚪ Nit is optional):",
     ),
+    ("review.unseen", "**AI 没有看到这些文件的改动，需要人工看：** {files}", "**The AI did not see the changes of these files; a person has to look at them:** {files}"),
+    ("review.unseen_minor", "没看的低价值文件（lockfile、压缩产物、快照，不影响 approve）：{files}", "Low-value files it did not look at (lock files, minified bundles, snapshots; they do not hold the approval): {files}"),
+    ("review.and_more", " 等，还有 {n} 个", " and {n} more"),
     ("review.old_issue", " · 老问题", " · pre-existing"),
     ("review.raised_mark", " · 之前提过", " · raised before"),
     ("review.still_open", "之前提过、仍未修的 {n} 条（不再逐行重发）", "{n} raised before and still open (not commented again line by line)"),

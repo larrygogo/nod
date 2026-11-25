@@ -3,6 +3,20 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Reviews
+
+- The OpenAI-compatible API engine is no longer limited to the diff it is sent: the model gets read-only tools on the
+  PR's checkout (`get_diff`, `read_file`, `list_dir`, `search`; Nod runs them, nothing is executed) and reads the
+  code it needs. An endpoint without tool support still gets the diff alone.
+- A diff too big for one message is no longer cut in the middle of a file: whole files go in, lock files and other
+  low-value files last, and the rest is listed for the model to fetch. A review that never saw a changed file's diff
+  does not approve, and its comment lists those files for a person to check.
+- `review.api.max_diff_kb` now limits the whole review conversation, and 0 (the new default) picks a size by
+  endpoint: 24 KB for Ollama or LM Studio on this machine, whose small default context cuts longer input silently,
+  and 200 KB otherwise.
+
 ## [0.1.1] - 2026-11-25
 
 ### Reviews
