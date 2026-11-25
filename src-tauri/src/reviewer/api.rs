@@ -16,7 +16,9 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 
-use super::api_tools::{is_low_value, pack, result_max, split_diff, FileDiff, Tools};
+use super::api_tools::{
+    is_low_value, opaque_section, pack, result_max, split_diff, FileDiff, Tools,
+};
 use super::{json_only, verdict_from_text, Engine};
 use crate::config::Config;
 use crate::forge::Pr;
@@ -193,8 +195,26 @@ struct Outcome {
     verdict: Verdict,
     model: String,
     requests: u64,
-    files: Vec<FileDiff>,
-    seen: std::collections::BTreeSet<String>,
+    unseen: Vec<String>,
+    unseen_minor: Vec<String>,
+}
+
+/// Sort the changed files the model did not see: low-value and really binary ones are listed only; the rest hold
+/// the approval. A file git showed only as "Binary files … differ" was never seen, whatever the message held.
+fn unseen(tools: &Tools) -> (Vec<String>, Vec<String>) {
+    let (mut hold, mut minor) = (vec![], vec![]);
+    for f in tools.files() {
+        let opaque = opaque_section(&f.text);
+        if !opaque && tools.seen.contains(&f.path) {
+            continue;
+        }
+        if is_low_value(&f.path) || (opaque && tools.really_binary(&f.path)) {
+            minor.push(f.path.clone());
+        } else {
+            hold.push(f.path.clone());
+        }
+    }
+    (hold, minor)
 }
 
 enum Ended {
@@ -220,6 +240,8 @@ fn converse(
     // which keeps the review well inside the limit after which the worker takes it for dead and queues it again
     let limit = Duration::from_secs_f64(cfg.review.timeout_min * 60.0);
     let mut late_sent = false;
+    // a request that broke off (timed out at the limit, or the network) after some reading: withdraw and ask once
+    let mut broke_off = false;
     let prep = message(cfg, pr, ctx, discussion, platform, with_tools);
     let budget = budget(cfg);
     let rmax = result_max(budget);
@@ -299,6 +321,25 @@ fn converse(
                     crate::util::truncate(r.into_string().unwrap_or_default().trim(), 300)
                 )
             }
+            Err(ureq::Error::Transport(e))
+                if with_tools && requests > 1 && !broke_off && !late_sent =>
+            {
+                crate::warn!("{key}: an API request broke off ({e}); asking for the verdict");
+                broke_off = true;
+                if !closing {
+                    closing = true;
+                    let m = json!({"role": "user", "content": if en {
+                        "Time is up. Reply now with the JSON verdict, based on what you have seen; if files you did not see could change it, say so in unable_reason."
+                    } else {
+                        "时间到了。请根据已经看到的内容，现在只回复 JSON 结论；没看到的文件如果可能影响结论，在 unable_reason 里说明。"
+                    }});
+                    used += size(&m);
+                    msgs.push(m);
+                }
+                // the last request gets its own time even past the limit
+                late_sent = false;
+                continue;
+            }
             Err(e) => bail!("cannot reach the API: {e}"),
         };
         let m = &res["choices"][0]["message"];
@@ -352,13 +393,14 @@ fn converse(
         }
         match verdict_from_text(text) {
             Ok(verdict) => {
+                let (unseen, unseen_minor) = unseen(&tools);
                 return Ok(Ended::Done(Box::new(Outcome {
                     verdict,
                     model: res["model"].as_str().unwrap_or("").to_string(),
                     requests,
-                    files: tools.files().to_vec(),
-                    seen: tools.seen,
-                })))
+                    unseen,
+                    unseen_minor,
+                })));
             }
             Err(e) if fixed => return Err(e),
             Err(_) => {
@@ -413,15 +455,8 @@ impl Engine for Api {
         let mut v = o.verdict;
         // the model's own "_meta", if it wrote one, is not trusted
         v.meta = Default::default();
-        for f in &o.files {
-            if !o.seen.contains(&f.path) {
-                if is_low_value(&f.path) {
-                    v.meta.unseen_minor.push(f.path.clone());
-                } else {
-                    v.meta.unseen.push(f.path.clone());
-                }
-            }
-        }
+        v.meta.unseen = o.unseen;
+        v.meta.unseen_minor = o.unseen_minor;
         v.meta.duration_s = start.elapsed().as_secs();
         v.meta.turns = Some(o.requests);
         v.meta.model = if o.model.is_empty() {
@@ -949,6 +984,129 @@ mod tests {
         assert!(err.to_string().contains("stopped"), "{err}");
         assert!(f.seen.lock().unwrap().len() < MAX_ROUNDS);
         assert!(!crate::util::abort_target_exists(&p.key()));
+    }
+
+    /// Regression (redteam-3): one `-diff` line in the PR's .gitattributes made git print a source file's change as
+    /// "Binary files … differ"; that line counted as seen and the review approved. A file git showed no changes of is
+    /// never seen, and only a really binary one (binary extension and content, or deleted) is let through.
+    #[test]
+    fn a_change_git_did_not_show_holds_the_approval_unless_really_binary() {
+        let bin = |p: &str| {
+            format!(
+                "diff --git a/{p} b/{p}
+index 1..2 100644
+Binary files a/{p} and b/{p} differ
+"
+            )
+        };
+        let diff = diff_of("src/main.rs", 3)
+            + &diff_of(".gitattributes", 1)
+            + &bin("src/auth.rs")
+            + &bin("img/logo.png")
+            + &bin("img/fake.png")
+            + &bin("img/gone.png");
+        let (_d, wt, ctx) = setup(&diff);
+        fs::write(
+            wt.join("src/auth.rs"),
+            "fn check(t: &str) -> bool { t == \"letmein\" }
+",
+        )
+        .unwrap();
+        fs::create_dir_all(wt.join("img")).unwrap();
+        fs::write(wt.join("img/logo.png"), [0x89u8, b'P', b'N', b'G', 0, 0, 1]).unwrap();
+        fs::write(
+            wt.join("img/fake.png"),
+            "fn main() {}
+",
+        )
+        .unwrap();
+        for with_tools in [true, false] {
+            let mut routes = vec![];
+            if !with_tools {
+                routes.push((
+                    ROUTE,
+                    400,
+                    r#"{"error":{"message":"no tools"}}"#.to_string(),
+                ));
+            }
+            routes.push((ROUTE, 200, reply(&verdict(true))));
+            let f = fake::serve(routes);
+            let v = Api
+                .ask(&config(&f.url, 200), &pr("alice"), &wt, &ctx, "", "GitHub")
+                .unwrap();
+            assert_eq!(
+                v.meta.unseen,
+                ["src/auth.rs", "img/fake.png"],
+                "tools: {with_tools}"
+            );
+            assert_eq!(v.meta.unseen_minor, ["img/logo.png", "img/gone.png"]);
+            let c = Config::default();
+            assert_eq!(
+                crate::review::decide(&c, &pr("alice"), &v, "success", "me").0,
+                "COMMENT"
+            );
+        }
+    }
+
+    /// Regression (redteam-3): a request that broke off near the time limit (or on a network error) failed the whole
+    /// review and threw away what was read. Now the tools are withdrawn and one last request asks for the verdict.
+    #[test]
+    fn a_request_that_breaks_off_is_followed_by_one_for_the_verdict() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let replies = [
+            Some(call("c1", "list_dir", json!({"path": "src"}))),
+            None, // the connection drops without an answer
+            Some(reply(&verdict(true))),
+        ];
+        let server = std::thread::spawn(move || {
+            let mut bodies = vec![];
+            for answer in replies {
+                let (mut s, _) = listener.accept().unwrap();
+                let mut r = BufReader::new(s.try_clone().unwrap());
+                let mut len = 0;
+                loop {
+                    let mut h = String::new();
+                    r.read_line(&mut h).unwrap();
+                    if h.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(v) = h.to_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap();
+                    }
+                }
+                let mut b = vec![0; len];
+                r.read_exact(&mut b).unwrap();
+                bodies.push(String::from_utf8(b).unwrap());
+                if let Some(a) = answer {
+                    let _ = write!(
+                        s,
+                        "HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: {}
+Connection: close
+
+{a}",
+                        a.len()
+                    );
+                }
+            }
+            bodies
+        });
+        let (_d, wt, ctx) = setup(&diff_of("src/main.rs", 3));
+        let v = Api
+            .ask(&config(&url, 200), &pr("alice"), &wt, &ctx, "", "GitHub")
+            .unwrap();
+        assert!(v.approve_recommended);
+        let bodies = server.join().unwrap();
+        let last: Value = serde_json::from_str(&bodies[2]).unwrap();
+        assert_eq!(last["tool_choice"], "none");
+        let m = last["messages"].as_array().unwrap().last().unwrap().clone();
+        assert!(
+            m["content"].as_str().unwrap().starts_with("Time is up"),
+            "{m}"
+        );
     }
 
     #[test]

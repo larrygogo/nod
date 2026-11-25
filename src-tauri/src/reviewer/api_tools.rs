@@ -58,6 +58,22 @@ pub fn is_low_value(path: &str) -> bool {
         || p.split('/').any(|seg| seg == "__snapshots__")
 }
 
+/// Whether git printed only that the file differs ("Binary files … differ", or a binary patch) instead of its
+/// changes. The PR decides that itself: a `-diff` line in its `.gitattributes`, or one NUL byte in the file.
+pub fn opaque_section(text: &str) -> bool {
+    text.lines().any(|l| {
+        (l.starts_with("Binary files ") && l.ends_with(" differ")) || l == "GIT binary patch"
+    })
+}
+
+/// Extensions of files that are binary by nature: their changes cannot be reviewed as text by any engine.
+const BINARY_EXT: [&str; 44] = [
+    "png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "tif", "tiff", "avif", "heic", "psd", "pdf",
+    "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "jar", "war", "woff", "woff2", "ttf", "otf",
+    "eot", "mp3", "mp4", "mov", "avi", "wav", "ogg", "webm", "flac", "exe", "dll", "so", "dylib",
+    "class", "pyc", "wasm", "sqlite", "db",
+];
+
 /// A path as git prints it: `"a/\344\270\255.rs"` (quoted, octal escapes) or plain.
 fn unquote(s: &str) -> String {
     let Some(inner) = s.strip_prefix('"').and_then(|x| x.strip_suffix('"')) else {
@@ -265,6 +281,21 @@ impl Tools {
     /// The size of one `get_diff` page: what is left of `max` after the page header.
     fn page_size(&self) -> usize {
         self.max.saturating_sub(100).max(512)
+    }
+
+    /// For a file git showed no changes of ([`opaque_section`]): whether it is really binary (a binary extension, and
+    /// binary content or gone from the checkout), so not seeing it is fine; anything else may be source code the PR
+    /// hid from the diff.
+    pub fn really_binary(&self, path: &str) -> bool {
+        let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
+        if !path.contains('.') || !BINARY_EXT.contains(&ext.as_str()) {
+            return false;
+        }
+        match self.inside(&self.root.join(path)) {
+            Some(full) => fs::read(full).map_or(true, |b| binary(&b)),
+            // deleted (or not a plain path): judged by the extension alone
+            None => !self.root.join(path).exists(),
+        }
     }
 
     /// The diff, one piece per changed file.
