@@ -134,8 +134,9 @@ pub struct ApiEngine {
     pub model: String,
     /// Stored in the system keychain; only kept here when the keychain is unavailable.
     pub key: String,
-    /// The whole conversation (the diff in the message plus what the tools return) sends at most this many KiB.
-    /// 0 = by endpoint: small for one on this machine (Ollama, LM Studio), 200 for any other.
+    /// One request (the diff in the message plus what the tools returned so far) sends at most this many KiB, and a
+    /// whole review at most eight times that. 0 = by endpoint: 12 for one on this machine (Ollama, LM Studio), 200 for
+    /// any other.
     pub max_diff_kb: u64,
 }
 
@@ -495,6 +496,10 @@ fn is_login_pattern(s: &str) -> bool {
 impl Config {
     /// Settings written by earlier versions, in their current form.
     pub fn upgrade(&mut self) {
+        // 0.1.1 wrote its default 200 into every saved file; 0 now picks a size by endpoint (200 for a remote one)
+        if self.review.api.max_diff_kb == 200 {
+            self.review.api.max_diff_kb = 0;
+        }
         let a = &mut self.approve;
         for author in std::mem::take(&mut a.always_authors) {
             a.always.push(AlwaysRule {
@@ -959,5 +964,26 @@ author = \"\"
         .unwrap()
         .validate();
         assert!(bad.is_err());
+    }
+
+    /// 0.1.1 saved its default 200 into every settings file; it becomes 0 (by endpoint) so a local Ollama gets the
+    /// small automatic budget. Other values stay.
+    #[test]
+    fn the_old_default_diff_size_becomes_automatic() {
+        let c = parse(
+            "[review.api]
+base_url = \"http://localhost:11434/v1\"
+max_diff_kb = 200
+",
+        )
+        .unwrap();
+        assert_eq!(c.review.api.max_diff_kb, 0);
+        let c = parse(
+            "[review.api]
+max_diff_kb = 64
+",
+        )
+        .unwrap();
+        assert_eq!(c.review.api.max_diff_kb, 64);
     }
 }

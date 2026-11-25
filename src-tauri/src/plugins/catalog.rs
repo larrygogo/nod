@@ -193,11 +193,11 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
                   .help(l.t("Ollama 填 http://localhost:11434/v1", "For Ollama: http://localhost:11434/v1")),
               f("review.api.model", l.t("模型", "Model"), "text").ph("deepseek-chat"),
               f("review.api.key", l.t("API 密钥（本地模型可留空）", "API key (may be empty for local models)"), "password"),
-              f("review.api.max_diff_kb", l.t("每次审查最多发送（KB）", "Send at most this much per review (KB)"), "number")
+              f("review.api.max_diff_kb", l.t("单次请求最多发送（KB）", "Send at most this much per request (KB)"), "number")
                   .ph(&l.t("0 = 自动", "0 = automatic"))
                   .help(l.t(
-                      "0 = 自动：本机的 Ollama、LM Studio 用 24，其它用 200。Ollama 的默认上下文很小，超出会被悄悄截掉：先用 OLLAMA_CONTEXT_LENGTH 调大，再调高这里。放不下、模型也没取来看的文件，Nod 不会 approve。",
-                      "0 = automatic: 24 for Ollama or LM Studio on this machine, 200 otherwise. Ollama's default context is small and it cuts longer input silently: raise it with OLLAMA_CONTEXT_LENGTH first, then raise this. Nod does not approve when the model did not see every changed file.",
+                      "不能超过模型的上下文长度。模型每读一次代码，整段对话都要重发一遍，所以一次审查总共最多发送这个数的 8 倍。0 = 自动：本机的 Ollama、LM Studio 用 12，其它用 200。Ollama 默认上下文很小，超出会被悄悄截掉：先用 OLLAMA_CONTEXT_LENGTH 调大，再调高这里。有改动文件模型没看到时，Nod 不会 approve。",
+                      "Keep it within the model's context length. Each time the model reads code the whole conversation is sent again, so one review sends at most eight times this in total. 0 = automatic: 12 for Ollama or LM Studio on this machine, 200 otherwise. Ollama's default context is small and it cuts longer input silently: raise it with OLLAMA_CONTEXT_LENGTH first, then raise this. Nod does not approve when the model did not see every changed file.",
                   )).opt(),
           ],
           vec![b("good", l.t("按需读仓库（只读）", "Reads the repository as needed (read-only)")), b("good", l.t("不执行命令", "Runs no commands"))], ""),

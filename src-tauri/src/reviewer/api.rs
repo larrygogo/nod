@@ -6,8 +6,9 @@
 //! diff alone. Either way, changed files whose diff the model never saw are recorded in the verdict
 //! (`meta.unseen`), and `review::decide` does not approve a review that did not see the whole change.
 //!
-//! The whole conversation has a byte budget (`review.api.max_diff_kb`, 0 = by endpoint): when it is spent, or after
-//! [`MAX_ROUNDS`] rounds of tool calls, the tools are withdrawn and the model is asked for its verdict.
+//! Each request has a byte budget (`review.api.max_diff_kb`, 0 = by endpoint), and all requests of one review
+//! together at most [`TOTAL_FACTOR`] times that (every request resends the conversation so far). When either is
+//! spent, or after [`MAX_ROUNDS`] rounds of tool calls, the tools are withdrawn and the model is asked for its verdict.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -15,7 +16,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 
-use super::api_tools::{is_low_value, pack, split_diff, FileDiff, Tools, RESULT_MAX};
+use super::api_tools::{is_low_value, pack, result_max, split_diff, FileDiff, Tools};
 use super::{json_only, verdict_from_text, Engine};
 use crate::config::Config;
 use crate::forge::Pr;
@@ -25,10 +26,12 @@ pub struct Api;
 
 /// Rounds of tool calls before the tools are withdrawn.
 pub const MAX_ROUNDS: usize = 30;
+/// All requests of one review send at most this many times the per-request budget.
+pub const TOTAL_FACTOR: usize = 8;
 /// Budget for an endpoint on this machine (Ollama, LM Studio) when `max_diff_kb` is 0. Ollama's OpenAI-compatible
-/// route cannot set the context size; its default context may be a few thousand tokens, and a longer prompt is cut
-/// silently.
-pub const LOCAL_KB: u64 = 24;
+/// route cannot set the context size; its default context may be 4096 tokens, and a longer prompt is cut silently.
+/// 12 KiB is about 3–4k tokens.
+pub const LOCAL_KB: u64 = 12;
 /// Budget for any other endpoint when `max_diff_kb` is 0.
 pub const REMOTE_KB: u64 = 200;
 /// The model's names for the files left out of the message are listed up to this many.
@@ -75,7 +78,7 @@ pub fn is_local(url: &str) -> bool {
         || port == "1234"
 }
 
-/// Bytes the whole conversation may send.
+/// Bytes one request may send (its whole conversation so far).
 pub fn budget(cfg: &Config) -> usize {
     let kb = match cfg.review.api.max_diff_kb {
         0 if is_local(&cfg.review.api.base_url) => LOCAL_KB,
@@ -93,8 +96,9 @@ pub struct Prepared {
     pub included: Vec<String>,
 }
 
-/// The user message: the prompt plus the change itself. With tools, the diff gets about 60% of the budget (the rest
-/// is for what the tools return); without, all of it.
+/// The user message: the prompt plus the change itself. With tools, a change that fits with room for one tool result
+/// goes in whole; a bigger one gets at most half of the budget, and less when that would leave room for fewer than
+/// four tool results (but at least half of what the prompt leaves). Without tools, all of the budget.
 pub fn message(
     cfg: &Config,
     pr: &Pr,
@@ -118,8 +122,19 @@ pub fn message(
         read("commits.txt").trim(),
     );
     let b = budget(cfg);
-    let room = if with_tools { b * 6 / 10 } else { b }.saturating_sub(user.len() + 2048);
     let files = split_diff(&read("diff.patch"));
+    let whole: usize = files.iter().map(|f| f.text.len()).sum();
+    let rmax = result_max(b);
+    let left = b.saturating_sub(user.len() + 1024);
+    let room = if !with_tools {
+        left
+    } else if whole + rmax <= left {
+        // the whole change fits and still leaves room to read some code
+        whole
+    } else {
+        // room for four tool results, but never more than half of what is left; the diff at most half the budget
+        (b / 2).min(left - (4 * rmax).min(left / 2))
+    };
     let p = pack(&files, room);
     user.push_str("## diff.patch\n```diff\n");
     user.push_str(&p.text);
@@ -199,17 +214,23 @@ fn converse(
 ) -> Result<Ended> {
     let en = cfg.language == "en";
     let prep = message(cfg, pr, ctx, discussion, platform, with_tools);
-    let mut tools = Tools::new(wt, prep.files, &prep.included);
+    let budget = budget(cfg);
+    let rmax = result_max(budget);
+    let mut tools = Tools::new(wt, prep.files, &prep.included, rmax);
     let mut msgs = vec![
         json!({"role": "system", "content": SYSTEM}),
         json!({"role": "user", "content": prep.user}),
     ];
     let mut used: usize = msgs.iter().map(size).sum();
-    let budget = budget(cfg);
-    let (mut rounds, mut requests) = (0usize, 0u64);
+    let (mut rounds, mut requests, mut sent) = (0usize, 0u64, 0usize);
     let (mut closing, mut json_mode, mut fixed) = (false, true, false);
+    // after the tools were withdrawn: how often the model still called one
+    let mut ignored = 0;
     loop {
-        if with_tools && !closing && (used + RESULT_MAX > budget || rounds >= MAX_ROUNDS) {
+        // the next request with a tool result added must still fit, alone and in the review's total, which also keeps
+        // two budgets for the closing request and one more if the model ignores the withdrawal
+        let spent = used + rmax > budget || sent + used + rmax + 2 * budget > budget * TOTAL_FACTOR;
+        if with_tools && !closing && (spent || rounds >= MAX_ROUNDS) {
             closing = true;
             let m = json!({"role": "user", "content": if en {
                 "The tool budget is used up. Reply now with the JSON verdict, based on what you have seen; if files you did not see could change it, say so in unable_reason."
@@ -224,13 +245,14 @@ fn converse(
             "temperature": 0,
             "messages": msgs,
         });
-        if with_tools {
+        if with_tools && ignored == 0 {
             body["tools"] = Tools::defs();
             body["tool_choice"] = json!(if closing { "none" } else { "auto" });
-        } else if json_mode {
+        } else if !with_tools && json_mode {
             body["response_format"] = json!({"type": "json_object"});
         }
         requests += 1;
+        sent += size(&body["messages"]);
         let res = match post(cfg, &body) {
             Ok(v) => v,
             // tools or JSON mode not supported by this server: once, at the start
@@ -255,8 +277,12 @@ fn converse(
                 bail!("the API reply has no message content");
             }
             rounds += 1;
-            if rounds > MAX_ROUNDS + 2 {
-                bail!("the model kept calling tools after they were withdrawn");
+            if closing {
+                // tool_choice "none" ignored: next time without the tools at all, then give up
+                ignored += 1;
+                if ignored > 1 {
+                    bail!("the model kept calling tools after they were withdrawn");
+                }
             }
             let mut a = m.clone();
             a["role"] = json!("assistant");
@@ -275,7 +301,7 @@ fn converse(
                     } else {
                         "不能再调用工具了。现在只回复 JSON 结论。".to_string()
                     }
-                } else if used + RESULT_MAX > budget {
+                } else if used + rmax > budget {
                     if en {
                         "Skipped: the tool budget is used up.".to_string()
                     } else {
@@ -608,9 +634,11 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("kept calling tools"), "{err}");
         let b = bodies(&f);
-        assert_eq!(b.len(), MAX_ROUNDS + 3);
+        // withdrawn with tool_choice "none"; called anyway, so the next request has no tools at all; then it gives up
+        assert_eq!(b.len(), MAX_ROUNDS + 2);
         let closing = b.iter().position(|x| x["tool_choice"] == "none").unwrap();
         assert_eq!(closing, MAX_ROUNDS);
+        assert!(b.last().unwrap()["tools"].is_null());
         let last = b.last().unwrap()["messages"]
             .as_array()
             .unwrap()
@@ -647,10 +675,12 @@ mod tests {
         let f = fake::serve(seq);
         let (_d, wt, ctx) = setup(&diff_of("src/main.rs", 3));
         fs::write(wt.join("src/long.rs"), lines).unwrap();
-        let v = Api
+        // the fake keeps calling tools after they are withdrawn, so the review ends in an error; what matters here
+        // is when the tools were withdrawn and how big the requests got
+        let err = Api
             .ask(&config(&f.url, 40), &pr("alice"), &wt, &ctx, "", "GitHub")
-            .unwrap();
-        assert!(v.approve_recommended);
+            .unwrap_err();
+        assert!(err.to_string().contains("kept calling tools"), "{err}");
         let b = bodies(&f);
         let closing = b
             .iter()
@@ -659,7 +689,142 @@ mod tests {
         assert!(closing < 10, "withdrawn after {closing} rounds");
         for x in &b {
             assert!(
-                size(&x["messages"]) <= 40 * 1024 + RESULT_MAX + 2048,
+                size(&x["messages"]) <= 40 * 1024 + 2048,
+                "{}",
+                size(&x["messages"])
+            );
+        }
+    }
+
+    /// Regression (redteam-1): every request resends the conversation, so 30 rounds under a 200 KB budget sent about
+    /// 3 MB. All requests of one review together now stay within TOTAL_FACTOR times the budget.
+    #[test]
+    fn a_whole_review_sends_at_most_a_few_budgets() {
+        let seq: Vec<(&str, u16, String)> = (0..MAX_ROUNDS)
+            .map(|i| {
+                (
+                    ROUTE,
+                    200,
+                    call(&format!("c{i}"), "list_dir", json!({"path": "src"})),
+                )
+            })
+            .chain([(ROUTE, 200, reply(&verdict(true)))])
+            .collect();
+        let f = fake::serve(seq);
+        let (_d, wt, ctx) = setup(&(diff_of("src/main.rs", 3) + &diff_of("src/mid.rs", 3500)));
+        // the fake keeps calling tools after they are withdrawn: an error, but the totals are what is checked
+        let _ = Api.ask(&config(&f.url, 200), &pr("alice"), &wt, &ctx, "", "GitHub");
+        let b = bodies(&f);
+        let total: usize = b.iter().map(|x| size(&x["messages"])).sum();
+        assert!(
+            total <= TOTAL_FACTOR * 200 * 1024,
+            "{} KB in {} requests",
+            total / 1024,
+            b.len()
+        );
+        assert!(
+            b.len() < MAX_ROUNDS,
+            "withdrawn by the total, not the rounds: {}",
+            b.len()
+        );
+    }
+
+    /// Regression (redteam-1, V4): a long line in an ordinary file's diff came back cut, and the file still counted
+    /// as seen. Fetching it page by page, as the model is told, now gets all of it; stopping early leaves it unseen.
+    #[test]
+    fn a_long_line_is_seen_only_when_all_of_it_was_fetched() {
+        let long = format!(
+            "diff --git a/src/data.rs b/src/data.rs
+--- a/src/data.rs
++++ b/src/data.rs
+@@ -0,0 +1 @@
++{}END_MARKER
+",
+            "x".repeat(50_000)
+        );
+        // src/mid.rs fills the half of the budget the message may use, so src/data.rs (one 50 KB line) has to be
+        // fetched; src/other.rs is never fetched
+        let diff = diff_of("src/main.rs", 3)
+            + &diff_of("src/mid.rs", 3800)
+            + &long
+            + &diff_of("src/other.rs", 1600);
+        let (_d, wt, ctx) = setup(&diff);
+        let cfg = |url: &str| config(url, 200);
+        // more pages than there are: the extra asks get an error, the file is seen once the last page came
+        let pages = 50_000 / (result_max(200 * 1024) - 100) + 3;
+        let mut seq: Vec<(&str, u16, String)> = (1..=pages)
+            .map(|p| {
+                let args = json!({"path": "src/data.rs", "page": p});
+                (ROUTE, 200, call(&format!("p{p}"), "get_diff", args))
+            })
+            .collect();
+        seq.push((ROUTE, 200, reply(&verdict(true))));
+        let f = fake::serve(seq);
+        let v = Api
+            .ask(&cfg(&f.url), &pr("alice"), &wt, &ctx, "", "GitHub")
+            .unwrap();
+        let b = bodies(&f);
+        let first = b[0]["messages"][1]["content"].as_str().unwrap();
+        assert!(first.contains("+line 3799 of src/mid.rs") && !first.contains("END_MARKER"));
+        let results: String = b.last().unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|m| m["role"] == "tool")
+            .map(|m| m["content"].as_str().unwrap().to_string())
+            .collect();
+        assert!(results.contains("END_MARKER") && !results.contains("output cut"));
+        assert_eq!(v.meta.unseen, ["src/other.rs"]);
+        // only the first page: unseen, so no approval
+        let f = fake::serve(vec![
+            (
+                ROUTE,
+                200,
+                call("p1", "get_diff", json!({"path": "src/data.rs"})),
+            ),
+            (ROUTE, 200, reply(&verdict(true))),
+        ]);
+        let v = Api
+            .ask(&cfg(&f.url), &pr("alice"), &wt, &ctx, "", "GitHub")
+            .unwrap();
+        assert_eq!(v.meta.unseen, ["src/data.rs", "src/other.rs"]);
+    }
+
+    /// Regression (redteam-1): under the small automatic budget of a local endpoint, a PR description of a few KB
+    /// left no room for a single tool call. Tool results shrink with the budget, so a few calls still fit.
+    #[test]
+    fn a_local_endpoint_can_still_fetch_a_small_diff() {
+        let diff = diff_of("src/main.rs", 3) + &diff_of("src/big.rs", 60);
+        let (_d, wt, ctx) = setup(&diff);
+        let f = fake::serve(vec![
+            (
+                ROUTE,
+                200,
+                call("c1", "get_diff", json!({"path": "src/big.rs"})),
+            ),
+            (
+                ROUTE,
+                200,
+                call("c2", "get_diff", json!({"path": "src/big.rs", "page": 2})),
+            ),
+            (ROUTE, 200, reply(&verdict(true))),
+        ]);
+        let mut p = pr("alice");
+        p.body = "背景说明。".repeat(200); // 3 KB
+        let cfg = config(&f.url, 0); // 127.0.0.1: local
+        assert_eq!(budget(&cfg), (LOCAL_KB * 1024) as usize);
+        let v = Api.ask(&cfg, &p, &wt, &ctx, "", "GitHub").unwrap();
+        let b = bodies(&f);
+        assert_eq!(b[0]["tool_choice"], "auto");
+        assert!(
+            v.meta.unseen.is_empty(),
+            "{:?} after {} requests",
+            v.meta.unseen,
+            b.len()
+        );
+        for x in &b {
+            assert!(
+                size(&x["messages"]) <= budget(&cfg) + 2048,
                 "{}",
                 size(&x["messages"])
             );

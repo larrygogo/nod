@@ -13,9 +13,10 @@ project uses [Semantic Versioning](https://semver.org/).
 - A diff too big for one message is no longer cut in the middle of a file: whole files go in, lock files and other
   low-value files last, and the rest is listed for the model to fetch. A review that never saw a changed file's diff
   does not approve, and its comment lists those files for a person to check.
-- `review.api.max_diff_kb` now limits the whole review conversation, and 0 (the new default) picks a size by
-  endpoint: 24 KB for Ollama or LM Studio on this machine, whose small default context cuts longer input silently,
-  and 200 KB otherwise.
+- `review.api.max_diff_kb` now limits each request (the message plus what the tools returned so far), and a whole
+  review sends at most eight times that, since every request resends the conversation. 0, the new default and what
+  the old default 200 becomes, picks a size by endpoint: 12 KB for Ollama or LM Studio on this machine, whose small
+  default context cuts longer input silently, and 200 KB otherwise.
 
 ## [0.1.1] - 2026-11-25
 

@@ -14,10 +14,8 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::{json, Value};
 
-/// At most this much text goes back to the model from one tool call.
+/// At most this much text goes back to the model from one tool call, with a large budget ([`result_max`]).
 pub const RESULT_MAX: usize = 16 * 1024;
-/// `get_diff` serves a file's diff in pages of about this size.
-pub const PAGE: usize = 12 * 1024;
 const READ_LINES: usize = 400;
 const LIST_MAX: usize = 300;
 const SEARCH_MAX: usize = 100;
@@ -182,6 +180,12 @@ pub fn pack(files: &[FileDiff], budget: usize) -> Packed {
     p
 }
 
+/// How much one tool call may return under a conversation budget of `budget` bytes: a fifth of it, between 2 and
+/// 16 KiB, so that even a small local model can make a few calls.
+pub fn result_max(budget: usize) -> usize {
+    (budget / 5).clamp(2 * 1024, RESULT_MAX)
+}
+
 /// Cut `s` to at most `max` bytes at a character boundary, saying so.
 fn cap(mut s: String, max: usize) -> String {
     if s.len() <= max {
@@ -196,17 +200,26 @@ fn cap(mut s: String, max: usize) -> String {
     s
 }
 
-/// The pages of one diff: cut at line ends, each at most about [`PAGE`] bytes (a single longer line is its own page).
-fn pages(text: &str) -> Vec<&str> {
+/// The pages of one diff, each at most `size` bytes: cut at line ends, and a longer line is cut into pieces of its
+/// own (at character boundaries), so no page is ever shortened on the way to the model.
+fn pages(text: &str, size: usize) -> Vec<&str> {
     let mut out = vec![];
     let mut start = 0;
     let mut end = 0;
     for l in text.split_inclusive('\n') {
-        if end > start && end - start + l.len() > PAGE {
+        if end > start && end - start + l.len() > size {
             out.push(&text[start..end]);
             start = end;
         }
         end += l.len();
+        while end - start > size {
+            let mut cut = start + size;
+            while !text.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            out.push(&text[start..cut]);
+            start = cut;
+        }
     }
     if end > start || out.is_empty() {
         out.push(&text[start..end]);
@@ -226,18 +239,26 @@ pub struct Tools {
     pub seen: BTreeSet<String>,
     /// How many tool calls ran.
     pub calls: usize,
+    /// At most this much text goes back from one call; diffs are paged to fit.
+    max: usize,
 }
 
 impl Tools {
-    /// `inline` = the files whose whole diff is already in the message.
-    pub fn new(wt: &Path, files: Vec<FileDiff>, inline: &[String]) -> Tools {
+    /// `inline` = the files whose whole diff is already in the message; `max` = see [`result_max`].
+    pub fn new(wt: &Path, files: Vec<FileDiff>, inline: &[String], max: usize) -> Tools {
         Tools {
             root: wt.canonicalize().unwrap_or_else(|_| wt.to_path_buf()),
             files,
             pages_seen: HashMap::new(),
             seen: inline.iter().cloned().collect(),
             calls: 0,
+            max,
         }
+    }
+
+    /// The size of one `get_diff` page: what is left of `max` after the page header.
+    fn page_size(&self) -> usize {
+        self.max.saturating_sub(100).max(512)
     }
 
     /// The diff, one piece per changed file.
@@ -322,10 +343,11 @@ impl Tools {
                 "unknown tool {other:?}; the tools are get_diff, read_file, list_dir and search"
             )),
         };
-        cap(out.unwrap_or_else(|e| format!("error: {e}")), RESULT_MAX)
+        cap(out.unwrap_or_else(|e| format!("error: {e}")), self.max)
     }
 
-    /// A path of the checkout, refused when it is absolute, climbs out, names `.git` or resolves outside the root.
+    /// A path of the checkout, refused when it is absolute, climbs out, names `.git`, uses a Windows stream (`a:b`)
+    /// or resolves outside the root or into `.git` (a link, a junction, an 8.3 name such as `GIT~1`).
     fn resolve(&self, p: &str) -> Result<PathBuf, String> {
         let p = p.trim();
         let rel = Path::new(if p.is_empty() { "." } else { p });
@@ -333,8 +355,12 @@ impl Tools {
             match c {
                 Component::CurDir => {}
                 Component::Normal(x) => {
-                    if x.to_string_lossy().eq_ignore_ascii_case(".git") {
+                    let x = x.to_string_lossy();
+                    if x.eq_ignore_ascii_case(".git") {
                         return Err(".git is not readable".into());
+                    }
+                    if x.contains(':') {
+                        return Err(format!("{p:?} is not a plain path"));
                     }
                 }
                 _ => {
@@ -344,15 +370,25 @@ impl Tools {
                 }
             }
         }
-        let full = self
-            .root
-            .join(rel)
-            .canonicalize()
-            .map_err(|_| format!("{p:?} does not exist"))?;
-        if !full.starts_with(&self.root) {
-            return Err(format!("{p:?} is outside the checkout"));
+        if !self.root.join(rel).exists() {
+            return Err(format!("{p:?} does not exist"));
         }
-        Ok(full)
+        self.inside(&self.root.join(rel))
+            .ok_or_else(|| format!("{p:?} is outside the checkout"))
+    }
+
+    /// `p` resolved, when it is in the checkout and not in its `.git`.
+    fn inside(&self, p: &Path) -> Option<PathBuf> {
+        let full = p.canonicalize().ok()?;
+        let rel = full.strip_prefix(&self.root).ok()?;
+        let git = rel.components().any(|c| match c {
+            Component::Normal(x) => {
+                let x = x.to_string_lossy();
+                x.eq_ignore_ascii_case(".git") || x.contains(':')
+            }
+            _ => true,
+        });
+        (!git).then_some(full)
     }
 
     fn rel(&self, full: &Path) -> String {
@@ -367,7 +403,7 @@ impl Tools {
         let f = self.files.iter().find(|f| f.path == want).ok_or_else(|| {
             format!("{path:?} is not a changed file of this PR (see diffstat.txt)")
         })?;
-        let ps = pages(&f.text);
+        let ps = pages(&f.text, self.page_size());
         let page = page.max(1);
         let text = ps
             .get(page - 1)
@@ -398,10 +434,20 @@ impl Tools {
         let total = text.lines().count();
         let mut out = String::new();
         let mut last = start.saturating_sub(1);
+        let room = self.max.saturating_sub(200);
         for (i, l) in text.lines().enumerate().skip(start - 1).take(max) {
-            let line = format!("{}\t{l}\n", i + 1);
-            if out.len() + line.len() > RESULT_MAX - 200 {
-                break;
+            let mut line = format!("{}\t{l}\n", i + 1);
+            if out.len() + line.len() > room {
+                if !out.is_empty() {
+                    break;
+                }
+                // a single line longer than a whole result: its beginning, marked, so the reader moves on
+                let mut end = room.saturating_sub(60);
+                while !line.is_char_boundary(end) {
+                    end -= 1;
+                }
+                line.truncate(end);
+                line.push_str(&format!(" [line cut: {} bytes]\n", l.len()));
             }
             out.push_str(&line);
             last = i + 1;
@@ -426,7 +472,7 @@ impl Tools {
         let mut names: Vec<String> = fs::read_dir(&full)
             .map_err(|e| format!("cannot list {path:?}: {e}"))?
             .flatten()
-            .filter(|e| !e.file_name().to_string_lossy().eq_ignore_ascii_case(".git"))
+            .filter(|e| self.inside(&e.path()).is_some())
             .map(|e| {
                 let n = e.file_name().to_string_lossy().to_string();
                 if e.path().is_dir() {
@@ -478,10 +524,10 @@ impl Tools {
         'walk: while let Some(p) = stack.pop() {
             if p.is_dir() {
                 let Ok(rd) = fs::read_dir(&p) else { continue };
+                // each entry checked again: a link or junction inside must not lead out of the checkout
                 let mut kids: Vec<PathBuf> = rd
                     .flatten()
-                    .filter(|e| !e.file_name().to_string_lossy().eq_ignore_ascii_case(".git"))
-                    .map(|e| e.path())
+                    .filter_map(|e| self.inside(&e.path()).map(|_| e.path()))
                     .collect();
                 kids.sort();
                 kids.reverse();
@@ -608,7 +654,7 @@ diff --git \"a/\\344\\270\\255.rs\" \"b/\\344\\270\\255.rs\"\n--- \"a/\\344\\270
                 text: "diff --git a/src/b.rs b/src/b.rs\n+x\n".into(),
             },
         ];
-        let t = Tools::new(&wt, files, &["src/b.rs".to_string()]);
+        let t = Tools::new(&wt, files, &["src/b.rs".to_string()], RESULT_MAX);
         (d, t)
     }
 
@@ -639,6 +685,47 @@ diff --git \"a/\\344\\270\\255.rs\" \"b/\\344\\270\\255.rs\"\n--- \"a/\\344\\270
         assert!(r.starts_with("error:"), "{r}");
         let r = t.call("search", &json!({"pattern": "secret"}).to_string());
         assert_eq!(r, "no matches");
+    }
+
+    /// Regression (redteam-1): on Windows the 8.3 name `GIT~1` and the stream syntax `.git::$INDEX_ALLOCATION` read
+    /// `.git`, and `search` followed a junction out of the checkout.
+    #[cfg(windows)]
+    #[test]
+    fn windows_aliases_and_junctions_do_not_lead_out() {
+        let (d, mut t) = checkout();
+        for p in [
+            "GIT~1/config",
+            ".git::$INDEX_ALLOCATION/config",
+            "src/b.rs:stream",
+        ] {
+            let r = t.call("read_file", &json!({"path": p}).to_string());
+            assert!(r.starts_with("error:") && !r.contains("secret"), "{p}: {r}");
+        }
+        let r = t.call("list_dir", &json!({"path": "GIT~1"}).to_string());
+        assert!(r.starts_with("error:"), "{r}");
+        let r = t.call(
+            "search",
+            &json!({"pattern": "secret", "path": "GIT~1"}).to_string(),
+        );
+        assert!(r.starts_with("error:"), "{r}");
+        let out = d.path().join("outdir");
+        fs::create_dir_all(&out).unwrap();
+        fs::write(out.join("s.txt"), "TOPSECRET").unwrap();
+        let ok = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(d.path().join("wt").join("ext"))
+            .arg(&out)
+            .output()
+            .is_ok_and(|o| o.status.success());
+        assert!(ok, "could not create a junction");
+        assert_eq!(
+            t.call("search", &json!({"pattern": "TOPSECRET"}).to_string()),
+            "no matches"
+        );
+        assert!(t
+            .call("read_file", &json!({"path": "ext/s.txt"}).to_string())
+            .starts_with("error:"));
+        assert!(!t.call("list_dir", "{}").contains("ext"));
     }
 
     #[cfg(unix)]
@@ -673,6 +760,37 @@ diff --git \"a/\\344\\270\\255.rs\" \"b/\\344\\270\\255.rs\"\n--- \"a/\\344\\270
             .call("read_file", &json!({"path": "src"}).to_string())
             .contains("directory"));
         assert!(t.call("read_file", "not json").starts_with("error:"));
+        // a line longer than a whole result: its beginning, marked, and the next call moves on
+        fs::write(
+            t.root.join("long.txt"),
+            format!(
+                "a
+{}
+c
+",
+                "x".repeat(20_000)
+            ),
+        )
+        .unwrap();
+        let r = t.call(
+            "read_file",
+            &json!({"path": "long.txt", "start_line": 2}).to_string(),
+        );
+        assert!(
+            r.starts_with("2	xxx")
+                && r.contains("[line cut: 20000 bytes]")
+                && r.len() <= RESULT_MAX,
+            "{}",
+            &r[r.len() - 200..]
+        );
+        assert!(
+            r.ends_with(
+                "3	c
+"
+            ),
+            "{}",
+            &r[r.len() - 200..]
+        );
         assert!(t.call("rm", "{}").contains("unknown tool"));
     }
 
@@ -702,6 +820,60 @@ diff --git \"a/\\344\\270\\255.rs\" \"b/\\344\\270\\255.rs\"\n--- \"a/\\344\\270
                 &json!({"pattern": "(", "regex": true}).to_string()
             )
             .starts_with("error:"));
+    }
+
+    /// Regression (redteam-1): a diff line longer than a tool result was its own page, cut on the way to the model,
+    /// and the file still counted as seen. Now long lines are paged too, and no page is ever cut.
+    #[test]
+    fn long_lines_are_paged_not_cut() {
+        let d = tempfile::tempdir().unwrap();
+        let line = format!(
+            "+{}END_MARKER
+",
+            "é".repeat(20_000)
+        );
+        let text = format!(
+            "diff --git a/src/data.rs b/src/data.rs
+@@ -0,0 +1 @@
+{line}"
+        );
+        for max in [2048, 4096, RESULT_MAX] {
+            let mut t = Tools::new(
+                d.path(),
+                vec![FileDiff {
+                    path: "src/data.rs".into(),
+                    text: text.clone(),
+                }],
+                &[],
+                max,
+            );
+            let mut got = String::new();
+            let mut page = 1;
+            loop {
+                let r = t.call(
+                    "get_diff",
+                    &json!({"path": "src/data.rs", "page": page}).to_string(),
+                );
+                assert!(
+                    r.len() <= max && !r.contains("output cut"),
+                    "{max}: page {page} is {} bytes",
+                    r.len()
+                );
+                let (head, body) = r
+                    .split_once(
+                        "]
+",
+                    )
+                    .unwrap();
+                got.push_str(body);
+                if !head.contains("next") {
+                    break;
+                }
+                page += 1;
+            }
+            assert_eq!(got, text, "{max}: the pages make up the whole diff");
+            assert!(t.seen.contains("src/data.rs"));
+        }
     }
 
     #[test]
