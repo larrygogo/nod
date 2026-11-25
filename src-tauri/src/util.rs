@@ -122,26 +122,68 @@ fn active() -> &'static Mutex<HashMap<String, u32>> {
     A.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Reviews that run inside this process, with no child to kill (the API engine), keyed by PR: whether a stop was
+/// asked for. The review checks [`stop_requested`] between its requests.
+fn in_process() -> &'static Mutex<HashMap<String, bool>> {
+    static A: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    A.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Registers an in-process review for `key` until dropped.
+pub struct InProcess(String);
+
+pub fn track_in_process(key: &str) -> InProcess {
+    in_process().lock().unwrap().insert(key.to_string(), false);
+    InProcess(key.to_string())
+}
+
+impl Drop for InProcess {
+    fn drop(&mut self) {
+        in_process().lock().unwrap().remove(&self.0);
+    }
+}
+
+/// Whether [`abort`] was called for the in-process review of `key`.
+pub fn stop_requested(key: &str) -> bool {
+    in_process()
+        .lock()
+        .unwrap()
+        .get(key)
+        .copied()
+        .unwrap_or(false)
+}
+
 /// Whether a review process for `key` is currently running.
 #[cfg(test)]
 pub fn abort_target_exists(key: &str) -> bool {
-    active().lock().unwrap().contains_key(key)
+    active().lock().unwrap().contains_key(key) || in_process().lock().unwrap().contains_key(key)
 }
 
-/// Stop the tracked review process for `key` (and everything it started). Returns whether one was running.
+/// Stop the tracked review process for `key` (and everything it started), or ask the in-process one to stop.
+/// Returns whether one was running.
 pub fn abort(key: &str) -> bool {
+    let inside = match in_process().lock().unwrap().get_mut(key) {
+        Some(stop) => {
+            *stop = true;
+            true
+        }
+        None => false,
+    };
     let pid = active().lock().unwrap().get(key).copied();
     match pid {
         Some(pid) => {
             kill_tree(pid);
             true
         }
-        None => false,
+        None => inside,
     }
 }
 
 /// Stop every tracked review process (the worker is exiting).
 pub fn abort_all() {
+    for stop in in_process().lock().unwrap().values_mut() {
+        *stop = true;
+    }
     let pids: Vec<u32> = active().lock().unwrap().values().copied().collect();
     for pid in pids {
         kill_tree(pid);

@@ -10,7 +10,7 @@
 
 - **在本机运行**：用你自己的 AI 订阅和代码平台账号。不用改任何仓库，不用装平台应用；令牌存在系统钥匙串里。
 - **approve 不由模型说了算**：Claude 只给出结构化结论，approve 与否由代码里的固定规则决定。
-- **审查进程被隔离**：Claude Code 只有 `Read`、`Grep`、`Glob` 三个只读工具；Codex 在只读的系统沙箱里运行；API 引擎只拿到 diff。审查进程都读不到你的凭据。隔离较弱的引擎（如 Gemini CLI）默认只评论、不 approve。
+- **审查进程被隔离**：Claude Code 只有 `Read`、`Grep`、`Glob` 三个只读工具；Codex 在只读的系统沙箱里运行；API 引擎不运行任何程序，只能通过 Nod 提供的只读工具读这个 PR 的检出。审查进程都读不到你的凭据。隔离较弱的引擎（如 Gemini CLI）默认只评论、不 approve。
 - **不用碰终端**：安装、配置、查看审查记录、暂停都在窗口和托盘里完成。需要登录 GitHub 或 Claude 时，应用会替你打开终端并填好命令。
 
 ## 工作原理
@@ -134,7 +134,7 @@ authors = ["dependabot[bot]"]
 
 ## 安全模型
 
-- 每个审查引擎都在只读环境里运行：Claude Code 用 `claude -p --restricted --tools Read,Grep,Glob --strict-mcp-config` 并关闭 hooks；Codex 用 `codex exec --sandbox read-only`；Gemini 用只读的 plan 模式（没有系统沙箱，所以默认不 approve）；API 引擎只收到 diff。启动前，看起来像凭据的环境变量会被移除。
+- 每个审查引擎都在只读环境里运行：Claude Code 用 `claude -p --restricted --tools Read,Grep,Glob --strict-mcp-config` 并关闭 hooks；Codex 用 `codex exec --sandbox read-only`；Gemini 用只读的 plan 模式（没有系统沙箱，所以默认不 approve）；API 引擎不运行任何程序，Nod 自己给它提供四个只读工具（读文件、列目录、搜索、取单个文件的 diff），只能访问这个 PR 的检出，不执行任何东西。启动前，看起来像凭据的环境变量会被移除。
 - PR 描述、评论和仓库里的文件都只当作数据传给模型，提示词明确要求它忽略其中的指令。即使提示注入成功，模型也做不了任何事：发评审和 approve 都由 Nod 在固定规则通过后执行。
 - 模型输出必须符合 schema，格式不对一律按审查失败处理，绝不会当成通过。
 - 令牌和密钥存在系统钥匙串里；外部插件在独立进程里运行，拿不到你的凭据，崩溃或乱输出只会让那一次调用失败。

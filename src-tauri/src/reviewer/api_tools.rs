@@ -130,7 +130,9 @@ fn section_path(section: &str) -> String {
     }
 }
 
-/// `git diff` output, one piece per file, in git's order.
+/// `git diff` output, one piece per file, in git's order. A path git prints twice (a symlink that became a regular
+/// file, or the other way round: a deletion and an addition) is one piece, so it counts as seen only when all of it
+/// was.
 pub fn split_diff(patch: &str) -> Vec<FileDiff> {
     let mut starts: Vec<usize> = vec![];
     let mut pos = 0;
@@ -144,10 +146,14 @@ pub fn split_diff(patch: &str) -> Vec<FileDiff> {
     for (i, &s) in starts.iter().enumerate() {
         let e = starts.get(i + 1).copied().unwrap_or(patch.len());
         let text = &patch[s..e];
-        out.push(FileDiff {
-            path: section_path(text),
-            text: text.to_string(),
-        });
+        let path = section_path(text);
+        match out.iter_mut().find(|f: &&mut FileDiff| f.path == path) {
+            Some(f) => f.text.push_str(text),
+            None => out.push(FileDiff {
+                path,
+                text: text.to_string(),
+            }),
+        }
     }
     out
 }
@@ -593,6 +599,25 @@ diff --git \"a/\\344\\270\\255.rs\" \"b/\\344\\270\\255.rs\"\n--- \"a/\\344\\270
         );
         assert_eq!(f.iter().map(|f| f.text.len()).sum::<usize>(), PATCH.len());
         assert!(f[0].text.ends_with("+new\n"));
+    }
+
+    /// Regression (redteam-2): a symlink replaced by a large regular file comes out as two sections for one path; the
+    /// small one fit into the message, the file counted as seen, and its new content was never shown.
+    #[test]
+    fn two_sections_for_one_path_are_one_file() {
+        let patch = format!(
+            "diff --git a/link b/link\ndeleted file mode 120000\n--- a/link\n+++ /dev/null\n@@ -1 +0,0 @@\n-target\n\\ No newline at end of file\n\
+             diff --git a/link b/link\nnew file mode 100644\n--- /dev/null\n+++ b/link\n@@ -0,0 +1 @@\n+{}\n\
+             diff --git a/z.rs b/z.rs\n--- a/z.rs\n+++ b/z.rs\n@@ -1 +1 @@\n-a\n+b\n",
+            "x".repeat(5000)
+        );
+        let f = split_diff(&patch);
+        let paths: Vec<&str> = f.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["link", "z.rs"]);
+        assert!(f[0].text.contains("-target") && f[0].text.contains(&"x".repeat(5000)));
+        let p = pack(&f, 1000);
+        assert_eq!(p.included, ["z.rs"]);
+        assert_eq!(p.left_out[0].0, "link");
     }
 
     #[test]

@@ -18,7 +18,7 @@ ones without changing Nod — see [docs/plugins.md](docs/plugins.md).
   repositories, no app to install on the code host; tokens live in the system keychain.
 - **The model does not decide to approve.** Claude returns a structured verdict; fixed rules in the code decide.
 - **The reviewer is isolated.** Claude Code only gets `Read`, `Grep` and `Glob`; Codex runs in its read-only OS
-  sandbox; the API engine only receives the diff. None of them see your credentials. Engines without an OS sandbox
+  sandbox; the API engine runs nothing: Nod serves it read-only file tools confined to the checkout. None of them see your credentials. Engines without an OS sandbox
   (Gemini CLI) comment but do not approve by default.
 - **No terminal needed.** Install, set up, browse reviews and pause from the window and tray. When you need to sign in
   to GitHub or Claude, the app opens a terminal with the command ready.
@@ -176,7 +176,7 @@ or implement its trait in the source ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 - Every engine runs read-only: Claude Code as `claude -p --restricted --tools Read,Grep,Glob --strict-mcp-config` with
   hooks disabled; Codex as `codex exec --sandbox read-only`; Gemini CLI in read-only plan mode (no OS sandbox, so it
-  does not approve by default); the API engine only receives the diff. Environment variables that look like
+  does not approve by default); the API engine runs no program: Nod itself serves it four read-only tools (read a file, list a directory, search, fetch one file's diff) that stay inside the checkout and execute nothing. Environment variables that look like
   credentials are removed before an engine starts.
 - PR descriptions, comments and repository files reach the model as data only; the prompt tells it to ignore
   instructions in them. Even a successful prompt injection cannot do anything: Nod posts reviews and approvals

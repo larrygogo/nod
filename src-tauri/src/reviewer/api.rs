@@ -168,13 +168,13 @@ pub fn message(
 }
 
 #[allow(clippy::result_large_err)]
-fn post(cfg: &Config, body: &Value) -> std::result::Result<Value, ureq::Error> {
+fn post(cfg: &Config, body: &Value, timeout: Duration) -> std::result::Result<Value, ureq::Error> {
     let url = format!(
         "{}/chat/completions",
         cfg.review.api.base_url.trim_end_matches('/')
     );
     let mut req = ureq::post(&url)
-        .timeout(Duration::from_secs_f64(cfg.review.timeout_min * 60.0))
+        .timeout(timeout)
         .set("Content-Type", "application/json");
     if !cfg.review.api.key.is_empty() {
         req = req.set("Authorization", &format!("Bearer {}", cfg.review.api.key));
@@ -203,6 +203,7 @@ enum Ended {
     NoTools,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn converse(
     cfg: &Config,
     pr: &Pr,
@@ -211,8 +212,14 @@ fn converse(
     discussion: &str,
     platform: &str,
     with_tools: bool,
+    start: Instant,
 ) -> Result<Ended> {
     let en = cfg.language == "en";
+    let key = pr.key();
+    // the review's time limit: past it the tools are withdrawn and one last request (at most 5 minutes) may answer,
+    // which keeps the review well inside the limit after which the worker takes it for dead and queues it again
+    let limit = Duration::from_secs_f64(cfg.review.timeout_min * 60.0);
+    let mut late_sent = false;
     let prep = message(cfg, pr, ctx, discussion, platform, with_tools);
     let budget = budget(cfg);
     let rmax = result_max(budget);
@@ -227,10 +234,20 @@ fn converse(
     // after the tools were withdrawn: how often the model still called one
     let mut ignored = 0;
     loop {
+        if crate::util::stop_requested(&key) {
+            bail!("the review was stopped");
+        }
+        let late = start.elapsed() >= limit;
+        if late && late_sent {
+            bail!(
+                "the API review did not finish within {} minutes",
+                cfg.review.timeout_min
+            );
+        }
         // the next request with a tool result added must still fit, alone and in the review's total, which also keeps
         // two budgets for the closing request and one more if the model ignores the withdrawal
         let spent = used + rmax > budget || sent + used + rmax + 2 * budget > budget * TOTAL_FACTOR;
-        if with_tools && !closing && (spent || rounds >= MAX_ROUNDS) {
+        if with_tools && !closing && (spent || late || rounds >= MAX_ROUNDS) {
             closing = true;
             let m = json!({"role": "user", "content": if en {
                 "The tool budget is used up. Reply now with the JSON verdict, based on what you have seen; if files you did not see could change it, say so in unable_reason."
@@ -253,11 +270,24 @@ fn converse(
         }
         requests += 1;
         sent += size(&body["messages"]);
-        let res = match post(cfg, &body) {
+        let timeout = if late {
+            late_sent = true;
+            limit.clamp(Duration::from_secs(60), Duration::from_secs(300))
+        } else {
+            limit
+                .saturating_sub(start.elapsed())
+                .max(Duration::from_secs(60))
+        };
+        let res = match post(cfg, &body, timeout) {
             Ok(v) => v,
             // tools or JSON mode not supported by this server: once, at the start
             Err(ureq::Error::Status(400, _)) if with_tools && requests == 1 => {
                 return Ok(Ended::NoTools)
+            }
+            // a server that rejects tool_choice "none": ask once more without the tools
+            Err(ureq::Error::Status(400, _)) if with_tools && closing && ignored == 0 => {
+                ignored = 1;
+                continue;
             }
             Err(ureq::Error::Status(400, _)) if !with_tools && json_mode => {
                 json_mode = false;
@@ -365,14 +395,16 @@ impl Engine for Api {
             return Err(anyhow!("review.api.model is not set"));
         }
         let start = Instant::now();
-        let o = match converse(cfg, pr, wt, ctx, discussion, platform, true)? {
+        // no child process to kill: a direct approval asks this review to stop between its requests
+        let _running = crate::util::track_in_process(&pr.key());
+        let o = match converse(cfg, pr, wt, ctx, discussion, platform, true, start)? {
             Ended::Done(o) => o,
             Ended::NoTools => {
                 crate::warn!(
                     "{}: the API rejected the request with tools; reviewing with the diff alone",
                     pr.key()
                 );
-                match converse(cfg, pr, wt, ctx, discussion, platform, false)? {
+                match converse(cfg, pr, wt, ctx, discussion, platform, false, start)? {
                     Ended::Done(o) => o,
                     Ended::NoTools => unreachable!("only a request with tools ends this way"),
                 }
@@ -829,6 +861,94 @@ mod tests {
                 size(&x["messages"])
             );
         }
+    }
+
+    /// Regression (redteam-2): a server that rejects the closing request (tool_choice "none") failed the review.
+    #[test]
+    fn a_rejected_closing_request_is_sent_again_without_tools() {
+        let mut seq: Vec<(&str, u16, String)> = (0..MAX_ROUNDS)
+            .map(|i| {
+                (
+                    ROUTE,
+                    200,
+                    call(&format!("c{i}"), "list_dir", json!({"path": "src"})),
+                )
+            })
+            .collect();
+        seq.push((
+            ROUTE,
+            400,
+            r#"{"error":{"message":"tool_choice none not supported"}}"#.into(),
+        ));
+        seq.push((ROUTE, 200, reply(&verdict(true))));
+        let f = fake::serve(seq);
+        let (_d, wt, ctx) = setup(&diff_of("src/main.rs", 3));
+        let v = Api
+            .ask(&config(&f.url, 200), &pr("alice"), &wt, &ctx, "", "GitHub")
+            .unwrap();
+        assert!(v.approve_recommended);
+        let b = bodies(&f);
+        assert_eq!(b[MAX_ROUNDS]["tool_choice"], "none");
+        assert!(b.last().unwrap()["tools"].is_null());
+    }
+
+    /// Regression (redteam-2): a review of up to 32 requests had no overall time limit and could not be stopped,
+    /// while the worker queues a review again once it runs past the limit. Past the limit the tools are withdrawn and
+    /// one last request may answer; a stop request ends it between requests.
+    #[test]
+    fn the_review_keeps_to_its_time_limit_and_can_be_stopped() {
+        let seq: Vec<(&str, u16, String)> = (0..MAX_ROUNDS)
+            .map(|i| {
+                (
+                    ROUTE,
+                    200,
+                    call(&format!("c{i}"), "list_dir", json!({"path": "src"})),
+                )
+            })
+            .collect();
+        let f = fake::serve(seq);
+        let (_d, wt, ctx) = setup(&diff_of("src/main.rs", 3));
+        let mut cfg = config(&f.url, 200);
+        cfg.review.timeout_min = 0.0; // already past it
+        let err = Api
+            .ask(&cfg, &pr("alice"), &wt, &ctx, "", "GitHub")
+            .unwrap_err();
+        assert!(err.to_string().contains("did not finish within"), "{err}");
+        let b = bodies(&f);
+        assert_eq!(b.len(), 1, "only the last request was sent");
+        assert_eq!(b[0]["tool_choice"], "none");
+
+        // stopped from outside (a direct approval) while it runs
+        let f = fake::serve(
+            (0..MAX_ROUNDS)
+                .map(|i| {
+                    (
+                        ROUTE,
+                        200,
+                        call(&format!("c{i}"), "list_dir", json!({"path": "src"})),
+                    )
+                })
+                .collect(),
+        );
+        let cfg = config(&f.url, 200);
+        let mut p = pr("alice");
+        p.number = 9701; // a key of its own: tests run side by side and a stop is per PR
+        let key = p.key();
+        let seen = f.seen.clone();
+        let stopper = std::thread::spawn(move || {
+            while seen.lock().unwrap().len() < 3 {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert!(
+                crate::util::abort(&key),
+                "a running API review counts as stoppable"
+            );
+        });
+        let err = Api.ask(&cfg, &p, &wt, &ctx, "", "GitHub").unwrap_err();
+        stopper.join().unwrap();
+        assert!(err.to_string().contains("stopped"), "{err}");
+        assert!(f.seen.lock().unwrap().len() < MAX_ROUNDS);
+        assert!(!crate::util::abort_target_exists(&p.key()));
     }
 
     #[test]
