@@ -945,6 +945,30 @@ fn collect_todo_and_rereview() {
     assert_eq!(en.collect_todo().unwrap()[0].head, "ccccccc3"); // new commit: again
 }
 
+/// Comments posted while waiting for CI, then a new commit: GitHub has dropped the review request and nothing was
+/// "posted" yet, but the new commit is still picked up on the next poll (kaptra-worker-template#5).
+#[test]
+fn stale_after_comments_is_rereviewed() {
+    let (f, en, _d) = setup();
+    {
+        let mut w = f.w();
+        w.verdict = Some(minor());
+        w.ci = "pending".into();
+        w.requested.clear();
+    }
+    en.review_one(&f.pr());
+    assert_eq!(f.w().posts, vec!["COMMENT"]);
+    f.w().pr_head = "ccccccc3".into();
+    en.finish_safe("o/r#1");
+    assert_eq!(e(&en).status, "stale");
+    assert_eq!(e(&en).posted_at, 0.0);
+    let todo = en.collect_todo().unwrap();
+    assert_eq!(todo.len(), 1);
+    assert_eq!(todo[0].head, "ccccccc3");
+    en.review_one(&todo[0]);
+    assert!(en.collect_todo().unwrap().is_empty()); // same commit: not again
+}
+
 #[test]
 fn draft_is_skipped_without_losing_state() {
     let (f, en, _d) = setup();

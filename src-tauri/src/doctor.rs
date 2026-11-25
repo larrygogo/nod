@@ -298,7 +298,11 @@ fn config_dir_problem(lang: &str, raw: &str, home: &std::path::Path) -> Option<S
 
 fn claude_check(c: &mut Ctx, claude: &str, cfg: &Config, live_claude: bool) {
     let lang = c.lang;
-    if let Some(why) = config_dir_problem(lang, &cfg.review.claude_config_dir, &crate::paths::home_dir()) {
+    if let Some(why) = config_dir_problem(
+        lang,
+        &cfg.review.claude_config_dir,
+        &crate::paths::home_dir(),
+    ) {
         c.push(
             "claude_config_dir",
             ("Claude 配置目录", "Claude config directory"),
@@ -720,13 +724,20 @@ mod tests {
         assert_eq!(config_dir_problem("zh-CN", "", home), None);
         // the home folder, however it is written
         let h = home.to_string_lossy().to_string();
-        assert!(config_dir_problem("zh-CN", &h, home).unwrap().contains("用户目录"));
+        assert!(config_dir_problem("zh-CN", &h, home)
+            .unwrap()
+            .contains("用户目录"));
         assert!(config_dir_problem("en", &format!("{h}/"), home).is_some());
         // a profile folder that exists is fine; one that does not is named
         let prof = home.join(".claude");
-        assert!(config_dir_problem("en", &prof.to_string_lossy(), home).unwrap().contains("does not exist"));
+        assert!(config_dir_problem("en", &prof.to_string_lossy(), home)
+            .unwrap()
+            .contains("does not exist"));
         std::fs::create_dir(&prof).unwrap();
-        assert_eq!(config_dir_problem("en", &prof.to_string_lossy(), home), None);
+        assert_eq!(
+            config_dir_problem("en", &prof.to_string_lossy(), home),
+            None
+        );
     }
 
     #[test]

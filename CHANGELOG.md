@@ -98,6 +98,9 @@ First public release: a desktop app.
 - A dropped connection to the code host (such as "tls connection init failed: unexpected end of file") no longer
   sends a "whole round failed" notification: only one that lasts ten minutes does, saying in words that the code host
   has been unreachable and reviewing resumes by itself. Other failures (signed out, no access) are still told at once.
+- A PR whose comments went up while CI ran, and that got a new commit before the approval, no longer sits as
+  "Outdated": the new commit is reviewed on the next poll. GitHub had dropped the review request when the comments
+  went up, so nothing brought it back until someone asked again.
 - A desktop notification for a review that was not approved says "Not approved" (it used to say "Commented", though
   the comments go up either way) and gives the reasons, such as "high-severity issue found", instead of the summary.
 - The tray's latest reviews say how each one ended in words ("Not approved · Fix login", "Waiting for CI · …")

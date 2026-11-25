@@ -527,7 +527,11 @@ impl Engine {
         {
             let d = self.store.lock();
             for (key, e) in &d.prs {
-                let recent = e.posted_at > horizon || !e.approve_ids.is_empty();
+                // reviewed_at too: a review whose comments went up while it waited for CI and then went stale on a new
+                // commit has no posted_at, and GitHub dropped the review request when the comments went up, so without
+                // it nothing would bring the new commit back (kaptra-worker-template#5 sat 17 minutes).
+                let recent =
+                    e.posted_at > horizon || e.reviewed_at > horizon || !e.approve_ids.is_empty();
                 if RECALL.contains(&e.status.as_str())
                     && recent
                     && !cands.iter().any(|(k, _)| k == key)
