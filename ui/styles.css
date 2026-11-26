@@ -525,6 +525,9 @@ details.round > summary:hover { background: var(--surface-2); border-radius: var
    when one label wraps */
 .field { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: 5px; align-content: start; min-width: 0; }
 .field.inline { display: flex; grid-row: auto; flex-direction: row; align-items: center; gap: 10px; grid-column: 1 / -1; }
+.field.stack { display: flex; flex-direction: column; gap: 8px; grid-row: auto; grid-column: 1 / -1; }
+.stack-input { display: flex; flex-direction: column; gap: 5px; max-width: calc(50% - 8px); min-width: 240px; }
+.stack-link { align-self: flex-start; }
 .field-label { color: var(--text-2); font-size: 12px; font-weight: var(--w-medium); }
 .field.inline .field-label { color: var(--text); font-size: 13px; font-weight: var(--w-regular); order: 2; }
 .secret-row { display: flex; gap: 8px; align-items: center; }

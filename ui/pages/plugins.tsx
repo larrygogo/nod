@@ -532,18 +532,18 @@ function FeishuRecipient({ f }: { f: Field }) {
           <span class="muted small grow">{ready ? t("fs.sign_in_help") : t("fs.need_app")}</span>
         </div>
         {manual ? (
-          <>
+          <div class="stack-input">
             <TextInput value={recipient} placeholder={f.placeholder} onInput={(v) => setRecipient(v, "")} />
             {f.help && <span class="muted small">{f.help}</span>}
-          </>
+          </div>
         ) : (
-          <button class="link small" onClick={() => setManual(true)}>{t("fs.type_it")}</button>
+          <button class="link small stack-link" onClick={() => setManual(true)}>{t("fs.type_it")}</button>
         )}
       </>
     );
   }
   return (
-    <div class="field">
+    <div class="field stack">
       <span class="field-label">{f.label}</span>
       {body}
       {err && <Note tone="bad">{err}</Note>}
