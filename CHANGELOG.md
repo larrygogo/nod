@@ -8,7 +8,9 @@ project uses [Semantic Versioning](https://semver.org/).
 ### Notifications
 
 - Feishu / Lark app: *Connect Feishu* opens Feishu in the browser, where you pick one of your apps or create one; Nod
-  fills in the App ID, the secret and you as the recipient. Nothing to copy from the developer console.
+  fills in the App ID, the secret and you as the recipient. Nothing to copy from the developer console; typing the ID
+  and secret is folded away. The page shows the app by its name ("Connected to Nod") and the recipient by name, also
+  after a restart and for settings made before; an app that can no longer be used (wrong secret) is marked red.
 - The recipient can be someone else found by signing in: *Authorize with Feishu*, tap Authorize, and Nod fills in
   their open_id and shows the name ("Cards go to …"). Typing an email or ID still works.
 

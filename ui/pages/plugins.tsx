@@ -3,7 +3,7 @@
 // (catalog), so a third-party plugin gets the same settings UI as a built-in one.
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { accounts, activeChannels, api, getPath, setPath, type Account, type Check, type Config, type DeviceCode, type Field, type GithubSession, type Plugin } from "../api";
+import { accounts, activeChannels, api, getPath, setPath, type Account, type Check, type Config, type DeviceCode, type FeishuWho, type Field, type GithubSession, type Plugin } from "../api";
 import { healthOf, recordHealth, usePluginHealth } from "../health";
 import { useStore } from "../app";
 import { Icon, Tile } from "../icons";
@@ -295,11 +295,11 @@ export function PluginsPage() {
           setChannels(c, v ? [...cur, p.id] : cur);
         })} />}
         testLabel={t("btn.test")}
-        account={p.id === "feishu" ? <FeishuConnectApp /> : undefined} accountTitle={t("fs.app")}
+        account={p.id === "feishu" ? <FeishuConnectApp fields={p.fields.filter((f) => APP_KEYS.includes(f.key))} /> : undefined} accountTitle={t("fs.app")}
         onCheck={() => api.testChannel(draft, p.id, cleared)}>
         {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName}
           fold={p.id === "feishu" ? { label: t("pl.lark_more"), open: !!draft.notify.feishu?.domain && !/^(https?:\/\/)?open\.feishu\.cn\/?$/i.test(draft.notify.feishu.domain.trim()) } : undefined}
-          custom={p.id === "feishu" ? (f) => f.key === "notify.feishu.recipient" ? <FeishuRecipient key={f.key} f={f} /> : undefined : undefined} />}
+          custom={p.id === "feishu" ? (f) => f.key === "notify.feishu.recipient" ? <FeishuRecipient key={f.key} f={f} /> : APP_KEYS.includes(f.key) ? <></> : undefined : undefined} />}
       </Pane>
     );
   } else if (current === "third") {
@@ -457,15 +457,45 @@ export function GithubSignIn({ account, usingToken, onSignedIn }: { account: Acc
 
 // ------------------------------------------------------------------ Feishu app (connect instead of typing an ID)
 
-/** The name shown for the person who connected the app when the app may not read names. */
+/** The name kept for the person who connected the app when the app may not read names. */
 const ME = "@me";
+const APP_KEYS = ["notify.feishu.app_id", "notify.feishu.app_secret"];
+
+/** The names of the app and the recipient, asked from Feishu once per app and recipient: the window shows names, also
+ *  for settings saved before names were kept. Kept out of the settings, so opening the page changes nothing. */
+const whoCache = new Map<string, Promise<FeishuWho>>();
+function useFeishuWho(): FeishuWho | null {
+  const { draft, cleared } = useStore();
+  const fs = (draft.notify.feishu ?? {}) as Record<string, string>;
+  const key = [fs.app_id, fs.recipient, fs.domain, fs.app_secret ? "typed" : ""].join("|");
+  const [who, setWho] = useState<FeishuWho | null>(null);
+  useEffect(() => {
+    if (!String(fs.app_id ?? "").trim()) { setWho(null); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      if (!whoCache.has(key)) whoCache.set(key, api.feishuWho(draft, cleared).catch(() => ({ app_name: "", recipient_name: "", problem: "" })));
+      whoCache.get(key)!.then((w) => { if (live) setWho(w); });
+    }, 400);
+    return () => { live = false; clearTimeout(t); };
+  }, [key]);
+  return who;
+}
+
+/** "on_7db72f…9a1b5" for an ID nobody gave a name to; an email stays whole. */
+function shortRecipient(r: string): string {
+  const id = r.includes(":") ? r.slice(r.indexOf(":") + 1) : r;
+  return id.includes("@") || id.length <= 14 ? id : `${id.slice(0, 8)}…${id.slice(-5)}`;
+}
 
 /** Connect a Feishu app without typing its ID and secret: the Feishu page lets the user pick one of their apps or
- *  create one, and Nod fills in the app, its secret and the recipient (the person who connected it). */
-function FeishuConnectApp() {
+ *  create one, and Nod fills in the app, its secret and the recipient (the person who connected it). The ID and
+ *  secret can still be typed, folded under one line. */
+function FeishuConnectApp({ fields }: { fields: Field[] }) {
   const { draft, edit } = useStore();
   const fs = (draft.notify.feishu ?? {}) as Record<string, string>;
   const appId = String(fs.app_id ?? "").trim();
+  const who = useFeishuWho();
+  const appName = String(fs.app_name ?? "") || who?.app_name || "";
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -497,6 +527,7 @@ function FeishuConnectApp() {
             setPath(c, "notify.feishu.app_id", r.app_id);
             setPath(c, "notify.feishu.app_secret", r.app_secret);
             setPath(c, "notify.feishu.domain", r.domain);
+            setPath(c, "notify.feishu.app_name", r.app_name);
             if (r.open_id) {
               setPath(c, "notify.feishu.recipient", `open_id:${r.open_id}`);
               setPath(c, "notify.feishu.recipient_name", r.name || ME);
@@ -528,8 +559,8 @@ function FeishuConnectApp() {
         </div>
       ) : appId ? (
         <div class="gh-signed">
-          <span class="state-dot good" />
-          <span class="grow">{t("fs.connected")} <b>{appId}</b></span>
+          <span class={`state-dot ${who?.problem ? "bad" : "good"}`} />
+          <span class="grow">{t("fs.connected")} <b>{appName || appId}</b>{appName && <span class="muted small"> · {appId}</span>}</span>
           <Button small onClick={start} disabled={busy}>{t("fs.connect_other")}</Button>
         </div>
       ) : (
@@ -539,20 +570,35 @@ function FeishuConnectApp() {
         </>
       )}
       {err && <Note tone="bad">{err}</Note>}
+      {!err && who?.problem && <Note tone="bad">{t("fs.app_broken")}{who.problem}</Note>}
+      <details class="more-opts">
+        <summary><Icon name="chevron" size={12} />{t("fs.type_app")}</summary>
+        <div class="fields">
+          {fields.map((f) => (
+            <label key={f.key} class="field">
+              <span class="field-label">{f.label}</span>
+              <FieldInput f={f} value={getPath(draft, f.key)} secretName={pluginSecretName(f.key)}
+                onChange={(v) => edit((c) => { setPath(c, f.key, v); setPath(c, "notify.feishu.app_name", ""); })} />
+              {f.help && <span class="muted small">{f.help}</span>}
+            </label>
+          ))}
+        </div>
+      </details>
     </>
   );
 }
 
 // ------------------------------------------------------------------ Feishu recipient (sign in instead of an ID)
 
-/** Who gets the cards: found by signing in to Feishu with the app above (device flow: Nod opens the Feishu page,
- *  the user taps "Authorize", Nod fills in the open_id and shows the name). Typing an ID stays as the fallback. */
+/** Who gets the cards, shown by name: found by signing in to Feishu with the app above (device flow: Nod opens the
+ *  Feishu page, the user taps "Authorize", Nod fills in the open_id and the name). Typing an ID stays, folded. */
 function FeishuRecipient({ f }: { f: Field }) {
   const { draft, edit, cleared } = useStore();
   const fs = (draft.notify.feishu ?? {}) as Record<string, string>;
-  const recipient = String(fs.recipient ?? "");
-  const name = String(fs.recipient_name ?? "");
-  const [manual, setManual] = useState(() => !!recipient && !name);
+  const recipient = String(fs.recipient ?? "").trim();
+  const who = useFeishuWho();
+  const name = String(fs.recipient_name ?? "") || who?.recipient_name || "";
+  const [manual, setManual] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -580,7 +626,7 @@ function FeishuRecipient({ f }: { f: Field }) {
         catch (e) { if (++failures < 4) continue; if (me === run.current) setErr(t("fs.poll_failed") + errText(e)); break; }
         if (me !== run.current) return;
         if (r.state === "pending") continue;
-        if (r.state === "slow_down") { wait += 5; continue; }
+        if (r.state === "slow_down") { wait = Math.min(wait + 5, 60); continue; }
         if (r.state === "done") { setRecipient(`open_id:${r.open_id}`, r.name); setManual(false); break; }
         setErr(r.state === "expired" ? t("fs.expired") : r.state === "denied" ? t("fs.denied") : r.message);
         break;
@@ -605,13 +651,17 @@ function FeishuRecipient({ f }: { f: Field }) {
         </div>
       </div>
     );
-  } else if (recipient && name && !manual) {
+  } else if (recipient && !manual) {
     body = (
-      <div class="gh-signed">
-        <span class="state-dot good" />
-        <span class="grow">{t("fs.sends_to")} <b>{name === ME ? t("fs.you") : name}</b></span>
-        <Button small onClick={start} disabled={busy || !ready}>{t("fs.again")}</Button>
-      </div>
+      <>
+        <div class="gh-signed">
+          <span class="state-dot good" />
+          <span class="grow">{t("fs.sends_to")} <b>{name === ME ? t("fs.you") : name || shortRecipient(recipient)}</b></span>
+          <Button small onClick={start} busy={busy} disabled={!ready}>{name ? t("fs.again") : t("fs.sign_in")}</Button>
+        </div>
+        {!name && <span class="muted small">{t("fs.no_name")}</span>}
+        <button class="link small stack-link" onClick={() => setManual(true)}>{t("fs.type_it")}</button>
+      </>
     );
   } else {
     body = (
@@ -621,10 +671,10 @@ function FeishuRecipient({ f }: { f: Field }) {
           <span class="muted small grow">{ready ? t("fs.sign_in_help") : t("fs.need_app")}</span>
         </div>
         {manual ? (
-          <div class="stack-input">
+          <>
             <TextInput value={recipient} placeholder={f.placeholder} onInput={(v) => setRecipient(v, "")} />
             {f.help && <span class="muted small">{f.help}</span>}
-          </div>
+          </>
         ) : (
           <button class="link small stack-link" onClick={() => setManual(true)}>{t("fs.type_it")}</button>
         )}

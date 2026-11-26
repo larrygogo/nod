@@ -365,6 +365,28 @@ async fn feishu_login_poll(
     .map_err(|e| e.to_string())?
 }
 
+/// The names of the window's Feishu app and recipient, so the window shows them instead of IDs (and learns them for
+/// settings made before names were kept).
+#[tauri::command]
+async fn feishu_who(
+    cfg: Value,
+    clear: Option<Vec<String>>,
+) -> Result<crate::notify::feishu_auth::Who, String> {
+    let recipient = cfg["notify"]["feishu"]["recipient"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let (domain, id, secret) = feishu_app(cfg, &clear.unwrap_or_default())?;
+    if id.is_empty() || secret.is_empty() {
+        return Ok(Default::default());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::notify::feishu_auth::who(&domain, &id, &secret, &recipient)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Connect a Feishu app without typing its ID and secret: the window opens the returned page (pick an app or create
 /// one) and polls.
 #[tauri::command]
@@ -387,12 +409,14 @@ struct FeishuConnect {
     domain: String,
     open_id: String,
     name: String,
+    /// the app's name, from its bot
+    app_name: String,
     message: String,
 }
 
 #[tauri::command]
 async fn feishu_connect_poll(device_code: String) -> Result<FeishuConnect, String> {
-    use crate::notify::feishu_auth::{connect_poll, name_of, ConnectPoll};
+    use crate::notify::feishu_auth::{connect_poll, who, ConnectPoll};
     tauri::async_runtime::spawn_blocking(move || {
         let p = |state: &str| FeishuConnect {
             state: state.into(),
@@ -401,6 +425,7 @@ async fn feishu_connect_poll(device_code: String) -> Result<FeishuConnect, Strin
             domain: String::new(),
             open_id: String::new(),
             name: String::new(),
+            app_name: String::new(),
             message: String::new(),
         };
         Ok(
@@ -409,8 +434,15 @@ async fn feishu_connect_poll(device_code: String) -> Result<FeishuConnect, Strin
                 ConnectPoll::SlowDown => p("slow_down"),
                 ConnectPoll::Done(c) => {
                     crate::info!("feishu: connected app {}", c.app_id);
+                    let w = who(
+                        &c.domain,
+                        &c.app_id,
+                        &c.secret,
+                        &format!("open_id:{}", c.open_id),
+                    );
                     FeishuConnect {
-                        name: name_of(&c.domain, &c.app_id, &c.secret, &c.open_id),
+                        name: w.recipient_name,
+                        app_name: w.app_name,
                         app_id: c.app_id,
                         app_secret: c.secret,
                         domain: c.domain,
@@ -1313,6 +1345,7 @@ pub fn run(hidden: bool) {
             feishu_login_poll,
             feishu_connect_start,
             feishu_connect_poll,
+            feishu_who,
             github_logout,
             catalog,
             test_notification,

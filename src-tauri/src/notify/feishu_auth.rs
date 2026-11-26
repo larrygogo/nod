@@ -253,23 +253,64 @@ pub fn connect_poll(device_code: &str) -> Result<ConnectPoll> {
     Ok(read_connect(&v))
 }
 
-/// The name of `open_id`, read with the app's own token when the app may read contacts; empty when it may not.
-pub fn name_of(domain: &str, app_id: &str, secret: &str, open_id: &str) -> String {
-    let c = super::feishu::FeishuClient::new(app_id, secret, domain);
-    let Ok(token) = c.token() else {
-        return String::new();
+fn get_json(url: &str, token: &str) -> Option<Value> {
+    ureq::get(url)
+        .timeout(std::time::Duration::from_secs(10))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()
+        .ok()?
+        .into_json::<Value>()
+        .ok()
+}
+
+/// What the window shows for a connected app and its recipient: names instead of IDs.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct Who {
+    /// the app's name; empty when it cannot be read
+    pub app_name: String,
+    /// the recipient's name; empty when the app may not read it
+    pub recipient_name: String,
+    /// why the app cannot be used, when its token is refused (a wrong secret, a deleted app)
+    pub problem: String,
+}
+
+/// The app's name and the recipient's, read with the app's own token. The app name comes from its bot (every app
+/// that can send cards has one), the recipient's from the contact directory when the app may read it.
+pub fn who(domain: &str, app_id: &str, secret: &str, recipient: &str) -> Who {
+    let open = domain.trim_end_matches('/');
+    let open = if open.is_empty() {
+        "https://open.feishu.cn"
+    } else {
+        open
     };
-    ureq::get(&format!(
-        "{}/open-apis/contact/v3/users/{open_id}?user_id_type=open_id",
-        domain.trim_end_matches('/')
-    ))
-    .timeout(std::time::Duration::from_secs(10))
-    .set("Authorization", &format!("Bearer {token}"))
-    .call()
-    .ok()
-    .and_then(|r| r.into_json::<Value>().ok())
-    .and_then(|v| v["data"]["user"]["name"].as_str().map(str::to_string))
-    .unwrap_or_default()
+    let c = super::feishu::FeishuClient::new(app_id, secret, open);
+    let token = match c.token() {
+        Ok(t) => t,
+        Err(e) => {
+            return Who {
+                problem: format!("{e:#}"),
+                ..Who::default()
+            }
+        }
+    };
+    let app_name = get_json(&format!("{open}/open-apis/bot/v3/info"), &token)
+        .and_then(|v| v["bot"]["app_name"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    let recipient = crate::config::feishu_recipient(recipient);
+    let recipient_name = match recipient.split_once(':') {
+        Some((t @ ("open_id" | "union_id" | "user_id"), id)) if !id.is_empty() => get_json(
+            &format!("{open}/open-apis/contact/v3/users/{id}?user_id_type={t}"),
+            &token,
+        )
+        .and_then(|v| v["data"]["user"]["name"].as_str().map(str::to_string))
+        .unwrap_or_default(),
+        _ => String::new(),
+    };
+    Who {
+        app_name,
+        recipient_name,
+        problem: String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -347,6 +388,26 @@ mod tests {
         assert_eq!(
             accounts_host("https://open.feishu.cn"),
             "https://accounts.feishu.cn"
+        );
+    }
+
+    /// `NOD_LIVE_FEISHU=1 cargo test live_feishu_who -- --ignored --nocapture`: the names for the configured app.
+    #[test]
+    #[ignore]
+    fn live_feishu_who() {
+        if std::env::var("NOD_LIVE_FEISHU").as_deref() != Ok("1") {
+            return;
+        }
+        let cfg = crate::config::load().unwrap();
+        let f = &cfg.notify.feishu;
+        eprintln!(
+            "WHO {:?}",
+            who(&f.domain, &f.app_id, &cfg.feishu_secret(), &f.recipient)
+        );
+        let me = "open_id:ou_fb6cdf9afcbe227b9fe755b97f907529";
+        eprintln!(
+            "ME {:?}",
+            who(&f.domain, &f.app_id, &cfg.feishu_secret(), me)
         );
     }
 
