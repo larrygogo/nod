@@ -114,6 +114,16 @@ fn endpoint(cfg: &Config) -> (String, String) {
     )
 }
 
+/// The key of [`learned`]. Tests run in parallel and their fake servers can get a port another test's server had:
+/// what one test learned must not reach another.
+fn learned_key(cfg: &Config) -> (String, String) {
+    #[allow(unused_mut)]
+    let mut k = endpoint(cfg);
+    #[cfg(test)]
+    k.0.push_str(&format!("#{:?}", std::thread::current().id()));
+    k
+}
+
 /// The window a review starts with: what an earlier review learned, else the context a local Ollama loaded the
 /// model with, else [`OPEN_WINDOW`].
 fn start_window(cfg: &Config) -> usize {
@@ -124,7 +134,7 @@ fn start_window(cfg: &Config) -> usize {
             return w;
         }
     }
-    if let Some(&w) = learned().lock().unwrap().get(&endpoint(cfg)) {
+    if let Some(&w) = learned().lock().unwrap().get(&learned_key(cfg)) {
         return w;
     }
     if is_local(&cfg.review.api.base_url) {
@@ -611,7 +621,7 @@ impl Talk<'_> {
             to / 1024
         );
         self.window = to;
-        learned().lock().unwrap().insert(endpoint(self.cfg), to);
+        learned().lock().unwrap().insert(learned_key(self.cfg), to);
         self.size_pages();
         let last = self
             .msgs

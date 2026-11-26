@@ -20,6 +20,10 @@ project uses [Semantic Versioning](https://semver.org/).
   sandbox, so it comments but does not approve unless you turn that on. Settings that chose Gemini (default, backup,
   per-repository) now choose Antigravity; turning approval on has to be done again, since it was given for another
   program.
+- Antigravity really runs in its read-only plan mode now: it had been started with `--disable-slash-commands`, which
+  makes it ignore `--mode plan`. It is told to review in one turn without subagents; when it still ends its turn
+  without a verdict (it started a subagent and said it was waiting for it), it is asked for the verdict once in the
+  same conversation, instead of the review going to the backup engine. The error names what it replied.
 - New engine: Kimi Code (`kimi`), Moonshot's CLI, given only the read-only `Read`, `Grep` and `Glob` tools. Its model
   is an alias from Kimi Code's own config (empty = its default).
 - The backup engine now takes over whenever the chosen engine fails, whatever the error (a timeout, an answer that is

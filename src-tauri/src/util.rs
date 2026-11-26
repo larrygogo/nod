@@ -172,6 +172,13 @@ pub fn take_aborted(key: &str) -> bool {
     a.remove(key) || a.contains("*")
 }
 
+/// Whether the review of `key` was stopped on purpose, without forgetting it (the engine checks before going on;
+/// the fallback decision still sees it).
+pub fn was_aborted(key: &str) -> bool {
+    let a = aborted().lock().unwrap();
+    a.contains(key) || a.contains("*")
+}
+
 /// A new review of `key` starts: an earlier stop no longer counts.
 pub fn clear_aborted(key: &str) {
     aborted().lock().unwrap().remove(key);
