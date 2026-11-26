@@ -638,10 +638,16 @@ pub fn fix_target(action: &str, cfg: &Config) -> Option<Fix> {
             format!("{} login", quote_arg(&cfg.review.codex.exe)),
             vec![],
         ),
-        doctor::FIX_GEMINI_LOGIN => Fix::Terminal(quote_arg(&cfg.review.gemini.exe), vec![]),
+        doctor::FIX_ANTIGRAVITY_LOGIN => {
+            Fix::Terminal(quote_arg(&cfg.review.antigravity.exe), vec![])
+        }
+        doctor::FIX_KIMI_LOGIN => {
+            Fix::Terminal(format!("{} login", quote_arg(&cfg.review.kimi.exe)), vec![])
+        }
         doctor::FIX_INSTALL_CODEX => Fix::Url("https://developers.openai.com/codex/cli".into()),
-        doctor::FIX_INSTALL_GEMINI => {
-            Fix::Url("https://geminicli.com/docs/get-started/installation".into())
+        doctor::FIX_INSTALL_ANTIGRAVITY => Fix::Url("https://antigravity.google/docs/cli".into()),
+        doctor::FIX_INSTALL_KIMI => {
+            Fix::Url("https://moonshotai.github.io/kimi-code/en/guides/getting-started".into())
         }
         doctor::FIX_INSTALL_GIT => Fix::Url("https://git-scm.com/downloads".into()),
         doctor::FIX_INSTALL_CLAUDE => {

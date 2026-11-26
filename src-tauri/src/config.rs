@@ -25,7 +25,7 @@ pub const CHANNELS: [&str; 8] = [
     "none",
 ];
 /// Built-in review engines.
-pub const ENGINES: [&str; 4] = ["claude", "codex", "gemini", "api"];
+pub const ENGINES: [&str; 5] = ["claude", "codex", "antigravity", "kimi", "api"];
 /// Built-in code hosts.
 pub const FORGES: [&str; 3] = ["github", "gitee", "gitea"];
 pub const RECIPIENT_TYPES: [&str; 4] = ["open_id", "union_id", "user_id", "email"];
@@ -78,6 +78,10 @@ pub struct Review {
     /// name.
     pub footer: String,
     pub codex: Codex,
+    pub antigravity: Antigravity,
+    pub kimi: Kimi,
+    /// Gemini CLI, replaced by Antigravity: still read so that older settings files load, never written.
+    #[serde(skip_serializing)]
     pub gemini: Gemini,
     pub api: ApiEngine,
 }
@@ -106,13 +110,51 @@ impl Default for Codex {
     }
 }
 
+/// Google Antigravity CLI (`agy`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Antigravity {
+    pub exe: String,
+    pub model: String,
+    /// Antigravity has no operating-system sandbox here, only its "plan" mode. Its verdicts never lead to an approval
+    /// unless this is turned on explicitly.
+    pub allow_approve: bool,
+}
+
+impl Default for Antigravity {
+    fn default() -> Self {
+        Antigravity {
+            exe: "agy".into(),
+            model: String::new(),
+            allow_approve: false,
+        }
+    }
+}
+
+/// Kimi Code CLI (`kimi`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Kimi {
+    pub exe: String,
+    /// A model alias from Kimi Code's config.toml; empty = its default_model.
+    pub model: String,
+}
+
+impl Default for Kimi {
+    fn default() -> Self {
+        Kimi {
+            exe: "kimi".into(),
+            model: String::new(),
+        }
+    }
+}
+
+/// Settings of the Gemini CLI engine of 0.1.x (see [`Review::gemini`]).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Gemini {
     pub exe: String,
     pub model: String,
-    /// Gemini CLI has no operating-system sandbox here, only its read-only "plan" mode. Its verdicts never lead to an
-    /// approval unless this is turned on explicitly.
     pub allow_approve: bool,
 }
 
@@ -134,9 +176,9 @@ pub struct ApiEngine {
     pub model: String,
     /// Stored in the system keychain; only kept here when the keychain is unavailable.
     pub key: String,
-    /// One request (the diff in the message plus what the tools returned so far) sends at most this many KiB, and a
-    /// whole review at most eight times that. 0 = by endpoint: 12 for one on this machine (Ollama, LM Studio), 200 for
-    /// any other.
+    /// No longer used: the engine finds the model's context by itself. Still read so that settings files of 0.1.x
+    /// load; never written.
+    #[serde(skip_serializing)]
     pub max_diff_kb: u64,
 }
 
@@ -168,6 +210,8 @@ impl Default for Review {
             footer_enabled: true,
             footer: String::new(),
             codex: Codex::default(),
+            antigravity: Antigravity::default(),
+            kimi: Kimi::default(),
             gemini: Gemini::default(),
             api: ApiEngine::default(),
         }
@@ -496,9 +540,16 @@ fn is_login_pattern(s: &str) -> bool {
 impl Config {
     /// Settings written by earlier versions, in their current form.
     pub fn upgrade(&mut self) {
-        // 0.1.1 wrote its default 200 into every saved file; 0 now picks a size by endpoint (200 for a remote one)
-        if self.review.api.max_diff_kb == 200 {
-            self.review.api.max_diff_kb = 0;
+        // Gemini CLI became Antigravity CLI: the engine choice carries over, its program and model do not (another
+        // program, other model names), nor its approval opt-in, which was given for the other program
+        let r = &mut self.review;
+        for e in [&mut r.engine, &mut r.fallback]
+            .into_iter()
+            .chain(r.per_repo.iter_mut().map(|x| &mut x.engine))
+        {
+            if e == "gemini" {
+                *e = "antigravity".into();
+            }
         }
         let a = &mut self.approve;
         for author in std::mem::take(&mut a.always_authors) {
@@ -966,24 +1017,42 @@ author = \"\"
         assert!(bad.is_err());
     }
 
-    /// 0.1.1 saved its default 200 into every settings file; it becomes 0 (by endpoint) so a local Ollama gets the
-    /// small automatic budget. Other values stay.
+    /// 0.1.x had Gemini CLI; its settings still load, a choice of it becomes Antigravity, and it is not written again.
     #[test]
-    fn the_old_default_diff_size_becomes_automatic() {
+    fn gemini_becomes_antigravity() {
         let c = parse(
-            "[review.api]
-base_url = \"http://localhost:11434/v1\"
-max_diff_kb = 200
+            "[review]
+engine = \"gemini\"
+fallback = \"gemini\"
+per_repo = [{ repo = \"acme/*\", engine = \"gemini\" }]
+
+[review.gemini]
+exe = \"gemini\"
+allow_approve = true
 ",
         )
         .unwrap();
-        assert_eq!(c.review.api.max_diff_kb, 0);
+        assert_eq!(c.review.engine, "antigravity");
+        assert_eq!(c.review.fallback, "antigravity");
+        assert_eq!(c.review.per_repo[0].engine, "antigravity");
+        assert!(
+            !c.review.antigravity.allow_approve,
+            "the opt-in was for another program"
+        );
+        let out = toml::to_string(&c).unwrap();
+        assert!(!out.contains("gemini") && out.contains("[review.antigravity]"));
+        c.validate().unwrap();
+    }
+
+    /// 0.1.x wrote `max_diff_kb`; such a file still loads, and the key is not written again.
+    #[test]
+    fn the_old_diff_size_setting_still_loads_and_is_dropped() {
         let c = parse(
             "[review.api]
 max_diff_kb = 64
 ",
         )
         .unwrap();
-        assert_eq!(c.review.api.max_diff_kb, 64);
+        assert!(!toml::to_string(&c).unwrap().contains("max_diff_kb"));
     }
 }

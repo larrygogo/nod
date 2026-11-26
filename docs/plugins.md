@@ -5,7 +5,7 @@ Everything Nod connects to is a plugin of one of three kinds:
 | Kind | Built in | What it does |
 |---|---|---|
 | **Code host** (`forge`) | GitHub (incl. Enterprise), Gitee, Gitea / Forgejo | finds the PRs you are asked to review, checks them out, posts reviews |
-| **Review engine** (`engine`) | Claude Code, OpenAI Codex CLI, Gemini CLI, OpenAI-compatible API | reads the change and returns a structured verdict |
+| **Review engine** (`engine`) | Claude Code, OpenAI Codex CLI, Google Antigravity CLI, Kimi Code CLI, OpenAI-compatible API | reads the change and returns a structured verdict |
 | **Notification channel** (`notify`) | desktop, Feishu/Lark, DingTalk, WeCom, Slack, webhook | tells you about outcomes |
 
 Whatever the engine says, **approval is decided by Nod's fixed rules** (see [security.md](security.md)); an

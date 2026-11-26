@@ -5,8 +5,9 @@
 //! (`..`, absolute paths, drive prefixes, links resolved outside it) and `.git` are refused with an error text the
 //! model reads, never served.
 //!
-//! What the model saw of the change is tracked per file ([`Tools::seen`]): a file's diff counts as seen when it was in
-//! the message or when every page of it was fetched with `get_diff`. Reading the current file is not seeing the change.
+//! Each `get_diff` call records which bytes of the file's diff it returned ([`Tools::last_range`]); the engine counts a
+//! file as seen when the diffs still in the conversation cover all of it ([`covered`]). Reading the current file is not
+//! seeing the change.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fs;
@@ -208,6 +209,32 @@ pub fn result_max(budget: usize) -> usize {
     (budget / 5).clamp(2 * 1024, RESULT_MAX)
 }
 
+/// The changed files whose whole diff is covered by `ranges` ((path, start, end) in bytes, from `get_diff`).
+pub fn covered(files: &[FileDiff], ranges: &[(String, usize, usize)]) -> BTreeSet<String> {
+    let mut by: HashMap<&str, Vec<(usize, usize)>> = HashMap::new();
+    for (p, s, e) in ranges {
+        by.entry(p.as_str()).or_default().push((*s, *e));
+    }
+    let mut out = BTreeSet::new();
+    for f in files {
+        let Some(r) = by.get_mut(f.path.as_str()) else {
+            continue;
+        };
+        r.sort();
+        let mut reach = 0;
+        for &(s, e) in r.iter() {
+            if s > reach {
+                break;
+            }
+            reach = reach.max(e);
+        }
+        if reach >= f.text.len() {
+            out.insert(f.path.clone());
+        }
+    }
+    out
+}
+
 /// Cut `s` to at most `max` bytes at a character boundary, saying so.
 fn cap(mut s: String, max: usize) -> String {
     if s.len() <= max {
@@ -256,31 +283,49 @@ fn binary(head: &[u8]) -> bool {
 pub struct Tools {
     root: PathBuf,
     files: Vec<FileDiff>,
-    pages_seen: HashMap<String, BTreeSet<usize>>,
-    /// Changed files whose diff the model has seen.
-    pub seen: BTreeSet<String>,
+    /// What the last `get_diff` call returned: (path, start, end) in bytes of that file's diff.
+    pub last_range: Option<(String, usize, usize)>,
     /// How many tool calls ran.
     pub calls: usize,
-    /// At most this much text goes back from one call; diffs are paged to fit.
+    /// At most this much text goes back from one call (other than get_diff).
     max: usize,
+    /// get_diff pages fit into this; it stays the same while a review runs, so page numbers keep their meaning.
+    page_max: usize,
 }
 
 impl Tools {
-    /// `inline` = the files whose whole diff is already in the message; `max` = see [`result_max`].
-    pub fn new(wt: &Path, files: Vec<FileDiff>, inline: &[String], max: usize) -> Tools {
+    /// `max` = see [`result_max`].
+    pub fn new(wt: &Path, files: Vec<FileDiff>, max: usize) -> Tools {
         Tools {
             root: wt.canonicalize().unwrap_or_else(|_| wt.to_path_buf()),
             files,
-            pages_seen: HashMap::new(),
-            seen: inline.iter().cloned().collect(),
+            last_range: None,
             calls: 0,
             max,
+            page_max: max,
         }
+    }
+
+    /// The limit for the next results other than get_diff pages (the room left in the conversation).
+    pub fn set_max(&mut self, max: usize) {
+        self.max = max;
+    }
+
+    /// The most one get_diff page returns.
+    pub fn page_max(&self) -> usize {
+        self.page_max
+    }
+
+    /// A new page size for get_diff, after the model's context turned out smaller; the model is told the new page
+    /// count with each page.
+    pub fn set_page_max(&mut self, max: usize) {
+        self.page_max = max;
+        self.max = max;
     }
 
     /// The size of one `get_diff` page: what is left of `max` after the page header.
     fn page_size(&self) -> usize {
-        self.max.saturating_sub(100).max(512)
+        self.page_max.saturating_sub(100).max(512)
     }
 
     /// For a file git showed no changes of ([`opaque_section`]): whether it is really binary (a binary extension, and
@@ -352,6 +397,7 @@ impl Tools {
     /// Run one tool call. Errors are returned as text for the model, never raised.
     pub fn call(&mut self, name: &str, args: &str) -> String {
         self.calls += 1;
+        self.last_range = None;
         let a: Value = if args.trim().is_empty() {
             json!({})
         } else {
@@ -380,7 +426,12 @@ impl Tools {
                 "unknown tool {other:?}; the tools are get_diff, read_file, list_dir and search"
             )),
         };
-        cap(out.unwrap_or_else(|e| format!("error: {e}")), self.max)
+        let max = if name == "get_diff" {
+            self.page_max
+        } else {
+            self.max
+        };
+        cap(out.unwrap_or_else(|e| format!("error: {e}")), max)
     }
 
     /// A path of the checkout, refused when it is absolute, climbs out, names `.git`, uses a Windows stream (`a:b`)
@@ -445,11 +496,8 @@ impl Tools {
         let text = ps
             .get(page - 1)
             .ok_or_else(|| format!("{path:?} has {} page(s)", ps.len()))?;
-        let got = self.pages_seen.entry(f.path.clone()).or_default();
-        got.insert(page);
-        if got.len() == ps.len() {
-            self.seen.insert(f.path.clone());
-        }
+        let start = text.as_ptr() as usize - f.text.as_ptr() as usize;
+        self.last_range = Some((f.path.clone(), start, start + text.len()));
         let more = if page < ps.len() {
             format!(" Ask for page {} next.", page + 1)
         } else {
@@ -710,7 +758,7 @@ diff --git \"a/\\344\\270\\255.rs\" \"b/\\344\\270\\255.rs\"\n--- \"a/\\344\\270
                 text: "diff --git a/src/b.rs b/src/b.rs\n+x\n".into(),
             },
         ];
-        let t = Tools::new(&wt, files, &["src/b.rs".to_string()], RESULT_MAX);
+        let t = Tools::new(&wt, files, RESULT_MAX);
         (d, t)
     }
 
@@ -900,9 +948,9 @@ c
                     path: "src/data.rs".into(),
                     text: text.clone(),
                 }],
-                &[],
                 max,
             );
+            let mut ranges = vec![];
             let mut got = String::new();
             let mut page = 1;
             loop {
@@ -910,6 +958,7 @@ c
                     "get_diff",
                     &json!({"path": "src/data.rs", "page": page}).to_string(),
                 );
+                ranges.extend(t.last_range.clone());
                 assert!(
                     r.len() <= max && !r.contains("output cut"),
                     "{max}: page {page} is {} bytes",
@@ -928,15 +977,16 @@ c
                 page += 1;
             }
             assert_eq!(got, text, "{max}: the pages make up the whole diff");
-            assert!(t.seen.contains("src/data.rs"));
+            assert!(covered(t.files(), &ranges).contains("src/data.rs"));
         }
     }
 
     #[test]
     fn a_diff_counts_as_seen_once_every_page_was_fetched() {
         let (_d, mut t) = checkout();
-        assert!(t.seen.contains("src/b.rs") && !t.seen.contains("src/a.rs"));
+        let mut ranges = vec![];
         let r = t.call("get_diff", &json!({"path": "src/a.rs"}).to_string());
+        ranges.extend(t.last_range.clone());
         let n: usize = r[r.find('/').unwrap() + 1..r.find('.').unwrap()]
             .parse()
             .unwrap();
@@ -946,9 +996,12 @@ c
                 "get_diff",
                 &json!({"path": "src/a.rs", "page": page}).to_string(),
             );
+            ranges.extend(t.last_range.clone());
         }
+        // the same page twice does not make up for a missing one
+        ranges.push(ranges[0].clone());
         assert!(
-            !t.seen.contains("src/a.rs"),
+            !covered(t.files(), &ranges).contains("src/a.rs"),
             "the last page is still missing"
         );
         let r = t.call(
@@ -956,7 +1009,11 @@ c
             &json!({"path": "src/a.rs", "page": n}).to_string(),
         );
         assert!(!r.contains("next"));
-        assert!(t.seen.contains("src/a.rs"));
+        ranges.extend(t.last_range.clone());
+        assert!(covered(t.files(), &ranges).contains("src/a.rs"));
+        // a list_dir in between leaves no range behind
+        t.call("list_dir", "{}");
+        assert!(t.last_range.is_none());
         assert!(t
             .call("get_diff", &json!({"path": "nope.rs"}).to_string())
             .contains("not a changed file"));

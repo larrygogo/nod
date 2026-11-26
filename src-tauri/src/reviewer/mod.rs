@@ -1,13 +1,15 @@
-//! Review engines: Claude Code, OpenAI Codex CLI, Gemini CLI, any OpenAI-compatible API, and external plugins.
+//! Review engines: Claude Code, OpenAI Codex CLI, Google Antigravity CLI, Kimi Code CLI, any OpenAI-compatible API,
+//! and external plugins.
 //!
 //! Every engine gets the same checkout (made from the PR's code host) and must return the same structured verdict;
 //! what happens with the verdict (comment or approve) is decided by the fixed rules in `review::decide`.
 
+pub mod antigravity;
 pub mod api;
 pub mod api_tools;
 pub mod claude;
 pub mod codex;
-pub mod gemini;
+pub mod kimi;
 
 use std::collections::HashMap;
 use std::fs;
@@ -301,7 +303,8 @@ pub fn engine_named(cfg: &Config, name: &str) -> Result<Box<dyn Engine>> {
     Ok(match name {
         "claude" => Box::new(claude::Claude),
         "codex" => Box::new(codex::Codex),
-        "gemini" => Box::new(gemini::Gemini),
+        "antigravity" => Box::new(antigravity::Antigravity),
+        "kimi" => Box::new(kimi::Kimi),
         "api" => Box::new(api::Api),
         n if n.starts_with("ext:") => Box::new(crate::plugins::ExternalEngine::new(cfg, &n[4..])?),
         n => return Err(anyhow!("unknown review engine {n:?}")),
@@ -396,6 +399,11 @@ pub fn classify(msg: &str, now: f64) -> Trouble {
         "could not be refreshed",
         // Gemini CLI with no sign-in configured
         "please set an auth method",
+        // Kimi Code before its first sign-in: "No model configured. Run `kimi` and use /login to sign in, …"
+        "no model configured",
+        "/login to sign in",
+        // Antigravity CLI in print mode before its first sign-in
+        "authentication required",
     ];
     if unavailable.iter().any(|w| m.contains(w)) || Regex::new(r"\b401\b").unwrap().is_match(&m) {
         return Trouble::Unavailable;
@@ -507,6 +515,17 @@ impl Reviewer for Router {
 }
 
 /// For engines without a native structured-output option: how to answer.
+/// For engines that take the prompt only as a command-line argument (too short for a PR's text on Windows): the
+/// prompt goes into a file of the context directory, and the short request to read it is returned.
+pub fn prompt_in_file(ctx: &Path, prompt: &str) -> Result<String> {
+    let p = ctx.join("review-prompt.md");
+    std::fs::write(&p, prompt)?;
+    Ok(format!(
+        "Your task is in the file {}. Read all of it with your file tools first, then follow its instructions exactly and reply with the JSON verdict only.",
+        p.display()
+    ))
+}
+
 pub fn json_only(lang: &str) -> String {
     let lead = if lang == "en" {
         "Reply with exactly one JSON object that follows this JSON Schema, with no other text:"

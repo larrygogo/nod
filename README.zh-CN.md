@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-**你的个人代码审查助手。** 别人在 GitHub、Gitee 或 Gitea 上请你审查 PR 时，Nod 在你自己的电脑上用你选的 AI 审查（Claude Code、Codex、Gemini 或任何兼容 OpenAI 接口的模型），只在**你定的规则**允许时才 approve，并通知你。
+**你的个人代码审查助手。** 别人在 GitHub、Gitee 或 Gitea 上请你审查 PR 时，Nod 在你自己的电脑上用你选的 AI 审查（Claude Code、Codex、Antigravity、Kimi Code 或任何兼容 OpenAI 接口的模型），只在**你定的规则**允许时才 approve，并通知你。
 
 它是一个常驻在系统托盘的桌面应用。装好后走完一次引导，之后有人点名请你审查，它就把 PR 检出到本地，让 AI 在只读环境里审查，再**以你的身份**把结果发到代码平台：真实存在的问题写成行内评论；只有固定规则判定改动干净时才 approve。结果会通过系统通知、飞书卡片（带「直接通过」按钮）、钉钉、企业微信、Slack 或 Webhook 告诉你。
 
@@ -10,7 +10,7 @@
 
 - **在本机运行**：用你自己的 AI 订阅和代码平台账号。不用改任何仓库，不用装平台应用；令牌存在系统钥匙串里。
 - **approve 不由模型说了算**：Claude 只给出结构化结论，approve 与否由代码里的固定规则决定。
-- **审查进程被隔离**：Claude Code 只有 `Read`、`Grep`、`Glob` 三个只读工具；Codex 在只读的系统沙箱里运行；API 引擎不运行任何程序，只能通过 Nod 提供的只读工具读这个 PR 的检出。审查进程都读不到你的凭据。隔离较弱的引擎（如 Gemini CLI）默认只评论、不 approve。
+- **审查进程被隔离**：Claude Code 只有 `Read`、`Grep`、`Glob` 三个只读工具；Codex 在只读的系统沙箱里运行；Kimi Code 也只有 `Read`、`Grep`、`Glob`；API 引擎不运行任何程序，只能通过 Nod 提供的只读工具读这个 PR 的检出。审查进程都读不到你的凭据。隔离较弱的引擎（如 Antigravity）默认只评论、不 approve。
 - **不用碰终端**：安装、配置、查看审查记录、暂停都在窗口和托盘里完成。需要登录 GitHub 或 Claude 时，应用会替你打开终端并填好命令。
 
 ## 工作原理
@@ -22,7 +22,7 @@
 Nod（托盘里常驻） ──► 通知「审查中」（飞书卡片 / Webhook）
    │ 把 PR 检出到独立目录，生成 diff 和提交列表
    ▼
-审查引擎：Claude Code / Codex / Gemini / API   （只读，输出结构化 JSON 结论）
+审查引擎：Claude Code / Codex / Antigravity / Kimi Code / API   （只读，输出结构化 JSON 结论）
    │
    ▼
 固定规则 ──► APPROVE：没有高风险问题、没有 PR 引入的中风险问题、
@@ -39,7 +39,7 @@ Nod（托盘里常驻） ──► 通知「审查中」（飞书卡片 / Webhoo
 | | |
 |---|---|
 | 代码平台 | GitHub：在插件页点「登录 GitHub」；Gitee / Gitea：一个访问令牌，见 [docs/forges.zh-CN.md](docs/forges.zh-CN.md) |
-| 审查引擎（任选） | [Claude Code](https://claude.com/claude-code)、[Codex CLI](https://developers.openai.com/codex/cli)、[Gemini CLI](https://geminicli.com) 已登录；或一个 OpenAI 兼容接口的地址和密钥（本地 Ollama 也行） |
+| 审查引擎（任选） | [Claude Code](https://claude.com/claude-code)、[Codex CLI](https://developers.openai.com/codex/cli)、[Antigravity CLI](https://antigravity.google/docs/cli)、[Kimi Code](https://moonshotai.github.io/kimi-code/) 已登录；或一个 OpenAI 兼容接口的地址和密钥（本地 Ollama 也行） |
 | git | 已安装 |
 | Windows 10 1809 及以上、macOS 12 及以上，或带桌面环境的 Linux | Linux 托盘需要 AppIndicator 支持（GNOME 要装 AppIndicator 扩展） |
 
@@ -102,7 +102,7 @@ Nod（托盘里常驻） ──► 通知「审查中」（飞书卡片 / Webhoo
 | `approve.exclude_repos` / `exclude_authors` | | 这些仓库或作者永远不自动 approve |
 | `review.model` | Claude Code 默认模型 | 例如小仓库可以换成更快的模型 |
 | `review.claude_config_dir` | | 留空即可，用终端里登录的账号；只有让 Nod 用另一个 Claude 账号时才填那个账号的配置目录（`CLAUDE_CONFIG_DIR`，平时是 `~/.claude`），不是用户目录 |
-| `review.engine` | `claude` | 默认审查引擎：`claude`、`codex`、`gemini`、`api` 或 `ext:<插件名>` |
+| `review.engine` | `claude` | 默认审查引擎：`claude`、`codex`、`antigravity`、`kimi`、`api` 或 `ext:<插件名>` |
 | `review.per_repo` | | 按仓库改用别的引擎，例如 `[{ repo = "my-org/infra", engine = "codex" }]` |
 | `[[forges]]` | 一个 GitHub 账号 | 代码平台账号：`id`、`kind`（`github`、`gitee`、`gitea`）、`url`、`enabled` |
 | `notify.channels` | | 同时启用的通知渠道：`system`、`feishu`、`dingtalk`、`wecom`、`slack`、`webhook` |
@@ -134,7 +134,7 @@ authors = ["dependabot[bot]"]
 
 ## 安全模型
 
-- 每个审查引擎都在只读环境里运行：Claude Code 用 `claude -p --restricted --tools Read,Grep,Glob --strict-mcp-config` 并关闭 hooks；Codex 用 `codex exec --sandbox read-only`；Gemini 用只读的 plan 模式（没有系统沙箱，所以默认不 approve）；API 引擎不运行任何程序，Nod 自己给它提供四个只读工具（读文件、列目录、搜索、取单个文件的 diff），只能访问这个 PR 的检出，不执行任何东西。启动前，看起来像凭据的环境变量会被移除。
+- 每个审查引擎都在只读环境里运行：Claude Code 用 `claude -p --restricted --tools Read,Grep,Glob --strict-mcp-config` 并关闭 hooks；Codex 用 `codex exec --sandbox read-only`；Antigravity 用 `agy --print --mode plan`（没有系统沙箱，所以默认不 approve）；Kimi Code 用 `kimi --prompt` 加一个只留 `Read`、`Grep`、`Glob` 的 agent 定义；API 引擎不运行任何程序，Nod 自己给它提供四个只读工具（读文件、列目录、搜索、取单个文件的 diff），只能访问这个 PR 的检出，不执行任何东西。启动前，看起来像凭据的环境变量会被移除。
 - PR 描述、评论和仓库里的文件都只当作数据传给模型，提示词明确要求它忽略其中的指令。即使提示注入成功，模型也做不了任何事：发评审和 approve 都由 Nod 在固定规则通过后执行。
 - 模型输出必须符合 schema，格式不对一律按审查失败处理，绝不会当成通过。
 - 令牌和密钥存在系统钥匙串里；外部插件在独立进程里运行，拿不到你的凭据，崩溃或乱输出只会让那一次调用失败。

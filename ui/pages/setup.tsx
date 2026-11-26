@@ -131,10 +131,11 @@ export function Setup() {
   }, [step, engine?.id]);
   const allOk = checks?.every((c) => c.ok);
   // Only Claude's full check calls the model to see the sign-in; the quick one stops at "installed". Codex and the API
-  // check their sign-in either way; Gemini's sign-in is not checked at all.
+  // check their sign-in either way; Antigravity's and Kimi Code's sign-in is not checked at all.
   // a third-party engine's check only finds it installed, whichever button ran it
   const quickNote = step === 1 && engine?.id.startsWith("ext:") ? "ck.installed_only"
-    : step === 1 && engine?.id === "gemini" ? "ck.gemini_unchecked"
+    : step === 1 && engine?.id === "antigravity" ? "ck.agy_unchecked"
+    : step === 1 && engine?.id === "kimi" ? "ck.kimi_unchecked"
     : quick && engine?.id === "claude" ? "ck.installed" : "ck.all_ok";
 
   const steps = [t("ob.s1"), t("ob.s2"), t("ob.s3")];

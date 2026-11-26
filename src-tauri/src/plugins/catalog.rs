@@ -172,16 +172,25 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           ],
           vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("good", l.t("系统沙箱只读", "Read-only OS sandbox"))],
           "https://developers.openai.com/codex/cli"),
-        p("gemini", "engine", "Gemini CLI",
-          l.t("只读 plan 模式运行。没有系统沙箱，默认只评论、不 approve。", "Google's Gemini CLI in read-only plan mode. There is no OS sandbox, so by default it comments but never approves."),
-          "gemini",
+        p("antigravity", "engine", "Antigravity",
+          l.t("Google Antigravity CLI，以只读的 plan 模式运行。没有系统沙箱，默认只评论、不 approve。", "Google's Antigravity CLI in read-only plan mode. There is no OS sandbox, so by default it comments but never approves."),
+          "antigravity",
           vec![
-              f("review.gemini.exe", l.t("gemini 程序", "gemini program"), "text").ph("gemini").opt(),
-              f("review.gemini.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text").opt(),
-              f("review.gemini.allow_approve", l.t("允许触发自动 approve（隔离较弱）", "Let its verdicts lead to auto-approval (weaker isolation; at your own risk)"), "bool").opt(),
+              f("review.antigravity.exe", l.t("agy 程序", "agy program"), "text").ph("agy").opt(),
+              f("review.antigravity.model", l.t("模型（留空用默认）", "Model (empty = default)"), "text").opt(),
+              f("review.antigravity.allow_approve", l.t("允许触发自动 approve（隔离较弱）", "Let its verdicts lead to auto-approval (weaker isolation; at your own risk)"), "bool").opt(),
           ],
           vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("warn", l.t("无系统沙箱，默认不 approve", "No OS sandbox; does not approve by default"))],
-          "https://geminicli.com/docs"),
+          "https://antigravity.google/docs/cli"),
+        p("kimi", "engine", "Kimi Code",
+          l.t("月之暗面的 Kimi Code CLI，只给它 Read、Grep、Glob 三个只读工具。", "Moonshot's Kimi Code CLI with only three read-only tools: Read, Grep and Glob."),
+          "kimi",
+          vec![
+              f("review.kimi.exe", l.t("kimi 程序", "kimi program"), "text").ph("kimi").opt(),
+              f("review.kimi.model", l.t("模型（Kimi Code 配置里的别名，留空用默认）", "Model (an alias from Kimi Code's config; empty = default)"), "text").opt(),
+          ],
+          vec![b("good", l.t("读整个仓库", "Reads the whole repository")), b("good", l.t("只读，不能执行命令", "Read-only, no commands"))],
+          "https://moonshotai.github.io/kimi-code/"),
         p("api", "engine", l.t("OpenAI 兼容 API", "OpenAI-compatible API").as_str(),
           l.t(
               "OpenAI、DeepSeek、通义千问、Ollama 等兼容接口。模型用只读工具按需读这个 PR 的代码；接口不支持工具时只看 diff。",
@@ -193,12 +202,6 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
                   .help(l.t("Ollama 填 http://localhost:11434/v1", "For Ollama: http://localhost:11434/v1")),
               f("review.api.model", l.t("模型", "Model"), "text").ph("deepseek-chat"),
               f("review.api.key", l.t("API 密钥（本地模型可留空）", "API key (may be empty for local models)"), "password"),
-              f("review.api.max_diff_kb", l.t("单次请求最多发送（KB）", "Send at most this much per request (KB)"), "number")
-                  .ph(&l.t("0 = 自动", "0 = automatic"))
-                  .help(l.t(
-                      "不能超过模型的上下文长度。模型每读一次代码，整段对话都要重发一遍，所以一次审查总共最多发送这个数的 8 倍。0 = 自动：本机的 Ollama、LM Studio 用 12，其它用 200。Ollama 默认上下文很小，超出会被悄悄截掉：先用 OLLAMA_CONTEXT_LENGTH 调大，再调高这里。有改动文件模型没看到时，Nod 不会 approve。",
-                      "Keep it within the model's context length. Each time the model reads code the whole conversation is sent again, so one review sends at most eight times this in total. 0 = automatic: 12 for Ollama or LM Studio on this machine, 200 otherwise. Ollama's default context is small and it cuts longer input silently: raise it with OLLAMA_CONTEXT_LENGTH first, then raise this. Nod does not approve when the model did not see every changed file.",
-                  )).opt(),
           ],
           vec![b("good", l.t("按需读仓库（只读）", "Reads the repository as needed (read-only)")), b("good", l.t("不执行命令", "Runs no commands"))], ""),
         // ------------------------------------------------------------ notifications

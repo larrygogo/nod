@@ -3,7 +3,7 @@
 [简体中文](README.zh-CN.md)
 
 **Your personal code-review agent.** When someone requests your review on GitHub, Gitee or Gitea, Nod reviews
-the pull request on your own computer with the AI you choose (Claude Code, Codex, Gemini, or any OpenAI-compatible
+the pull request on your own computer with the AI you choose (Claude Code, Codex, Antigravity, Kimi Code, or any OpenAI-compatible
 model), approves only when **your rules** allow it, and lets you know.
 
 It is a desktop app that lives in the system tray. Set it up once; from then on, when you are asked to review, it
@@ -18,8 +18,8 @@ ones without changing Nod — see [docs/plugins.md](docs/plugins.md).
   repositories, no app to install on the code host; tokens live in the system keychain.
 - **The model does not decide to approve.** Claude returns a structured verdict; fixed rules in the code decide.
 - **The reviewer is isolated.** Claude Code only gets `Read`, `Grep` and `Glob`; Codex runs in its read-only OS
-  sandbox; the API engine runs nothing: Nod serves it read-only file tools confined to the checkout. None of them see your credentials. Engines without an OS sandbox
-  (Gemini CLI) comment but do not approve by default.
+  sandbox; Kimi Code only gets `Read`, `Grep` and `Glob`; the API engine runs nothing: Nod serves it read-only file tools confined to the checkout. None of them see your credentials. Engines without an OS sandbox
+  (Antigravity) comment but do not approve by default.
 - **No terminal needed.** Install, set up, browse reviews and pause from the window and tray. When you need to sign in
   to GitHub or Claude, the app opens a terminal with the command ready.
 
@@ -32,7 +32,7 @@ code host (GitHub / Gitee / Gitea: someone requests your review)
 Nod (in the tray) ──► "reviewing" notification (Feishu card / webhook)
    │ checks the PR out into its own directory, prepares the diff and commit list
    ▼
-review engine: Claude Code / Codex / Gemini / API   (read-only, structured JSON verdict)
+review engine: Claude Code / Codex / Antigravity / Kimi Code / API   (read-only, structured JSON verdict)
    │
    ▼
 fixed rules ──► APPROVE: no high-severity issue, no medium issue introduced by the PR,
@@ -50,7 +50,7 @@ later one has problems, it dismisses its own approval (never one you gave by han
 | | |
 |---|---|
 | A code host | GitHub: click *Sign in to GitHub* on the GitHub plugin page; Gitee / Gitea: an access token, see [docs/forges.md](docs/forges.md) |
-| A review engine (any one) | [Claude Code](https://claude.com/claude-code), [Codex CLI](https://developers.openai.com/codex/cli) or [Gemini CLI](https://geminicli.com), signed in; or an OpenAI-compatible endpoint and key (a local Ollama works) |
+| A review engine (any one) | [Claude Code](https://claude.com/claude-code), [Codex CLI](https://developers.openai.com/codex/cli), [Antigravity CLI](https://antigravity.google/docs/cli) or [Kimi Code](https://moonshotai.github.io/kimi-code/), signed in; or an OpenAI-compatible endpoint and key (a local Ollama works) |
 | git | installed |
 | Windows 10 1809+, macOS 12+, or Linux with a desktop | the Linux tray needs AppIndicator support (on GNOME, the AppIndicator extension) |
 
@@ -130,7 +130,7 @@ the next time the app starts. Every option is described in
 | `approve.exclude_repos` / `exclude_authors` | | never auto-approve these |
 | `review.model` | Claude Code's default | e.g. a faster model for small repositories |
 | `review.claude_config_dir` | | leave empty for the account you use in a terminal; only for another Claude account, its config directory (`CLAUDE_CONFIG_DIR`, normally `~/.claude`), not your home folder |
-| `review.engine` | `claude` | default engine: `claude`, `codex`, `gemini`, `api` or `ext:<plugin>` |
+| `review.engine` | `claude` | default engine: `claude`, `codex`, `antigravity`, `kimi`, `api` or `ext:<plugin>` |
 | `review.per_repo` | | another engine for some repositories, e.g. `[{ repo = "my-org/infra", engine = "codex" }]` |
 | `[[forges]]` | one GitHub account | code-host accounts: `id`, `kind` (`github`, `gitee`, `gitea`), `url`, `enabled` |
 | `notify.channels` | | channels on at once: `system`, `feishu`, `dingtalk`, `wecom`, `slack`, `webhook` |
@@ -175,8 +175,9 @@ or implement its trait in the source ([CONTRIBUTING.md](CONTRIBUTING.md)).
 ## Security model
 
 - Every engine runs read-only: Claude Code as `claude -p --restricted --tools Read,Grep,Glob --strict-mcp-config` with
-  hooks disabled; Codex as `codex exec --sandbox read-only`; Gemini CLI in read-only plan mode (no OS sandbox, so it
-  does not approve by default); the API engine runs no program: Nod itself serves it four read-only tools (read a file, list a directory, search, fetch one file's diff) that stay inside the checkout and execute nothing. Environment variables that look like
+  hooks disabled; Codex as `codex exec --sandbox read-only`; Antigravity as `agy --print --mode plan` (no OS sandbox, so it
+  does not approve by default); Kimi Code as `kimi --prompt` with an agent definition that leaves it only `Read`, `Grep`
+  and `Glob`; the API engine runs no program: Nod itself serves it four read-only tools (read a file, list a directory, search, fetch one file's diff) that stay inside the checkout and execute nothing. Environment variables that look like
   credentials are removed before an engine starts.
 - PR descriptions, comments and repository files reach the model as data only; the prompt tells it to ignore
   instructions in them. Even a successful prompt injection cannot do anything: Nod posts reviews and approvals

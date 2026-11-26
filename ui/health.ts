@@ -57,7 +57,7 @@ export function recordHealth(cfg: Config, k: string, r: Check[]) {
   notify();
 }
 
-// Checks that describe a deliberate limit rather than a problem: Gemini has no OS sandbox, so by design it only
+// Checks that describe a deliberate limit rather than a problem: Antigravity has no OS sandbox, so by design it only
 // comments. Shown in its pane, but not a reason to mark it "Needs a look" (taste P5: a design choice is not a fault).
 const NOTE_ONLY = new Set(["engine_isolation"]);
 

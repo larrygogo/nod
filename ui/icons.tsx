@@ -65,13 +65,13 @@ function BrandMark({ icon, size }: { icon: string; size: number }) {
  *  colour. */
 const brands: Record<string, [string, string]> = {
   github: ["#24292f", "GH"], gitee: ["#c71d23", "码"], gitea: ["#609926", "Gt"],
-  claude: ["#d97757", "C"], openai: ["#10a37f", "Cx"], gemini: ["#4f7df3", "G"], api: ["#6366f1", "API"],
+  claude: ["#d97757", "C"], openai: ["#10a37f", "Cx"], antigravity: ["#4285f4", "Ag"], kimi: ["#18181b", "K"], api: ["#6366f1", "API"],
   bell: ["#64748b", ""], feishu: ["#3370ff", "飞"], dingtalk: ["#1a7cff", "钉"], wecom: ["#2a8af7", "企"],
   slack: ["#611f69", "S"], webhook: ["#475569", "{ }"], plugin: ["#71717a", "+"], rules: ["#52525b", ""],
 };
 
 /** Brands whose colour is near black or grey: a tinted tile would be muddy, so they use the neutral surface. */
-const neutral = new Set(["github", "bell", "webhook", "plugin", "rules"]);
+const neutral = new Set(["github", "kimi", "bell", "webhook", "plugin", "rules"]);
 
 export function Tile({ icon, size = 32 }: { icon: string; size?: number }) {
   if (brandMarks[icon]) return <BrandMark icon={icon} size={size} />;

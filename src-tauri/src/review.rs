@@ -451,7 +451,8 @@ pub fn engine_name(id: &str) -> String {
     match id {
         "" | "claude" => "Claude Code".into(),
         "codex" => "OpenAI Codex".into(),
-        "gemini" => "Gemini CLI".into(),
+        "antigravity" => "Antigravity".into(),
+        "kimi" => "Kimi Code".into(),
         "api" => "AI".into(),
         other => other.trim_start_matches("ext:").to_string(),
     }
@@ -786,8 +787,8 @@ pub mod tests {
             .contains("Claude Code"));
         c.footer = "  — reviewed with {engine} by our bot  ".into();
         assert_eq!(
-            footer_text("en", &c, "gemini").unwrap(),
-            "— reviewed with Gemini CLI by our bot"
+            footer_text("en", &c, "kimi").unwrap(),
+            "— reviewed with Kimi Code by our bot"
         );
         c.footer_enabled = false;
         assert_eq!(footer_text("en", &c, "claude"), None);
