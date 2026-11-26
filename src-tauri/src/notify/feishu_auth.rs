@@ -1,0 +1,217 @@
+//! Who gets the Feishu cards, found by signing in instead of typing an ID: the OAuth device flow with the user's own
+//! Feishu app (the flow `lark-cli auth login` uses). Nod shows a link, the user approves in the browser, and the
+//! sign-in yields their open_id and name. Only the open_id is kept; the token is used once and dropped.
+//!
+//! 1. `POST {accounts}/oauth/v1/device_authorization` (form: client_id, client_secret) → device_code, user_code,
+//!    verification_uri_complete, interval, expires_in;
+//! 2. `POST {open}/open-apis/authen/v2/oauth/token` (grant_type device_code) until the user approved;
+//! 3. `GET {open}/open-apis/authen/v1/user_info` with that token → open_id, name.
+
+use anyhow::{anyhow, Result};
+use serde::Serialize;
+use serde_json::{json, Value};
+
+/// The sign-in page host for an open platform address: Feishu or Lark.
+pub fn accounts_host(domain: &str) -> &'static str {
+    if domain.contains("larksuite") {
+        "https://accounts.larksuite.com"
+    } else {
+        "https://accounts.feishu.cn"
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceCode {
+    pub device_code: String,
+    pub user_code: String,
+    /// The page to open: the code is already filled in.
+    pub verification_uri: String,
+    pub interval: u64,
+    pub expires_in: u64,
+}
+
+fn body(r: std::result::Result<ureq::Response, ureq::Error>) -> Result<Value> {
+    let text = match r {
+        Ok(x) => x.into_string()?,
+        Err(ureq::Error::Status(_, x)) => x.into_string().unwrap_or_default(),
+        Err(e) => return Err(anyhow!("cannot reach Feishu: {e}")),
+    };
+    serde_json::from_str(&text).map_err(|_| {
+        anyhow!(
+            "Feishu answered with something else than JSON: {}",
+            crate::util::truncate(text.trim(), 200)
+        )
+    })
+}
+
+pub fn start(domain: &str, app_id: &str, secret: &str) -> Result<DeviceCode> {
+    if app_id.trim().is_empty() || secret.trim().is_empty() {
+        return Err(anyhow!("fill in the app ID and app secret first"));
+    }
+    let url = format!("{}/oauth/v1/device_authorization", accounts_host(domain));
+    let v = body(
+        ureq::post(&url)
+            .timeout(std::time::Duration::from_secs(20))
+            .send_form(&[
+                ("client_id", app_id.trim()),
+                ("client_secret", secret.trim()),
+            ]),
+    )?;
+    let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+    if s("device_code").is_empty() {
+        return Err(anyhow!(
+            "Feishu did not start the sign-in: {} {}",
+            s("error"),
+            s("error_description")
+        ));
+    }
+    let uri = match s("verification_uri_complete") {
+        u if u.is_empty() => s("verification_uri"),
+        u => u,
+    };
+    Ok(DeviceCode {
+        device_code: s("device_code"),
+        user_code: s("user_code"),
+        verification_uri: uri,
+        interval: v["interval"].as_u64().unwrap_or(5).max(1),
+        expires_in: v["expires_in"].as_u64().unwrap_or(600),
+    })
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Poll {
+    Pending,
+    SlowDown,
+    /// open_id, the user's name
+    Done(String, String),
+    /// "expired", "denied", or what went wrong
+    Failed(String),
+}
+
+/// What the token endpoint's answer means.
+pub fn read_token(v: &Value) -> std::result::Result<String, Poll> {
+    if let Some(t) = v["access_token"]
+        .as_str()
+        .or(v["data"]["access_token"].as_str())
+        .filter(|t| !t.is_empty())
+    {
+        return Ok(t.to_string());
+    }
+    let err = v["error"].as_str().unwrap_or_default();
+    Err(match err {
+        "authorization_pending" => Poll::Pending,
+        "slow_down" => Poll::SlowDown,
+        "expired_token" => Poll::Failed("expired".into()),
+        "access_denied" => Poll::Failed("denied".into()),
+        _ => Poll::Failed(format!(
+            "{} {}",
+            err,
+            v["error_description"]
+                .as_str()
+                .or(v["msg"].as_str())
+                .unwrap_or_default()
+        )),
+    })
+}
+
+pub fn poll(domain: &str, app_id: &str, secret: &str, device_code: &str) -> Result<Poll> {
+    let open = domain.trim_end_matches('/');
+    let v = body(
+        ureq::post(&format!("{open}/open-apis/authen/v2/oauth/token"))
+            .timeout(std::time::Duration::from_secs(20))
+            .send_json(json!({
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                "client_id": app_id.trim(),
+                "client_secret": secret.trim(),
+                "device_code": device_code,
+            })),
+    )?;
+    let token = match read_token(&v) {
+        Ok(t) => t,
+        Err(p) => return Ok(p),
+    };
+    let u = body(
+        ureq::get(&format!("{open}/open-apis/authen/v1/user_info"))
+            .timeout(std::time::Duration::from_secs(20))
+            .set("Authorization", &format!("Bearer {token}"))
+            .call(),
+    )?;
+    let open_id = u["data"]["open_id"].as_str().unwrap_or_default();
+    if open_id.is_empty() {
+        return Ok(Poll::Failed(format!(
+            "signed in, but Feishu did not say who: {}",
+            u["msg"].as_str().unwrap_or_default()
+        )));
+    }
+    Ok(Poll::Done(
+        open_id.to_string(),
+        u["data"]["name"].as_str().unwrap_or_default().to_string(),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_answers() {
+        assert_eq!(
+            read_token(&json!({"access_token": "u-1"})),
+            Ok("u-1".into())
+        );
+        assert_eq!(
+            read_token(&json!({"error": "authorization_pending"})),
+            Err(Poll::Pending)
+        );
+        assert_eq!(
+            read_token(&json!({"error": "slow_down"})),
+            Err(Poll::SlowDown)
+        );
+        assert_eq!(
+            read_token(&json!({"error": "access_denied"})),
+            Err(Poll::Failed("denied".into()))
+        );
+        assert_eq!(
+            read_token(&json!({"error": "expired_token"})),
+            Err(Poll::Failed("expired".into()))
+        );
+        assert!(
+            matches!(read_token(&json!({"error": "invalid_client", "error_description": "bad secret"})),
+            Err(Poll::Failed(m)) if m.contains("bad secret"))
+        );
+        assert_eq!(
+            accounts_host("https://open.larksuite.com"),
+            "https://accounts.larksuite.com"
+        );
+        assert_eq!(
+            accounts_host("https://open.feishu.cn"),
+            "https://accounts.feishu.cn"
+        );
+    }
+
+    /// `NOD_LIVE_FEISHU=1 cargo test live_feishu_sign_in -- --ignored --nocapture`: prints a link to approve, then
+    /// waits up to ten minutes and prints who signed in.
+    #[test]
+    #[ignore]
+    fn live_feishu_sign_in() {
+        if std::env::var("NOD_LIVE_FEISHU").as_deref() != Ok("1") {
+            return;
+        }
+        let cfg = crate::config::load().unwrap();
+        let (d, id, secret) = (
+            &cfg.notify.feishu.domain,
+            &cfg.notify.feishu.app_id,
+            cfg.feishu_secret(),
+        );
+        let c = start(d, id, &secret).unwrap();
+        eprintln!("OPEN {} (code {})", c.verification_uri, c.user_code);
+        for _ in 0..120 {
+            std::thread::sleep(std::time::Duration::from_secs(c.interval));
+            let p = poll(d, id, &secret, &c.device_code).unwrap();
+            eprintln!("POLL {p:?}");
+            if !matches!(p, Poll::Pending | Poll::SlowDown) {
+                break;
+            }
+        }
+    }
+}

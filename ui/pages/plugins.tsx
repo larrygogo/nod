@@ -1,6 +1,7 @@
 // Plugins: a list of everything that can be plugged in on the left (code-host accounts, review engines, notification
 // channels, third-party plugins), the selected one on the right. Every form is built from the plugin's own field list
 // (catalog), so a third-party plugin gets the same settings UI as a built-in one.
+import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { accounts, activeChannels, api, getPath, setPath, type Account, type Check, type Config, type DeviceCode, type Field, type GithubSession, type Plugin } from "../api";
 import { healthOf, recordHealth, usePluginHealth } from "../health";
@@ -37,15 +38,17 @@ function FieldInput({ f, value, onChange, secretName }: {
 
 /** `fold`: put the optional fields under one line (GitHub: Enterprise and a token are for a few people), open when
  *  one of them is already in use. Decided once, so clearing the last character there does not fold it away. */
-function Fields({ fields, get, set, secretName, fold }: {
+function Fields({ fields, get, set, secretName, fold, custom }: {
   fields: Field[]; get: (k: string) => unknown; set: (k: string, v: unknown) => void; secretName: (k: string) => string;
   fold?: { label: string; open: boolean };
+  /** a field drawn its own way (the Feishu recipient: a sign-in instead of an ID to type) */
+  custom?: (f: Field) => JSX.Element | undefined;
 }) {
   const [openAtFirst] = useState(() => !!fold?.open);
   if (!fields.length) return null;
   const list = (fs: Field[]) => (
     <div class="fields">
-      {fs.map((f) => (
+      {fs.map((f) => custom?.(f) ?? (
         <label key={f.key} class={`field${f.kind === "bool" ? " inline" : ""}`}>
           <span class="field-label">{f.label}</span>
           <FieldInput f={f} value={get(f.key)} onChange={(v) => set(f.key, v)} secretName={secretName(f.key)} />
@@ -294,7 +297,8 @@ export function PluginsPage() {
         testLabel={t("btn.test")}
         onCheck={() => api.testChannel(draft, p.id, cleared)}>
         {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName}
-          fold={p.id === "feishu" ? { label: t("pl.lark_more"), open: !!draft.notify.feishu?.domain && !/^(https?:\/\/)?open\.feishu\.cn\/?$/i.test(draft.notify.feishu.domain.trim()) } : undefined} />}
+          fold={p.id === "feishu" ? { label: t("pl.lark_more"), open: !!draft.notify.feishu?.domain && !/^(https?:\/\/)?open\.feishu\.cn\/?$/i.test(draft.notify.feishu.domain.trim()) } : undefined}
+          custom={p.id === "feishu" ? (f) => f.key === "notify.feishu.recipient" ? <FeishuRecipient key={f.key} f={f} /> : undefined : undefined} />}
       </Pane>
     );
   } else if (current === "third") {
@@ -447,6 +451,103 @@ export function GithubSignIn({ account, usingToken, onSignedIn }: { account: Acc
       )}
       {err && <Note tone="bad">{err}</Note>}
     </>
+  );
+}
+
+// ------------------------------------------------------------------ Feishu recipient (sign in instead of an ID)
+
+/** Who gets the cards: found by signing in to Feishu with the app above (device flow: Nod opens the Feishu page,
+ *  the user taps "Authorize", Nod fills in the open_id and shows the name). Typing an ID stays as the fallback. */
+function FeishuRecipient({ f }: { f: Field }) {
+  const { draft, edit, cleared } = useStore();
+  const fs = (draft.notify.feishu ?? {}) as Record<string, string>;
+  const recipient = String(fs.recipient ?? "");
+  const name = String(fs.recipient_name ?? "");
+  const [manual, setManual] = useState(() => !!recipient && !name);
+  const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = useRef(0);
+  useEffect(() => () => { run.current++; }, []);
+  const ready = !!String(fs.app_id ?? "").trim();
+  const setRecipient = (r: string, n: string) => edit((c) => { setPath(c, "notify.feishu.recipient", r); setPath(c, "notify.feishu.recipient_name", n); });
+
+  const start = async () => {
+    setErr(null); setBusy(true);
+    const me = ++run.current;
+    try {
+      const d = await api.feishuLoginStart(draft, cleared);
+      if (me !== run.current) return;
+      setUrl(d.verification_uri);
+      api.url(d.verification_uri);
+      let wait = Math.max(d.interval, 1);
+      const until = Date.now() + d.expires_in * 1000;
+      let failures = 0;
+      while (me === run.current && Date.now() < until) {
+        await new Promise((r) => setTimeout(r, wait * 1000));
+        if (me !== run.current) return;
+        let r;
+        try { r = await api.feishuLoginPoll(draft, cleared, d.device_code); failures = 0; }
+        catch (e) { if (++failures < 4) continue; if (me === run.current) setErr(t("fs.poll_failed") + errText(e)); break; }
+        if (me !== run.current) return;
+        if (r.state === "pending") continue;
+        if (r.state === "slow_down") { wait += 5; continue; }
+        if (r.state === "done") { setRecipient(`open_id:${r.open_id}`, r.name); setManual(false); break; }
+        setErr(r.state === "expired" ? t("fs.expired") : r.state === "denied" ? t("fs.denied") : r.message);
+        break;
+      }
+      if (me === run.current && Date.now() >= until) setErr(t("fs.expired"));
+    } catch (e) {
+      if (me === run.current) setErr(errText(e));
+    } finally {
+      if (me === run.current) { setUrl(null); setBusy(false); }
+    }
+  };
+  const cancel = () => { run.current++; setUrl(null); setBusy(false); };
+
+  let body;
+  if (url) {
+    body = (
+      <div class="gh-device">
+        <p>{t("fs.waiting")}</p>
+        <div class="pane-actions">
+          <Button small icon="external" onClick={() => api.url(url)}>{t("gh.reopen")}</Button>
+          <Button small kind="quiet" onClick={cancel}>{t("btn.cancel")}</Button>
+        </div>
+      </div>
+    );
+  } else if (recipient && name && !manual) {
+    body = (
+      <div class="gh-signed">
+        <span class="state-dot good" />
+        <span class="grow">{t("fs.sends_to")} <b>{name}</b></span>
+        <Button small onClick={start} disabled={busy || !ready}>{t("fs.again")}</Button>
+      </div>
+    );
+  } else {
+    body = (
+      <>
+        <div class="gh-signed">
+          <Button kind={recipient ? undefined : "primary"} small={!!recipient} icon="key" busy={busy} disabled={!ready} onClick={start}>{t("fs.sign_in")}</Button>
+          <span class="muted small grow">{ready ? t("fs.sign_in_help") : t("fs.need_app")}</span>
+        </div>
+        {manual ? (
+          <>
+            <TextInput value={recipient} placeholder={f.placeholder} onInput={(v) => setRecipient(v, "")} />
+            {f.help && <span class="muted small">{f.help}</span>}
+          </>
+        ) : (
+          <button class="link small" onClick={() => setManual(true)}>{t("fs.type_it")}</button>
+        )}
+      </>
+    );
+  }
+  return (
+    <div class="field">
+      <span class="field-label">{f.label}</span>
+      {body}
+      {err && <Note tone="bad">{err}</Note>}
+    </div>
   );
 }
 

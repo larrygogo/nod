@@ -2,6 +2,7 @@
 //! `dingtalk` / `wecom` / `slack` (chat robots) and external plugins. Several can be on at once.
 
 pub mod feishu;
+pub mod feishu_auth;
 pub mod feishu_ws;
 pub mod robot;
 pub mod system;

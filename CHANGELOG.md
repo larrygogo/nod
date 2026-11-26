@@ -5,6 +5,11 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Notifications
+
+- Feishu / Lark app: the recipient is found by signing in. *Authorize with Feishu* opens the Feishu page; tap
+  Authorize and Nod fills in your open_id and shows your name ("Cards go to …"). Typing an email or ID still works.
+
 ### Engines
 
 - Gemini CLI is replaced by Google's Antigravity CLI (`agy`), run in its plan mode. Like Gemini before, it has no OS

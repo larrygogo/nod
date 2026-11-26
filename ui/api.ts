@@ -48,6 +48,7 @@ export interface Config {
   [k: string]: unknown;
 }
 export interface GithubSession { signed_in: boolean; login: string; has_client_id: boolean }
+export interface FeishuPoll { state: string; open_id: string; name: string; message: string }
 export interface DeviceCode { device_code: string; user_code: string; verification_uri: string; interval: number; expires_in: number }
 export interface GithubPoll { state: "pending" | "slow_down" | "done" | "expired" | "denied" | "failed"; interval: number; login: string; message: string }
 export interface LoadedConfig { config: Config; secrets: Record<string, boolean>; error: string | null }
@@ -71,6 +72,8 @@ export const api = {
   githubSession: (account: Account) => invoke<GithubSession>("github_session", { account }),
   githubLoginStart: (account: Account) => invoke<DeviceCode>("github_login_start", { account }),
   githubLoginPoll: (account: Account, deviceCode: string) => invoke<GithubPoll>("github_login_poll", { account, deviceCode }),
+  feishuLoginStart: (cfg: Config, clear: string[]) => invoke<DeviceCode>("feishu_login_start", { cfg, clear }),
+  feishuLoginPoll: (cfg: Config, clear: string[], deviceCode: string) => invoke<FeishuPoll>("feishu_login_poll", { cfg, clear, deviceCode }),
   githubLogout: (account: Account) => invoke<void>("github_logout", { account }),
   approve: (account: string, key: string, sha: string) => invoke<void>("approve_pr", { account, key, sha }),
   withdraw: (account: string, key: string) => invoke<void>("withdraw_approval", { account, key }),

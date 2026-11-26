@@ -371,6 +371,9 @@ pub struct Feishu {
     pub app_secret: String,
     /// `<type>:<id>` with type in RECIPIENT_TYPES
     pub recipient: String,
+    /// The recipient's name, when it was found by signing in to Feishu (shown only).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub recipient_name: String,
     pub domain: String,
 }
 
@@ -380,6 +383,7 @@ impl Default for Feishu {
             app_id: String::new(),
             app_secret: String::new(),
             recipient: String::new(),
+            recipient_name: String::new(),
             domain: "https://open.feishu.cn".into(),
         }
     }
