@@ -60,8 +60,8 @@ pub struct Review {
     pub engine: String,
     /// Use another engine for some repositories (first match wins).
     pub per_repo: Vec<EngineRule>,
-    /// Review with this engine when the chosen one cannot run (out of quota, signed out, not installed); "" = none,
-    /// wait for it instead.
+    /// Review with this engine when the chosen one fails for any reason (out of quota, signed out, a timeout, an
+    /// error); "" = none, retry or wait for it instead.
     pub fallback: String,
     /// Claude Code (the original settings, kept at the top level of [review] for older files).
     pub claude: String,

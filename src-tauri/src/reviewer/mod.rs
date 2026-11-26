@@ -23,7 +23,7 @@ use crate::config::Config;
 use crate::forge::{Forge, Pr, Remote};
 use crate::paths;
 use crate::review::Verdict;
-use crate::util::{now, run, run_raw, RunOpts};
+use crate::util::{run, run_raw, RunOpts};
 
 /// Where checkouts live: the data directory, or a separate one for dry runs (see [`Workspace::root`]).
 pub fn workspace_root(dry_run: bool) -> PathBuf {
@@ -311,24 +311,26 @@ pub fn engine_named(cfg: &Config, name: &str) -> Result<Box<dyn Engine>> {
     })
 }
 
-/// Run `primary`; when it cannot run at all (out of quota, signed out, not installed) and a fallback engine is set,
-/// run that instead. A wrong answer or a timeout says nothing about whether another engine would do better, and
-/// trying one would only double the wait. When both fail, the error carries both messages, the primary's first.
+/// Run `primary`; when it fails for any reason (out of quota, signed out, a timeout, an answer that is not a verdict)
+/// and a fallback engine is set, run that instead: a review that gets done beats one that waits. Not when the review
+/// was stopped on purpose (a direct approval, the worker exiting). When both fail, the error carries both messages,
+/// the primary's first.
 pub fn with_fallback(
     cfg: &Config,
     key: &str,
     primary: &str,
     run: impl Fn(&str) -> Result<Verdict>,
 ) -> Result<Verdict> {
+    crate::util::clear_aborted(key);
     let err = match run(primary) {
         Ok(v) => return Ok(v),
         Err(e) => e,
     };
     let fb = cfg.review.fallback.as_str();
-    if fb.is_empty() || fb == primary || classify(&format!("{err:#}"), now()) == Trouble::Other {
+    if fb.is_empty() || fb == primary || crate::util::take_aborted(key) {
         return Err(err);
     }
-    crate::warn!("{key}: {primary} cannot review now ({err:#}); using {fb} instead");
+    crate::warn!("{key}: {primary} failed ({err:#}); using {fb} instead");
     run(fb).map_err(|e2| {
         anyhow!(
             "{err:#}
@@ -742,8 +744,11 @@ mod tests {
         // none set: the error stands
         assert!(with_fallback(&cfg, "k", "claude", run("usage limit reached")).is_err());
         cfg.review.fallback = "codex".into();
-        // out of quota, signed out: the fallback reviews
+        // any failure: the fallback reviews
         for msg in [
+            "did not finish within 20 minutes",
+            "the reply is not a verdict: expected value at line 1",
+            "Claude exited Some(1): something broke",
             "usage limit reached",
             "Claude Code (\"claude\") not found on PATH",
             // as Claude Code says it now (2026-11-26: the fallback did not take over)
@@ -754,12 +759,20 @@ mod tests {
             assert!(with_fallback(&cfg, "k", "claude", run(msg)).is_ok());
             assert_eq!(*ran.borrow(), ["claude", "codex"]);
         }
-        // a timeout: no fallback
+        // stopped on purpose (a direct approval) while it ran: no fallback
         ran.borrow_mut().clear();
-        assert!(
-            with_fallback(&cfg, "k", "claude", run("did not finish within 20 minutes")).is_err()
-        );
+        let stopped = |name: &str| -> Result<Verdict> {
+            ran.borrow_mut().push(name.to_string());
+            let _running = crate::util::track_in_process("k-stopped");
+            assert!(crate::util::abort("k-stopped"));
+            anyhow::bail!("the review was stopped")
+        };
+        assert!(with_fallback(&cfg, "k-stopped", "claude", stopped).is_err());
         assert_eq!(*ran.borrow(), ["claude"]);
+        // the next review of that PR is not held back by the old stop
+        ran.borrow_mut().clear();
+        assert!(with_fallback(&cfg, "k-stopped", "claude", run("usage limit reached")).is_ok());
+        assert_eq!(*ran.borrow(), ["claude", "codex"]);
         // the fallback is the engine that failed: not run twice
         ran.borrow_mut().clear();
         cfg.review.fallback = "claude".into();

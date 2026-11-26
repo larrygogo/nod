@@ -159,6 +159,24 @@ pub fn abort_target_exists(key: &str) -> bool {
     active().lock().unwrap().contains_key(key) || in_process().lock().unwrap().contains_key(key)
 }
 
+/// Reviews stopped on purpose (a direct approval; "*" = the worker is exiting): their engine's error is not a reason
+/// to try the backup engine.
+fn aborted() -> &'static Mutex<std::collections::HashSet<String>> {
+    static A: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    A.get_or_init(Default::default)
+}
+
+/// Whether the review of `key` was stopped on purpose since [`clear_aborted`]; forgets it.
+pub fn take_aborted(key: &str) -> bool {
+    let mut a = aborted().lock().unwrap();
+    a.remove(key) || a.contains("*")
+}
+
+/// A new review of `key` starts: an earlier stop no longer counts.
+pub fn clear_aborted(key: &str) {
+    aborted().lock().unwrap().remove(key);
+}
+
 /// Stop the tracked review process for `key` (and everything it started), or ask the in-process one to stop.
 /// Returns whether one was running.
 pub fn abort(key: &str) -> bool {
@@ -170,17 +188,22 @@ pub fn abort(key: &str) -> bool {
         None => false,
     };
     let pid = active().lock().unwrap().get(key).copied();
-    match pid {
+    let running = match pid {
         Some(pid) => {
             kill_tree(pid);
             true
         }
         None => inside,
+    };
+    if running {
+        aborted().lock().unwrap().insert(key.to_string());
     }
+    running
 }
 
 /// Stop every tracked review process (the worker is exiting).
 pub fn abort_all() {
+    aborted().lock().unwrap().insert("*".into());
     for stop in in_process().lock().unwrap().values_mut() {
         *stop = true;
     }

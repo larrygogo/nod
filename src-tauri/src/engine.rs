@@ -576,8 +576,14 @@ impl Engine {
             }
             let same = e.sha == pr.head;
             if same && e.status == "reviewing" {
-                // A previous process died mid-review; retry once it has clearly timed out.
-                if now() - e.started_at < (self.cfg.review.timeout_min + 10.0) * 60.0 {
+                // A previous process died mid-review; retry once it has clearly timed out (twice the limit when a
+                // backup engine may run after the first one timed out)
+                let runs = if self.cfg.review.fallback.is_empty() {
+                    1.0
+                } else {
+                    2.0
+                };
+                if now() - e.started_at < (runs * self.cfg.review.timeout_min + 10.0) * 60.0 {
                     continue;
                 }
             } else if same && (DONE_FOR_SHA.contains(&e.status.as_str()) || e.waiting()) {
