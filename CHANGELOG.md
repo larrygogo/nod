@@ -34,6 +34,8 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ### Reviews
 
+- A review that found nothing says what the change does and what was checked ("switches to the table's own
+  vertical scroll; checked that …"), instead of only "no issues found".
 - The OpenAI-compatible API engine is no longer limited to the diff it is sent: the model gets read-only tools on the
   PR's checkout (`get_diff`, `read_file`, `list_dir`, `search`; Nod runs them, nothing is executed) and reads the
   code it needs. An endpoint without tool support still gets the diff alone.
