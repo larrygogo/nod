@@ -365,6 +365,71 @@ async fn feishu_login_poll(
     .map_err(|e| e.to_string())?
 }
 
+/// Connect a Feishu app without typing its ID and secret: the window opens the returned page (pick an app or create
+/// one) and polls.
+#[tauri::command]
+async fn feishu_connect_start() -> Result<crate::notify::feishu_auth::DeviceCode, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::notify::feishu_auth::connect_start().map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// One poll. `state`: pending | slow_down | done | expired | denied | failed (`message`). When done: the app and its
+/// secret (the window puts them into the settings, saved to the keychain like a typed one), who connected it, and
+/// their name when the app may read it.
+#[derive(Serialize)]
+struct FeishuConnect {
+    state: String,
+    app_id: String,
+    app_secret: String,
+    domain: String,
+    open_id: String,
+    name: String,
+    message: String,
+}
+
+#[tauri::command]
+async fn feishu_connect_poll(device_code: String) -> Result<FeishuConnect, String> {
+    use crate::notify::feishu_auth::{connect_poll, name_of, ConnectPoll};
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = |state: &str| FeishuConnect {
+            state: state.into(),
+            app_id: String::new(),
+            app_secret: String::new(),
+            domain: String::new(),
+            open_id: String::new(),
+            name: String::new(),
+            message: String::new(),
+        };
+        Ok(
+            match connect_poll(&device_code).map_err(|e| format!("{e:#}"))? {
+                ConnectPoll::Pending => p("pending"),
+                ConnectPoll::SlowDown => p("slow_down"),
+                ConnectPoll::Done(c) => {
+                    crate::info!("feishu: connected app {}", c.app_id);
+                    FeishuConnect {
+                        name: name_of(&c.domain, &c.app_id, &c.secret, &c.open_id),
+                        app_id: c.app_id,
+                        app_secret: c.secret,
+                        domain: c.domain,
+                        open_id: c.open_id,
+                        ..p("done")
+                    }
+                }
+                ConnectPoll::Failed(m) if m == "expired" || m == "denied" => p(&m),
+                ConnectPoll::Failed(m) => FeishuConnect {
+                    message: m,
+                    ..p("failed")
+                },
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// The plugin catalog in `lang` (the window's current language, which may not be saved yet).
 #[tauri::command]
 fn catalog(lang: Option<String>) -> Vec<crate::plugins::catalog::Plugin> {
@@ -1246,6 +1311,8 @@ pub fn run(hidden: bool) {
             github_login_poll,
             feishu_login_start,
             feishu_login_poll,
+            feishu_connect_start,
+            feishu_connect_poll,
             github_logout,
             catalog,
             test_notification,

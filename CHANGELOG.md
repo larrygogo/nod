@@ -7,8 +7,10 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ### Notifications
 
-- Feishu / Lark app: the recipient is found by signing in. *Authorize with Feishu* opens the Feishu page; tap
-  Authorize and Nod fills in your open_id and shows your name ("Cards go to …"). Typing an email or ID still works.
+- Feishu / Lark app: *Connect Feishu* opens Feishu in the browser, where you pick one of your apps or create one; Nod
+  fills in the App ID, the secret and you as the recipient. Nothing to copy from the developer console.
+- The recipient can be someone else found by signing in: *Authorize with Feishu*, tap Authorize, and Nod fills in
+  their open_id and shows the name ("Cards go to …"). Typing an email or ID still works.
 
 ### Engines
 

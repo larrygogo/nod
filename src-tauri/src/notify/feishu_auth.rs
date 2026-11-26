@@ -149,9 +149,170 @@ pub fn poll(domain: &str, app_id: &str, secret: &str, device_code: &str) -> Resu
     ))
 }
 
+// ------------------------------------------------------------------ connecting an app (no ID or secret to type)
+
+/// Connect a Feishu app without typing its ID and secret: the flow of `lark-cli config init --new`. The page lets the
+/// user pick one of their apps or create one; Nod gets its ID and secret and the user's open_id.
+/// `POST https://accounts.feishu.cn/oauth/v1/app/registration` (form), `action=begin` then `action=poll`; the begin
+/// request always goes to Feishu, the poll moves to Lark when the user's tenant is there.
+const REGISTRATION: &str = "/oauth/v1/app/registration";
+
+pub fn connect_start() -> Result<DeviceCode> {
+    let v = body(
+        ureq::post(&format!("{}{REGISTRATION}", accounts_host("")))
+            .timeout(std::time::Duration::from_secs(20))
+            .send_form(&[
+                ("action", "begin"),
+                ("archetype", "PersonalAgent"),
+                ("auth_method", "client_secret"),
+                ("request_user_info", "open_id tenant_brand"),
+            ]),
+    )?;
+    let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+    if s("device_code").is_empty() {
+        return Err(anyhow!(
+            "Feishu did not start the connection: {} {}",
+            s("error"),
+            s("error_description")
+        ));
+    }
+    let uri = match s("verification_uri_complete") {
+        u if u.is_empty() => format!(
+            "https://open.feishu.cn/page/cli?user_code={}",
+            s("user_code")
+        ),
+        u => u,
+    };
+    Ok(DeviceCode {
+        device_code: s("device_code"),
+        user_code: s("user_code"),
+        verification_uri: uri,
+        interval: v["interval"].as_u64().unwrap_or(5).max(1),
+        expires_in: v["expires_in"]
+            .as_u64()
+            .or(v["expire_in"].as_u64())
+            .unwrap_or(600),
+    })
+}
+
+/// The app the user connected.
+#[derive(Debug, PartialEq)]
+pub struct Connected {
+    pub app_id: String,
+    pub secret: String,
+    pub open_id: String,
+    /// the open platform address for the user's tenant
+    pub domain: String,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ConnectPoll {
+    Pending,
+    SlowDown,
+    Done(Connected),
+    /// "expired", "denied", or what went wrong
+    Failed(String),
+}
+
+/// What one answer of the registration poll means.
+pub fn read_connect(v: &Value) -> ConnectPoll {
+    let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+    if !s("client_id").is_empty() && !s("client_secret").is_empty() {
+        let lark = v["user_info"]["tenant_brand"].as_str() == Some("lark");
+        return ConnectPoll::Done(Connected {
+            app_id: s("client_id"),
+            secret: s("client_secret"),
+            open_id: v["user_info"]["open_id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            domain: if lark {
+                "https://open.larksuite.com"
+            } else {
+                "https://open.feishu.cn"
+            }
+            .into(),
+        });
+    }
+    match s("error").as_str() {
+        "" | "authorization_pending" => ConnectPoll::Pending,
+        "slow_down" => ConnectPoll::SlowDown,
+        "access_denied" => ConnectPoll::Failed("denied".into()),
+        "expired_token" | "invalid_grant" => ConnectPoll::Failed("expired".into()),
+        e => ConnectPoll::Failed(format!("{e} {}", s("error_description"))),
+    }
+}
+
+pub fn connect_poll(device_code: &str) -> Result<ConnectPoll> {
+    let host = accounts_host("");
+    let v = body(
+        ureq::post(&format!("{host}{REGISTRATION}"))
+            .timeout(std::time::Duration::from_secs(20))
+            .send_form(&[("action", "poll"), ("device_code", device_code)]),
+    )?;
+    Ok(read_connect(&v))
+}
+
+/// The name of `open_id`, read with the app's own token when the app may read contacts; empty when it may not.
+pub fn name_of(domain: &str, app_id: &str, secret: &str, open_id: &str) -> String {
+    let c = super::feishu::FeishuClient::new(app_id, secret, domain);
+    let Ok(token) = c.token() else {
+        return String::new();
+    };
+    ureq::get(&format!(
+        "{}/open-apis/contact/v3/users/{open_id}?user_id_type=open_id",
+        domain.trim_end_matches('/')
+    ))
+    .timeout(std::time::Duration::from_secs(10))
+    .set("Authorization", &format!("Bearer {token}"))
+    .call()
+    .ok()
+    .and_then(|r| r.into_json::<Value>().ok())
+    .and_then(|v| v["data"]["user"]["name"].as_str().map(str::to_string))
+    .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Shapes taken from a real connection (2026-11-26) and from lark-cli's client.
+    #[test]
+    fn connect_answers() {
+        let done = json!({"client_id": "cli_a", "client_secret": "s",
+            "user_info": {"open_id": "ou_1", "tenant_brand": "feishu"}});
+        assert_eq!(
+            read_connect(&done),
+            ConnectPoll::Done(Connected {
+                app_id: "cli_a".into(),
+                secret: "s".into(),
+                open_id: "ou_1".into(),
+                domain: "https://open.feishu.cn".into()
+            })
+        );
+        let lark = json!({"client_id": "cli_a", "client_secret": "s",
+            "user_info": {"open_id": "ou_1", "tenant_brand": "lark"}});
+        assert!(
+            matches!(read_connect(&lark), ConnectPoll::Done(c) if c.domain == "https://open.larksuite.com")
+        );
+        assert_eq!(
+            read_connect(&json!({"error": "authorization_pending"})),
+            ConnectPoll::Pending
+        );
+        assert_eq!(read_connect(&json!({})), ConnectPoll::Pending);
+        assert_eq!(
+            read_connect(&json!({"error": "slow_down"})),
+            ConnectPoll::SlowDown
+        );
+        assert_eq!(
+            read_connect(&json!({"error": "access_denied"})),
+            ConnectPoll::Failed("denied".into())
+        );
+        assert_eq!(
+            read_connect(&json!({"error": "invalid_grant"})),
+            ConnectPoll::Failed("expired".into())
+        );
+    }
 
     #[test]
     fn token_answers() {

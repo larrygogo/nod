@@ -91,8 +91,8 @@ function Checks({ checks }: { checks: Check[] }) {
 }
 
 /** The right-hand pane for one plugin: what it is, what it can do, its settings and its self-test. */
-function Pane({ p, sub, control, children, onCheck, testLabel, extra, account, health, namesUser }: {
-  p: Plugin; sub?: string; control?: preact.ComponentChildren; children?: preact.ComponentChildren; account?: preact.ComponentChildren;
+function Pane({ p, sub, control, children, onCheck, testLabel, extra, account, accountTitle, health, namesUser }: {
+  p: Plugin; sub?: string; control?: preact.ComponentChildren; children?: preact.ComponentChildren; account?: preact.ComponentChildren; accountTitle?: string;
   onCheck?: () => Promise<Check[] | string>; testLabel?: string; extra?: preact.ComponentChildren;
   /** what the page found when it opened (saved settings, no model call), shown until the user runs a check */
   health?: Check[];
@@ -117,7 +117,7 @@ function Pane({ p, sub, control, children, onCheck, testLabel, extra, account, h
       <p class="pane-desc">{p.description}</p>
       {p.badges.length > 0 && <div class="caps">{p.badges.map((b) => <Badge tone={b.tone === "warn" ? "warn" : "cap"}>{b.text}</Badge>)}</div>}
       {trouble && <section class="pane-section"><Checks checks={result as Check[]} /></section>}
-      {account && <section class="pane-section"><h3>{t("gh.account")}</h3>{account}</section>}
+      {account && <section class="pane-section"><h3>{accountTitle ?? t("gh.account")}</h3>{account}</section>}
       <section class="pane-section">
         <h3>{t("pl.settings")}</h3>
         {children || <p class="muted">{t("pl.no_settings")}</p>}
@@ -295,6 +295,7 @@ export function PluginsPage() {
           setChannels(c, v ? [...cur, p.id] : cur);
         })} />}
         testLabel={t("btn.test")}
+        account={p.id === "feishu" ? <FeishuConnectApp /> : undefined} accountTitle={t("fs.app")}
         onCheck={() => api.testChannel(draft, p.id, cleared)}>
         {p.fields.length > 0 && <Fields fields={p.fields} get={(k) => getPath(draft, k)} set={(k, v) => edit((c) => setPath(c, k, v))} secretName={pluginSecretName}
           fold={p.id === "feishu" ? { label: t("pl.lark_more"), open: !!draft.notify.feishu?.domain && !/^(https?:\/\/)?open\.feishu\.cn\/?$/i.test(draft.notify.feishu.domain.trim()) } : undefined}
@@ -454,6 +455,94 @@ export function GithubSignIn({ account, usingToken, onSignedIn }: { account: Acc
   );
 }
 
+// ------------------------------------------------------------------ Feishu app (connect instead of typing an ID)
+
+/** The name shown for the person who connected the app when the app may not read names. */
+const ME = "@me";
+
+/** Connect a Feishu app without typing its ID and secret: the Feishu page lets the user pick one of their apps or
+ *  create one, and Nod fills in the app, its secret and the recipient (the person who connected it). */
+function FeishuConnectApp() {
+  const { draft, edit } = useStore();
+  const fs = (draft.notify.feishu ?? {}) as Record<string, string>;
+  const appId = String(fs.app_id ?? "").trim();
+  const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = useRef(0);
+  useEffect(() => () => { run.current++; }, []);
+
+  const start = async () => {
+    setErr(null); setBusy(true);
+    const me = ++run.current;
+    try {
+      const d = await api.feishuConnectStart();
+      if (me !== run.current) return;
+      setUrl(d.verification_uri);
+      api.url(d.verification_uri);
+      let wait = Math.max(d.interval, 1);
+      const until = Date.now() + d.expires_in * 1000;
+      let failures = 0;
+      while (me === run.current && Date.now() < until) {
+        await new Promise((r) => setTimeout(r, wait * 1000));
+        if (me !== run.current) return;
+        let r;
+        try { r = await api.feishuConnectPoll(d.device_code); failures = 0; }
+        catch (e) { if (++failures < 4) continue; if (me === run.current) setErr(t("fs.poll_failed") + errText(e)); break; }
+        if (me !== run.current) return;
+        if (r.state === "pending") continue;
+        if (r.state === "slow_down") { wait = Math.min(wait + 5, 60); continue; }
+        if (r.state === "done") {
+          edit((c) => {
+            setPath(c, "notify.feishu.app_id", r.app_id);
+            setPath(c, "notify.feishu.app_secret", r.app_secret);
+            setPath(c, "notify.feishu.domain", r.domain);
+            if (r.open_id) {
+              setPath(c, "notify.feishu.recipient", `open_id:${r.open_id}`);
+              setPath(c, "notify.feishu.recipient_name", r.name || ME);
+            }
+          });
+          break;
+        }
+        setErr(r.state === "expired" ? t("fs.expired") : r.state === "denied" ? t("fs.denied") : r.message);
+        break;
+      }
+      if (me === run.current && Date.now() >= until) setErr(t("fs.expired"));
+    } catch (e) {
+      if (me === run.current) setErr(errText(e));
+    } finally {
+      if (me === run.current) { setUrl(null); setBusy(false); }
+    }
+  };
+  const cancel = () => { run.current++; setUrl(null); setBusy(false); };
+
+  return (
+    <>
+      {url ? (
+        <div class="gh-device">
+          <p>{t("fs.connect_waiting")}</p>
+          <div class="pane-actions">
+            <Button small icon="external" onClick={() => api.url(url)}>{t("gh.reopen")}</Button>
+            <Button small kind="quiet" onClick={cancel}>{t("btn.cancel")}</Button>
+          </div>
+        </div>
+      ) : appId ? (
+        <div class="gh-signed">
+          <span class="state-dot good" />
+          <span class="grow">{t("fs.connected")} <b>{appId}</b></span>
+          <Button small onClick={start} disabled={busy}>{t("fs.connect_other")}</Button>
+        </div>
+      ) : (
+        <>
+          <Button kind="primary" icon="key" busy={busy} onClick={start}>{t("fs.connect")}</Button>
+          <p class="muted small">{t("fs.connect_help")}</p>
+        </>
+      )}
+      {err && <Note tone="bad">{err}</Note>}
+    </>
+  );
+}
+
 // ------------------------------------------------------------------ Feishu recipient (sign in instead of an ID)
 
 /** Who gets the cards: found by signing in to Feishu with the app above (device flow: Nod opens the Feishu page,
@@ -520,7 +609,7 @@ function FeishuRecipient({ f }: { f: Field }) {
     body = (
       <div class="gh-signed">
         <span class="state-dot good" />
-        <span class="grow">{t("fs.sends_to")} <b>{name}</b></span>
+        <span class="grow">{t("fs.sends_to")} <b>{name === ME ? t("fs.you") : name}</b></span>
         <Button small onClick={start} disabled={busy || !ready}>{t("fs.again")}</Button>
       </div>
     );

@@ -209,7 +209,7 @@ pub fn catalog(lang: &str) -> Vec<Plugin> {
           l.t("审查完成或出错时弹系统通知，点击打开 PR。", "A desktop notification when a review is posted or something fails; click it to open the PR."),
           "bell", vec![], vec![], ""),
         p("feishu", "notify", l.t("飞书应用", "Feishu / Lark app").as_str(),
-          l.t("每个 PR 一张卡片，原地刷新，可直接通过。需自建飞书应用。", "One card per PR, updated in place, with an Approve now button. Needs your own Feishu app."),
+          l.t("每个 PR 一张卡片，原地刷新，可直接通过。点「连接飞书」选一个自己的飞书应用或新建一个。", "One card per PR, updated in place, with an Approve now button. Connect Feishu to pick one of your Feishu apps or create one."),
           "feishu",
           vec![
               f("notify.feishu.app_id", "App ID".into(), "text").ph("cli_…"),
