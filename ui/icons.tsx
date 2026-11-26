@@ -31,6 +31,8 @@ const paths: Record<string, JSX.Element> = {
   globe: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></>,
   rules: <><path d="M4 6h10M4 12h7M4 18h10" /><path d="m16 9 3 3-3 3" /></>,
   key: <><circle cx="8" cy="15" r="4" /><path d="m11 12 9-9M17 6l3 3M15 8l2 2" /></>,
+  // a plug: any OpenAI-compatible endpoint, no brand of its own
+  api: <><path d="M12 22v-5" /><path d="M9 8V2M15 8V2" /><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z" /></>,
 };
 
 export function Icon({ name, size = 16 }: { name: keyof typeof paths | string; size?: number }) {
@@ -43,7 +45,7 @@ export function Icon({ name, size = 16 }: { name: keyof typeof paths | string; s
 }
 
 /** Brands drawn in the text colour: their official mark is black (or too dark to read on the dark theme). */
-const inkBrands = new Set(["github", "openai", "slack"]);
+const inkBrands = new Set(["github", "openai", "slack", "kimi"]);
 
 /** A service's official mark (see brands.ts). Small: the bare mark, centred on the text line like an icon.
  *  Larger: the mark in its brand colour on a neutral tile, so every brand sits on the same surface. */
@@ -65,7 +67,7 @@ function BrandMark({ icon, size }: { icon: string; size: number }) {
  *  colour. */
 const brands: Record<string, [string, string]> = {
   github: ["#24292f", "GH"], gitee: ["#c71d23", "码"], gitea: ["#609926", "Gt"],
-  claude: ["#d97757", "C"], openai: ["#10a37f", "Cx"], gemini: ["#4f7df3", "G"], api: ["#6366f1", "API"],
+  claude: ["#d97757", "C"], openai: ["#10a37f", "Cx"], api: ["#6366f1", "API"],
   bell: ["#64748b", ""], feishu: ["#3370ff", "飞"], dingtalk: ["#1a7cff", "钉"], wecom: ["#2a8af7", "企"],
   slack: ["#611f69", "S"], webhook: ["#475569", "{ }"], plugin: ["#71717a", "+"], rules: ["#52525b", ""],
 };
@@ -79,11 +81,13 @@ export function Tile({ icon, size = 32 }: { icon: string; size?: number }) {
   // Below 24px a pale tile with same-hue ink drops under ~8px text and reads as a broken placeholder:
   // small tiles switch to a solid fill with white ink and a larger letter, like a favicon.
   const small = size < 24;
+  // the API engine has no brand: small, a bare plug in its colour, like the brand marks it sits beside
+  if (small && icon === "api") return <span class="brand-mark" style={{ width: size, height: size, color: c }}><Icon name="api" size={Math.round(size * 0.95)} /></span>;
   const ratio = small ? [0.62, 0.48, 0.36][Math.min(txt.length, 3) - 1] ?? 0.36 : txt.length > 2 ? 0.3 : 0.4;
   const style = { "--c": c, width: size, height: size, fontSize: size * ratio, borderRadius: Math.round(size * (small ? 0.28 : 0.26)) } as unknown as JSX.CSSProperties;
   return (
     <span class={`tile${neutral.has(icon) || !brands[icon] ? " neutral" : ""}${small ? " sm" : ""}`} style={style}>
-      {icon === "bell" || icon === "rules" ? <Icon name={icon} size={size * 0.55} /> : txt}
+      {icon === "bell" || icon === "rules" || icon === "api" ? <Icon name={icon} size={size * 0.55} /> : txt}
     </span>
   );
 }

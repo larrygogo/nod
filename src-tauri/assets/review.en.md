@@ -42,7 +42,7 @@ For dependency-related issues, check the version actually resolved in lock files
 ## Output
 
 Follow the given JSON Schema:
-- `summary`: a one or two sentence verdict in English.
+- `summary`: a one or two sentence verdict in English. When you found nothing, do not just say so: say what the change does and which points you checked (for example "switches to the table's own vertical scroll; checked that the table library takes a CSS string height and that merged cells still work"), so the reader knows what was verified.
 - `findings`: one item per issue. `path` is relative to the repository root; `line` is the line number in the changed file, preferably inside a diff hunk (an added or context line). `title` is a one-line conclusion; `body` explains "What happens" and "Suggestion" in plain English, citing concrete functions, lines and call chains.
 - `approve_recommended`: true when there is no high issue and no medium issue introduced by the PR that would defeat its purpose.
 - `unable_reason`: if you cannot reach a trustworthy verdict (code unavailable, change too large to read, …), explain why and set `approve_recommended` to false; otherwise an empty string.

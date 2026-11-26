@@ -1,12 +1,15 @@
-//! Review engines: Claude Code, OpenAI Codex CLI, Gemini CLI, any OpenAI-compatible API, and external plugins.
+//! Review engines: Claude Code, OpenAI Codex CLI, Google Antigravity CLI, Kimi Code CLI, any OpenAI-compatible API,
+//! and external plugins.
 //!
 //! Every engine gets the same checkout (made from the PR's code host) and must return the same structured verdict;
 //! what happens with the verdict (comment or approve) is decided by the fixed rules in `review::decide`.
 
+pub mod antigravity;
 pub mod api;
+pub mod api_tools;
 pub mod claude;
 pub mod codex;
-pub mod gemini;
+pub mod kimi;
 
 use std::collections::HashMap;
 use std::fs;
@@ -20,7 +23,7 @@ use crate::config::Config;
 use crate::forge::{Forge, Pr, Remote};
 use crate::paths;
 use crate::review::Verdict;
-use crate::util::{now, run, run_raw, RunOpts};
+use crate::util::{run, run_raw, RunOpts};
 
 /// Where checkouts live: the data directory, or a separate one for dry runs (see [`Workspace::root`]).
 pub fn workspace_root(dry_run: bool) -> PathBuf {
@@ -300,31 +303,34 @@ pub fn engine_named(cfg: &Config, name: &str) -> Result<Box<dyn Engine>> {
     Ok(match name {
         "claude" => Box::new(claude::Claude),
         "codex" => Box::new(codex::Codex),
-        "gemini" => Box::new(gemini::Gemini),
+        "antigravity" => Box::new(antigravity::Antigravity),
+        "kimi" => Box::new(kimi::Kimi),
         "api" => Box::new(api::Api),
         n if n.starts_with("ext:") => Box::new(crate::plugins::ExternalEngine::new(cfg, &n[4..])?),
         n => return Err(anyhow!("unknown review engine {n:?}")),
     })
 }
 
-/// Run `primary`; when it cannot run at all (out of quota, signed out, not installed) and a fallback engine is set,
-/// run that instead. A wrong answer or a timeout says nothing about whether another engine would do better, and
-/// trying one would only double the wait. When both fail, the error carries both messages, the primary's first.
+/// Run `primary`; when it fails for any reason (out of quota, signed out, a timeout, an answer that is not a verdict)
+/// and a fallback engine is set, run that instead: a review that gets done beats one that waits. Not when the review
+/// was stopped on purpose (a direct approval, the worker exiting). When both fail, the error carries both messages,
+/// the primary's first.
 pub fn with_fallback(
     cfg: &Config,
     key: &str,
     primary: &str,
     run: impl Fn(&str) -> Result<Verdict>,
 ) -> Result<Verdict> {
+    crate::util::clear_aborted(key);
     let err = match run(primary) {
         Ok(v) => return Ok(v),
         Err(e) => e,
     };
     let fb = cfg.review.fallback.as_str();
-    if fb.is_empty() || fb == primary || classify(&format!("{err:#}"), now()) == Trouble::Other {
+    if fb.is_empty() || fb == primary || crate::util::take_aborted(key) {
         return Err(err);
     }
-    crate::warn!("{key}: {primary} cannot review now ({err:#}); using {fb} instead");
+    crate::warn!("{key}: {primary} failed ({err:#}); using {fb} instead");
     run(fb).map_err(|e2| {
         anyhow!(
             "{err:#}
@@ -367,7 +373,12 @@ pub fn classify(msg: &str, now: f64) -> Trouble {
         "额度",
         "限流",
     ];
-    if quota.iter().any(|w| m.contains(w)) || Regex::new(r"\b429\b").unwrap().is_match(&m) {
+    // Claude Code names the limit in between: "You've hit your 5-hour limit · resets 4pm", "… your weekly limit …"
+    let hit = Regex::new(r"\b(?:hit|reached) (?:your|the) (?:[\w-]+ ){0,3}limit\b").unwrap();
+    if quota.iter().any(|w| m.contains(w))
+        || hit.is_match(&m)
+        || Regex::new(r"\b429\b").unwrap().is_match(&m)
+    {
         return Trouble::Quota {
             until: reset_time(&m, now),
         };
@@ -395,6 +406,11 @@ pub fn classify(msg: &str, now: f64) -> Trouble {
         "could not be refreshed",
         // Gemini CLI with no sign-in configured
         "please set an auth method",
+        // Kimi Code before its first sign-in: "No model configured. Run `kimi` and use /login to sign in, …"
+        "no model configured",
+        "/login to sign in",
+        // Antigravity CLI in print mode before its first sign-in
+        "authentication required",
     ];
     if unavailable.iter().any(|w| m.contains(w)) || Regex::new(r"\b401\b").unwrap().is_match(&m) {
         return Trouble::Unavailable;
@@ -506,6 +522,17 @@ impl Reviewer for Router {
 }
 
 /// For engines without a native structured-output option: how to answer.
+/// For engines that take the prompt only as a command-line argument (too short for a PR's text on Windows): the
+/// prompt goes into a file of the context directory, and the short request to read it is returned.
+pub fn prompt_in_file(ctx: &Path, prompt: &str) -> Result<String> {
+    let p = ctx.join("review-prompt.md");
+    std::fs::write(&p, prompt)?;
+    Ok(format!(
+        "Your task is in the file {}. Read all of it with your file tools first, then follow its instructions exactly and reply with the JSON verdict only.",
+        p.display()
+    ))
+}
+
 pub fn json_only(lang: &str) -> String {
     let lead = if lang == "en" {
         "Reply with exactly one JSON object that follows this JSON Schema, with no other text:"
@@ -650,6 +677,21 @@ mod tests {
         use chrono::{Local, TimeZone, Timelike};
         let lt = Local.timestamp_opt(t as i64, 0).unwrap();
         assert!((lt.hour(), lt.minute()) == (15, 0) && t > now && t <= now + 86400.0);
+        // Claude Code names the limit (seen 2026-11-24 and 26: the backup engine did not take over)
+        for msg in [
+            "Claude returned an error: \"You've hit your 5-hour limit · resets 4pm (Asia/Singapore)\"",
+            "Claude returned an error: \"You've hit your weekly limit · resets 5pm (Asia/Singapore)\"",
+            "You've hit your Opus limit · resets 7:20pm (Asia/Singapore)",
+        ] {
+            let Trouble::Quota { until: Some(t) } = classify(msg, now) else {
+                panic!("not taken for a quota with a reset time: {msg}")
+            };
+            assert!(t > now && t <= now + 86400.0, "{msg}");
+        }
+        assert_eq!(
+            classify("the time limit of the test was hit", now),
+            Trouble::Other
+        );
         assert_eq!(
             classify("Your credit balance is too low", now),
             Trouble::Quota { until: None }
@@ -702,21 +744,35 @@ mod tests {
         // none set: the error stands
         assert!(with_fallback(&cfg, "k", "claude", run("usage limit reached")).is_err());
         cfg.review.fallback = "codex".into();
-        // out of quota, signed out: the fallback reviews
+        // any failure: the fallback reviews
         for msg in [
+            "did not finish within 20 minutes",
+            "the reply is not a verdict: expected value at line 1",
+            "Claude exited Some(1): something broke",
             "usage limit reached",
             "Claude Code (\"claude\") not found on PATH",
+            // as Claude Code says it now (2026-11-26: the fallback did not take over)
+            "Claude returned an error: \"You've hit your 5-hour limit · resets 4pm (Asia/Singapore)\"",
+            "Claude returned an error: \"You've hit your weekly limit · resets 5pm (Asia/Singapore)\"",
         ] {
             ran.borrow_mut().clear();
             assert!(with_fallback(&cfg, "k", "claude", run(msg)).is_ok());
             assert_eq!(*ran.borrow(), ["claude", "codex"]);
         }
-        // a timeout: no fallback
+        // stopped on purpose (a direct approval) while it ran: no fallback
         ran.borrow_mut().clear();
-        assert!(
-            with_fallback(&cfg, "k", "claude", run("did not finish within 20 minutes")).is_err()
-        );
+        let stopped = |name: &str| -> Result<Verdict> {
+            ran.borrow_mut().push(name.to_string());
+            let _running = crate::util::track_in_process("k-stopped");
+            assert!(crate::util::abort("k-stopped"));
+            anyhow::bail!("the review was stopped")
+        };
+        assert!(with_fallback(&cfg, "k-stopped", "claude", stopped).is_err());
         assert_eq!(*ran.borrow(), ["claude"]);
+        // the next review of that PR is not held back by the old stop
+        ran.borrow_mut().clear();
+        assert!(with_fallback(&cfg, "k-stopped", "claude", run("usage limit reached")).is_ok());
+        assert_eq!(*ran.borrow(), ["claude", "codex"]);
         // the fallback is the engine that failed: not run twice
         ran.borrow_mut().clear();
         cfg.review.fallback = "claude".into();

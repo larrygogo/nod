@@ -292,6 +292,176 @@ fn from_window(v: Value, clear: &[String]) -> Result<Config, String> {
     Ok(c)
 }
 
+/// The Feishu app of the window's settings (not saved yet, perhaps), with its secret from the keychain when the window
+/// does not hold it.
+fn feishu_app(cfg: Value, clear: &[String]) -> Result<(String, String, String), String> {
+    let mut c = from_window(cfg, clear)?;
+    secrets::hydrate(&mut c);
+    let f = &c.notify.feishu;
+    let domain = if f.domain.trim().is_empty() {
+        "https://open.feishu.cn".to_string()
+    } else {
+        f.domain.trim().to_string()
+    };
+    Ok((domain, f.app_id.trim().to_string(), c.feishu_secret()))
+}
+
+/// Find the recipient by signing in to Feishu (device flow): the window opens the returned page and polls.
+#[tauri::command]
+async fn feishu_login_start(
+    cfg: Value,
+    clear: Option<Vec<String>>,
+) -> Result<crate::notify::feishu_auth::DeviceCode, String> {
+    let (domain, id, secret) = feishu_app(cfg, &clear.unwrap_or_default())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::notify::feishu_auth::start(&domain, &id, &secret).map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// One poll. `state`: pending | slow_down | done (`open_id`, `name`) | expired | denied | failed (`message`).
+#[derive(Serialize)]
+struct FeishuPoll {
+    state: String,
+    open_id: String,
+    name: String,
+    message: String,
+}
+
+#[tauri::command]
+async fn feishu_login_poll(
+    cfg: Value,
+    clear: Option<Vec<String>>,
+    device_code: String,
+) -> Result<FeishuPoll, String> {
+    use crate::notify::feishu_auth::{poll, Poll};
+    let (domain, id, secret) = feishu_app(cfg, &clear.unwrap_or_default())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = |state: &str| FeishuPoll {
+            state: state.into(),
+            open_id: String::new(),
+            name: String::new(),
+            message: String::new(),
+        };
+        Ok(
+            match poll(&domain, &id, &secret, &device_code).map_err(|e| format!("{e:#}"))? {
+                Poll::Pending => p("pending"),
+                Poll::SlowDown => p("slow_down"),
+                Poll::Done(open_id, name) => FeishuPoll {
+                    open_id,
+                    name,
+                    ..p("done")
+                },
+                Poll::Failed(m) if m == "expired" || m == "denied" => p(&m),
+                Poll::Failed(m) => FeishuPoll {
+                    message: m,
+                    ..p("failed")
+                },
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The names of the window's Feishu app and recipient, so the window shows them instead of IDs (and learns them for
+/// settings made before names were kept).
+#[tauri::command]
+async fn feishu_who(
+    cfg: Value,
+    clear: Option<Vec<String>>,
+) -> Result<crate::notify::feishu_auth::Who, String> {
+    let recipient = cfg["notify"]["feishu"]["recipient"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let (domain, id, secret) = feishu_app(cfg, &clear.unwrap_or_default())?;
+    if id.is_empty() || secret.is_empty() {
+        return Ok(Default::default());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::notify::feishu_auth::who(&domain, &id, &secret, &recipient)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Connect a Feishu app without typing its ID and secret: the window opens the returned page (pick an app or create
+/// one) and polls.
+#[tauri::command]
+async fn feishu_connect_start() -> Result<crate::notify::feishu_auth::DeviceCode, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::notify::feishu_auth::connect_start().map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// One poll. `state`: pending | slow_down | done | expired | denied | failed (`message`). When done: the app and its
+/// secret (the window puts them into the settings, saved to the keychain like a typed one), who connected it, and
+/// their name when the app may read it.
+#[derive(Serialize)]
+struct FeishuConnect {
+    state: String,
+    app_id: String,
+    app_secret: String,
+    domain: String,
+    open_id: String,
+    name: String,
+    /// the app's name, from its bot
+    app_name: String,
+    message: String,
+}
+
+#[tauri::command]
+async fn feishu_connect_poll(device_code: String) -> Result<FeishuConnect, String> {
+    use crate::notify::feishu_auth::{connect_poll, who, ConnectPoll};
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = |state: &str| FeishuConnect {
+            state: state.into(),
+            app_id: String::new(),
+            app_secret: String::new(),
+            domain: String::new(),
+            open_id: String::new(),
+            name: String::new(),
+            app_name: String::new(),
+            message: String::new(),
+        };
+        Ok(
+            match connect_poll(&device_code).map_err(|e| format!("{e:#}"))? {
+                ConnectPoll::Pending => p("pending"),
+                ConnectPoll::SlowDown => p("slow_down"),
+                ConnectPoll::Done(c) => {
+                    crate::info!("feishu: connected app {}", c.app_id);
+                    let w = who(
+                        &c.domain,
+                        &c.app_id,
+                        &c.secret,
+                        &format!("open_id:{}", c.open_id),
+                    );
+                    FeishuConnect {
+                        name: w.recipient_name,
+                        app_name: w.app_name,
+                        app_id: c.app_id,
+                        app_secret: c.secret,
+                        domain: c.domain,
+                        open_id: c.open_id,
+                        ..p("done")
+                    }
+                }
+                ConnectPoll::Failed(m) if m == "expired" || m == "denied" => p(&m),
+                ConnectPoll::Failed(m) => FeishuConnect {
+                    message: m,
+                    ..p("failed")
+                },
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// The plugin catalog in `lang` (the window's current language, which may not be saved yet).
 #[tauri::command]
 fn catalog(lang: Option<String>) -> Vec<crate::plugins::catalog::Plugin> {
@@ -638,10 +808,16 @@ pub fn fix_target(action: &str, cfg: &Config) -> Option<Fix> {
             format!("{} login", quote_arg(&cfg.review.codex.exe)),
             vec![],
         ),
-        doctor::FIX_GEMINI_LOGIN => Fix::Terminal(quote_arg(&cfg.review.gemini.exe), vec![]),
+        doctor::FIX_ANTIGRAVITY_LOGIN => {
+            Fix::Terminal(quote_arg(&cfg.review.antigravity.exe), vec![])
+        }
+        doctor::FIX_KIMI_LOGIN => {
+            Fix::Terminal(format!("{} login", quote_arg(&cfg.review.kimi.exe)), vec![])
+        }
         doctor::FIX_INSTALL_CODEX => Fix::Url("https://developers.openai.com/codex/cli".into()),
-        doctor::FIX_INSTALL_GEMINI => {
-            Fix::Url("https://geminicli.com/docs/get-started/installation".into())
+        doctor::FIX_INSTALL_ANTIGRAVITY => Fix::Url("https://antigravity.google/docs/cli".into()),
+        doctor::FIX_INSTALL_KIMI => {
+            Fix::Url("https://moonshotai.github.io/kimi-code/en/guides/getting-started".into())
         }
         doctor::FIX_INSTALL_GIT => Fix::Url("https://git-scm.com/downloads".into()),
         doctor::FIX_INSTALL_CLAUDE => {
@@ -1165,6 +1341,11 @@ pub fn run(hidden: bool) {
             github_session,
             github_login_start,
             github_login_poll,
+            feishu_login_start,
+            feishu_login_poll,
+            feishu_connect_start,
+            feishu_connect_poll,
+            feishu_who,
             github_logout,
             catalog,
             test_notification,

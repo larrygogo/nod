@@ -17,8 +17,10 @@ pub const FIX_SETTINGS: &str = "settings";
 pub const FIX_PLUGINS: &str = "plugins";
 pub const FIX_INSTALL_CODEX: &str = "install_codex";
 pub const FIX_CODEX_LOGIN: &str = "codex_login";
-pub const FIX_INSTALL_GEMINI: &str = "install_gemini";
-pub const FIX_GEMINI_LOGIN: &str = "gemini_login";
+pub const FIX_INSTALL_ANTIGRAVITY: &str = "install_antigravity";
+pub const FIX_ANTIGRAVITY_LOGIN: &str = "antigravity_login";
+pub const FIX_INSTALL_KIMI: &str = "install_kimi";
+pub const FIX_KIMI_LOGIN: &str = "kimi_login";
 pub const FIX_FEISHU_DOCS: &str = "feishu_docs";
 
 #[derive(Debug, Clone, Serialize)]
@@ -453,21 +455,26 @@ pub fn engine_check(c: &mut Ctx, cfg: &Config, engine: &str, live: bool) {
     let lang = c.lang;
     match engine {
         "claude" => claude_check(c, &cfg.review.claude, cfg, live),
-        "codex" | "gemini" => {
-            let (exe, name, install, login): (&str, &str, &str, &str) = if engine == "codex" {
-                (
+        "codex" | "antigravity" | "kimi" => {
+            let (exe, name, install, login): (&str, &str, &str, &str) = match engine {
+                "codex" => (
                     &cfg.review.codex.exe,
                     "Codex CLI",
                     FIX_INSTALL_CODEX,
                     FIX_CODEX_LOGIN,
-                )
-            } else {
-                (
-                    &cfg.review.gemini.exe,
-                    "Gemini CLI",
-                    FIX_INSTALL_GEMINI,
-                    FIX_GEMINI_LOGIN,
-                )
+                ),
+                "antigravity" => (
+                    &cfg.review.antigravity.exe,
+                    "Antigravity CLI",
+                    FIX_INSTALL_ANTIGRAVITY,
+                    FIX_ANTIGRAVITY_LOGIN,
+                ),
+                _ => (
+                    &cfg.review.kimi.exe,
+                    "Kimi Code",
+                    FIX_INSTALL_KIMI,
+                    FIX_KIMI_LOGIN,
+                ),
             };
             let Some(path) = which(exe) else {
                 c.push(
@@ -527,10 +534,10 @@ pub fn engine_check(c: &mut Ctx, cfg: &Config, engine: &str, live: bool) {
                 format!("{p} {}", ver.trim()),
                 None,
             );
-            if engine == "gemini" && !cfg.review.gemini.allow_approve {
+            if engine == "antigravity" && !cfg.review.antigravity.allow_approve {
                 let ch = c.push(
                     "engine_isolation",
-                    ("Gemini 隔离", "Gemini isolation"),
+                    ("Antigravity 隔离", "Antigravity isolation"),
                     true,
                     l(
                         lang,

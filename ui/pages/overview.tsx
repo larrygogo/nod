@@ -47,10 +47,10 @@ export function OverviewPage() {
   const cfg = loaded.config;
   const fb = cfg.review.fallback;
   const fbOk = !!fb && !!health[`engine:${fb}`] && healthOf(health[`engine:${fb}`]) !== "bad";
-  // the quick check sees a Codex or API backup's sign-in, not Claude's or Gemini's (that would cost a model call)
+  // the quick check sees a Codex or API backup's sign-in, not Claude's, Antigravity's or Kimi Code's
   const fbSignInChecked = fb === "codex" || fb === "api";
-  // Gemini without approval allowed only comments: PRs that would have been approved by the rules are not
-  const fbNoApprove = fb === "gemini" && !cfg.review.gemini?.allow_approve;
+  // Antigravity without approval allowed only comments: PRs that would have been approved by the rules are not
+  const fbNoApprove = fb === "antigravity" && !cfg.review.antigravity?.allow_approve;
   const repoEngines = new Set((cfg.review.per_repo ?? []).map((r) => r.engine));
   const broken = !ready ? [] : Object.entries(health).filter(([, r]) => healthOf(r) === "bad").flatMap(([k, r]) => {
     const bad = r.find((c) => !c.ok)!;

@@ -3,6 +3,53 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Notifications
+
+- Feishu / Lark app: *Connect Feishu* opens Feishu in the browser, where you pick one of your apps or create one; Nod
+  fills in the App ID, the secret and you as the recipient. Nothing to copy from the developer console; typing the ID
+  and secret is folded away. The page shows the app by its name ("Connected to Nod") and the recipient by name, also
+  after a restart and for settings made before; an app that can no longer be used (wrong secret) is marked red.
+- The recipient can be someone else found by signing in: *Authorize with Feishu*, tap Authorize, and Nod fills in
+  their open_id and shows the name ("Cards go to …"). Typing an email or ID still works.
+
+### Engines
+
+- Gemini CLI is replaced by Google's Antigravity CLI (`agy`), run in its plan mode. Like Gemini before, it has no OS
+  sandbox, so it comments but does not approve unless you turn that on. Settings that chose Gemini (default, backup,
+  per-repository) now choose Antigravity; turning approval on has to be done again, since it was given for another
+  program.
+- Antigravity really runs in its read-only plan mode now: it had been started with `--disable-slash-commands`, which
+  makes it ignore `--mode plan`. It is told to review in one turn without subagents; when it still ends its turn
+  without a verdict (it started a subagent and said it was waiting for it), it is asked for the verdict once in the
+  same conversation, instead of the review going to the backup engine. The error names what it replied.
+- New engine: Kimi Code (`kimi`), Moonshot's CLI, given only the read-only `Read`, `Grep` and `Glob` tools. Its model
+  is an alias from Kimi Code's own config (empty = its default).
+- The backup engine now takes over whenever the chosen engine fails, whatever the error (a timeout, an answer that is
+  not a verdict, a crash), not only when it is out of quota, signed out or not installed. A review you stop on
+  purpose (approving directly) does not go to it.
+- Claude Code out of its 5-hour or weekly limit ("You've hit your 5-hour limit · resets 4pm") is recognised again:
+  with no backup engine set, Nod waits until the reset time instead of failing twice within minutes.
+
+### Reviews
+
+- A review that found nothing says what the change does and what was checked ("switches to the table's own
+  vertical scroll; checked that …"), instead of only "no issues found".
+- The OpenAI-compatible API engine is no longer limited to the diff it is sent: the model gets read-only tools on the
+  PR's checkout (`get_diff`, `read_file`, `list_dir`, `search`; Nod runs them, nothing is executed) and reads the
+  code it needs. An endpoint without tool support still gets the diff alone.
+- A diff too big for one message is no longer cut in the middle of a file: whole files go in, lock files and other
+  low-value files last, and the rest is listed for the model to fetch. A review that never saw a changed file's diff
+  does not approve, and its comment lists those files for a person to check.
+- The size setting is gone (`review.api.max_diff_kb`, "Send at most this much per request"): the engine finds out
+  how much the model takes. It starts by sending the whole change; a request refused as too long, or one a local
+  Ollama cut silently (it counts far fewer prompt tokens than were sent), is sent again smaller, and the next review
+  of that model starts with what was learned. For a model already loaded in Ollama, the context it was loaded with is
+  read first. When the conversation outgrows the model, the oldest code the model read leaves it first, then the
+  oldest diffs (a diff that left is no longer counted as seen). A review is limited only by its time
+  (`review.timeout_min`), not by rounds or bytes.
+
 ## [0.1.1] - 2026-11-25
 
 ### Reviews

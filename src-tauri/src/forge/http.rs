@@ -197,19 +197,19 @@ pub mod fake {
 
     /// Like `serve`, with extra response headers per route (e.g. `Link` for pagination). In a header value,
     /// `{base}` is replaced by the server's own address.
-    pub fn serve_with(routes: Vec<Route>) -> Fake {
+    pub fn serve_with(routes_in: Vec<Route>) -> Fake {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let routes: HashMap<String, (u16, String, String)> = routes
-            .into_iter()
-            .map(|(k, s, b, h)| {
-                let extra: String = h
-                    .iter()
-                    .map(|(n, v)| format!("{n}: {}\r\n", v.replace("{base}", &url)))
-                    .collect();
-                (k.to_string(), (s, b, extra))
-            })
-            .collect();
+        // a route listed more than once answers in that order, then keeps giving its last answer
+        let mut routes: HashMap<String, Vec<(u16, String, String)>> = HashMap::new();
+        for (k, s, b, h) in routes_in {
+            let extra: String = h
+                .iter()
+                .map(|(n, v)| format!("{n}: {}\r\n", v.replace("{base}", &url)))
+                .collect();
+            routes.entry(k.to_string()).or_default().push((s, b, extra));
+        }
+        let mut served: HashMap<String, usize> = HashMap::new();
         let seen = Arc::new(Mutex::new(vec![]));
         let rec = seen.clone();
         std::thread::spawn(move || {
@@ -245,11 +245,19 @@ pub mod fake {
                     body: String::from_utf8_lossy(&body).into(),
                 });
                 let path = full.split('?').next().unwrap_or("");
-                let (status, resp, extra) = routes
-                    .get(&format!("{method} {full}"))
-                    .or_else(|| routes.get(&format!("{method} {path}")))
-                    .cloned()
-                    .unwrap_or((404, "{\"message\":\"not found\"}".into(), String::new()));
+                let key = [format!("{method} {full}"), format!("{method} {path}")]
+                    .into_iter()
+                    .find(|k| routes.contains_key(k));
+                let (status, resp, extra) = match key {
+                    Some(k) => {
+                        let all = &routes[&k];
+                        let n = served.entry(k.clone()).or_default();
+                        let r = all[(*n).min(all.len() - 1)].clone();
+                        *n += 1;
+                        r
+                    }
+                    None => (404, "{\"message\":\"not found\"}".into(), String::new()),
+                };
                 let _ = write!(
                     stream,
                     "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{resp}",

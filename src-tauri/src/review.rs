@@ -48,6 +48,13 @@ pub struct Meta {
     /// The engine is not isolated well enough for its verdict to lead to an approval.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_approve: bool,
+    /// Changed files whose diff the engine never saw (the API engine tracks this): the verdict does not cover them,
+    /// so it does not lead to an approval.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unseen: Vec<String>,
+    /// Low-value changed files (lock files, minified bundles, snapshots) it never saw: listed, not holding approval.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unseen_minor: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -235,6 +242,9 @@ pub fn decide(
     if v.meta.no_approve {
         r.push("engine_no_approve".into());
     }
+    if !v.meta.unseen.is_empty() {
+        r.push("unseen".into());
+    }
     match ci {
         "failure" => r.push("ci_failed".into()),
         "pending" => r.push("ci_pending".into()),
@@ -334,6 +344,16 @@ pub fn build_review(
             &[("reasons", &rs.join("; "))],
         ));
     }
+    // what the engine did not see of the change (API engine): the reader has to look at it themselves
+    for (key, files) in [
+        ("review.unseen", &v.meta.unseen),
+        ("review.unseen_minor", &v.meta.unseen_minor),
+    ] {
+        if !files.is_empty() {
+            lines.push(String::new());
+            lines.push(tf(lang, key, &[("files", &file_list(lang, files))]));
+        }
+    }
     let item = |f: &Finding, title: &str| {
         format!(
             "- {} `{}:{}` {}",
@@ -382,6 +402,26 @@ pub fn build_review(
     json!({"commit_id": pr.head, "event": event, "body": lines.join("\n"), "comments": comments})
 }
 
+/// `a`, `b` … and N more: at most 20 names.
+fn file_list(lang: &str, files: &[String]) -> String {
+    const MAX: usize = 20;
+    let sep = if lang == "en" { ", " } else { "、" };
+    let mut s = files
+        .iter()
+        .take(MAX)
+        .map(|f| format!("`{f}`"))
+        .collect::<Vec<_>>()
+        .join(sep);
+    if files.len() > MAX {
+        s.push_str(&tf(
+            lang,
+            "review.and_more",
+            &[("n", &(files.len() - MAX).to_string())],
+        ));
+    }
+    s
+}
+
 /// The title without the engine's "raised before" mark, when it has one (review.*.md tells the engine to add it).
 pub fn raised_before(title: &str) -> Option<&str> {
     // "…（已有评论提过）", "… (raised in discussion)", also with a full stop after it or the other kind of brackets
@@ -411,7 +451,8 @@ pub fn engine_name(id: &str) -> String {
     match id {
         "" | "claude" => "Claude Code".into(),
         "codex" => "OpenAI Codex".into(),
-        "gemini" => "Gemini CLI".into(),
+        "antigravity" => "Antigravity".into(),
+        "kimi" => "Kimi Code".into(),
         "api" => "AI".into(),
         other => other.trim_start_matches("ext:").to_string(),
     }
@@ -561,6 +602,50 @@ pub mod tests {
         );
     }
 
+    /// An engine that did not see the whole change (API engine, diff too big, the model never fetched the rest) does
+    /// not lead to an approval, and the review says which files a person has to look at. Low-value files it skipped
+    /// are listed but do not hold the approval.
+    #[test]
+    fn changes_the_engine_did_not_see_hold_the_approval() {
+        let c = Config::default();
+        let p = pr("alice");
+        let mut v = clean();
+        v.meta.unseen_minor = vec!["Cargo.lock".into()];
+        assert_eq!(reasons(&v, "success", "me", &c, &p), ("APPROVE", vec![]));
+        let r = build_review("zh-CN", &p, &v, "APPROVE", &[], &DiffLines::new(), None);
+        let body = r["body"].as_str().unwrap();
+        assert!(
+            body.contains("没看的低价值文件") && body.contains("`Cargo.lock`"),
+            "{body}"
+        );
+        assert!(!body.contains("需要人工看"));
+
+        v.meta.unseen = (0..25).map(|i| format!("src/f{i}.rs")).collect();
+        let (event, rs) = reasons(&v, "success", "me", &c, &p);
+        assert_eq!((event, rs.clone()), ("COMMENT", vec!["unseen".to_string()]));
+        let r = build_review("en", &p, &v, event, &rs, &DiffLines::new(), None);
+        let body = r["body"].as_str().unwrap();
+        assert!(
+            body.contains("Blocked by: the AI did not see the changes of some files"),
+            "{body}"
+        );
+        assert!(
+            body.contains("`src/f0.rs`, `src/f1.rs`") && body.contains("`src/f19.rs` and 5 more"),
+            "{body}"
+        );
+        assert!(!body.contains("src/f20.rs"));
+        // kept with the verdict in state.json, so the approval after CI is held as well
+        let back: Verdict = serde_json::from_value(serde_json::to_value(&v).unwrap()).unwrap();
+        assert_eq!(back.meta.unseen.len(), 25);
+        // older verdicts without the fields still load
+        let old: Verdict = serde_json::from_value(
+            json!({"summary": "ok", "findings": [], "approve_recommended": true,
+            "unable_reason": "", "_meta": {"duration_s": 3}}),
+        )
+        .unwrap();
+        assert!(old.meta.unseen.is_empty() && old.meta.unseen_minor.is_empty());
+    }
+
     #[test]
     fn approve_allowlists() {
         let d = |c: &Config, p: &Pr, v: &Verdict| decide(c, p, v, "success", "me");
@@ -702,8 +787,8 @@ pub mod tests {
             .contains("Claude Code"));
         c.footer = "  — reviewed with {engine} by our bot  ".into();
         assert_eq!(
-            footer_text("en", &c, "gemini").unwrap(),
-            "— reviewed with Gemini CLI by our bot"
+            footer_text("en", &c, "kimi").unwrap(),
+            "— reviewed with Kimi Code by our bot"
         );
         c.footer_enabled = false;
         assert_eq!(footer_text("en", &c, "claude"), None);
