@@ -13,6 +13,9 @@ project uses [Semantic Versioning](https://semver.org/).
   program.
 - New engine: Kimi Code (`kimi`), Moonshot's CLI, given only the read-only `Read`, `Grep` and `Glob` tools. Its model
   is an alias from Kimi Code's own config (empty = its default).
+- Claude Code out of its 5-hour or weekly limit ("You've hit your 5-hour limit · resets 4pm") now hands the review to
+  the backup engine, or waits until the reset time when none is set. Before, the message was not recognised as a
+  limit: the review failed twice within minutes and the backup engine never took over.
 
 ### Reviews
 
