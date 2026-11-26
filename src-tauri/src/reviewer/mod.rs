@@ -371,7 +371,12 @@ pub fn classify(msg: &str, now: f64) -> Trouble {
         "额度",
         "限流",
     ];
-    if quota.iter().any(|w| m.contains(w)) || Regex::new(r"\b429\b").unwrap().is_match(&m) {
+    // Claude Code names the limit in between: "You've hit your 5-hour limit · resets 4pm", "… your weekly limit …"
+    let hit = Regex::new(r"\b(?:hit|reached) (?:your|the) (?:[\w-]+ ){0,3}limit\b").unwrap();
+    if quota.iter().any(|w| m.contains(w))
+        || hit.is_match(&m)
+        || Regex::new(r"\b429\b").unwrap().is_match(&m)
+    {
         return Trouble::Quota {
             until: reset_time(&m, now),
         };
@@ -670,6 +675,21 @@ mod tests {
         use chrono::{Local, TimeZone, Timelike};
         let lt = Local.timestamp_opt(t as i64, 0).unwrap();
         assert!((lt.hour(), lt.minute()) == (15, 0) && t > now && t <= now + 86400.0);
+        // Claude Code names the limit (seen 2026-11-24 and 26: the backup engine did not take over)
+        for msg in [
+            "Claude returned an error: \"You've hit your 5-hour limit · resets 4pm (Asia/Singapore)\"",
+            "Claude returned an error: \"You've hit your weekly limit · resets 5pm (Asia/Singapore)\"",
+            "You've hit your Opus limit · resets 7:20pm (Asia/Singapore)",
+        ] {
+            let Trouble::Quota { until: Some(t) } = classify(msg, now) else {
+                panic!("not taken for a quota with a reset time: {msg}")
+            };
+            assert!(t > now && t <= now + 86400.0, "{msg}");
+        }
+        assert_eq!(
+            classify("the time limit of the test was hit", now),
+            Trouble::Other
+        );
         assert_eq!(
             classify("Your credit balance is too low", now),
             Trouble::Quota { until: None }
@@ -726,6 +746,9 @@ mod tests {
         for msg in [
             "usage limit reached",
             "Claude Code (\"claude\") not found on PATH",
+            // as Claude Code says it now (2026-11-26: the fallback did not take over)
+            "Claude returned an error: \"You've hit your 5-hour limit · resets 4pm (Asia/Singapore)\"",
+            "Claude returned an error: \"You've hit your weekly limit · resets 5pm (Asia/Singapore)\"",
         ] {
             ran.borrow_mut().clear();
             assert!(with_fallback(&cfg, "k", "claude", run(msg)).is_ok());
