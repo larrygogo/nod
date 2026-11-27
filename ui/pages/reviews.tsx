@@ -45,13 +45,18 @@ export function tone(r: Row): string {
 /** "3 issues · 1 high" for a row, and `short` ("1 high", or "3 issues" when none is high or medium) for the narrow
  *  review list, where the long form leaves the title a few characters. */
 export function findingsText(r: Row): { text: string; short: string; tone: string } | null {
-  const n = r.findings.length;
-  if (!n) return null;
-  const high = r.findings.filter((f) => f.severity === "high").length;
-  const medium = r.findings.filter((f) => f.severity === "medium").length;
+  if (!r.findings.length) return null;
+  // counts and the worst severity are the PR's own: two old issues are not "2 high" against the author
+  const own = r.findings.filter((f) => f.introduced_by_pr);
+  const old = r.findings.length - own.length;
+  const oldText = old ? t("rv.n_old", { n: old }) : "";
+  const n = own.length;
+  if (!n) return { text: oldText, short: oldText, tone: "" };
+  const high = own.filter((f) => f.severity === "high").length;
+  const medium = own.filter((f) => f.severity === "medium").length;
   const worst = high ? t("rv.n_high", { n: high }) : medium ? t("rv.n_medium", { n: medium }) : "";
   const count = n === 1 ? t("rv.one_finding") : t("rv.n_findings", { n });
-  return { text: count + (worst ? " · " + worst : ""), short: worst || count, tone: high ? "bad" : medium ? "warn" : "" };
+  return { text: [count, worst, oldText].filter(Boolean).join(" · "), short: worst || count, tone: high ? "bad" : medium ? "warn" : "" };
 }
 
 export function ReviewRow({ r, onClick, selected, flag }: { r: Row; onClick: () => void; selected?: boolean; flag?: { text: string; hint: string } }) {
@@ -183,19 +188,35 @@ export function splitRaised(title: string): [string, boolean] {
   return RAISED.test(title) ? [title.replace(RAISED, ""), true] : [title, false];
 }
 
-/** The findings of one review, worst first. */
+/** The findings of one review: the PR's own worst first, then the pre-existing ones as a group of their own. */
 function FindingList({ findings }: { findings: Row["findings"] }) {
   if (findings.length === 0) return <p class="muted">{t("rv.no_findings")}</p>;
+  const own = findings.filter((f) => f.introduced_by_pr);
+  const old = findings.filter((f) => !f.introduced_by_pr);
+  return (
+    <>
+      {own.length > 0 ? <FindingItems findings={own} /> : <p class="muted">{t("rv.no_own")}</p>}
+      {/* issues that were there before the PR: their own heading saying they do not hold the approval, and each one
+          tagged, so none reads as the author's */}
+      {old.length > 0 && (
+        <div class="old-group">
+          <h4 class="old-head">{t("rv.old")} <span class="muted">{old.length}</span><span class="old-note">{t("rv.old_note")}</span></h4>
+          <FindingItems findings={old} />
+        </div>
+      )}
+    </>
+  );
+}
+
+function FindingItems({ findings }: { findings: Row["findings"] }) {
   return (
     <ul class="findings">
       {[...findings].sort((a, b) => SEV.indexOf(a.severity as never) - SEV.indexOf(b.severity as never)).map((f) => (
-        <li>
+        <li class={f.introduced_by_pr ? "" : "old"}>
           <span class={`sev ${f.severity}`}>{t(`sev.${f.severity}` as Key)}</span>
           <div class="grow">
-            <div>{splitRaised(f.title)[0]}{splitRaised(f.title)[1] && <span class="raised">{t("rv.raised")}</span>}
-              {/* most issues come with the PR; the ones that were already there are the exception worth a word (they do
-                  not hold back an approval) */}
-              {!f.introduced_by_pr && <span class="raised">{t("rv.old")}</span>}</div>
+            <div>{!f.introduced_by_pr && <span class="old-tag">{t("rv.old")}</span>}
+              {splitRaised(f.title)[0]}{splitRaised(f.title)[1] && <span class="raised">{t("rv.raised")}</span>}</div>
             {/* a long path is cut from the left, so the file name and line stay in view */}
             {f.path && <div class="find-path mono small muted" title={`${f.path}${f.line ? `:${f.line}` : ""}`}>
               <bdi>{f.path}{f.line ? `:${f.line}` : ""}</bdi></div>}
@@ -215,7 +236,8 @@ function RoundTrend({ rounds }: { rounds: Round[] }) {
   const xs = [...rounds].reverse().filter((x) => x.summary || x.findings.length > 0);
   if (xs.length < 2) return null;
   const max = Math.max(1, ...xs.map((x) => x.findings.length));
-  const serious = (x: Round) => { const c = sevCounts(x.findings); return c.high + c.medium; };
+  // the sentence follows the PR's own issues; old ones do not change with its commits
+  const serious = (x: Round) => { const c = sevCounts(x.findings.filter((f) => f.introduced_by_pr)); return c.high + c.medium; };
   const first = serious(xs[0]), last = serious(xs[xs.length - 1]);
   const line = last < first ? t("rd.trend_down", { n: xs.length, a: first, b: last })
     : last > first ? t("rd.trend_up", { n: xs.length, a: first, b: last }) : t("rd.trend_same", { n: xs.length, a: last });
@@ -380,7 +402,7 @@ export function Detail({ r }: { r: Row }) {
             <div class="sub"><h4>{t(r.direct ? "rv.direct_why" : r.status === "closed" ? "rv.closed_note" : "rv.blocked")}</h4><ul class="reasons">{r.reasons.map((x) => <li>{x}</li>)}</ul></div>
           )}
           {(r.summary || r.findings.length > 0) && (
-            <div class="sub"><h4>{t("rv.findings")} <span class="muted">{r.findings.length || ""}</span></h4><FindingList findings={r.findings} /></div>
+            <div class="sub"><h4>{t("rv.findings")} <span class="muted">{r.findings.filter((f) => f.introduced_by_pr).length || ""}</span></h4><FindingList findings={r.findings} /></div>
           )}
         </section>
       )}

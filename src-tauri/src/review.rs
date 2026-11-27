@@ -362,9 +362,16 @@ pub fn build_review(
             lines.push(tf(lang, key, &[("files", &file_list(lang, files))]));
         }
     }
+    // every pre-existing issue carries the mark on its own line, also inside a folded list, so it never reads as the
+    // author's
     let item = |f: &Finding, title: &str| {
+        let mark = if f.introduced_by_pr {
+            String::new()
+        } else {
+            format!(" **{}**", t(lang, "review.old_mark"))
+        };
         format!(
-            "- {} `{}:{}` {}",
+            "- {}{mark} `{}:{}` {}",
             t(lang, &format!("sev_icon.{}", f.severity)),
             f.path,
             f.line,
@@ -813,16 +820,13 @@ pub mod tests {
         let mut v = clean();
         let mut inside = finding("low", false, 3);
         inside.title = "Old retry loop".into();
-        inside.body = "What happens
-
-Suggestion"
-            .into();
+        inside.body = "What happens\n\nSuggestion".into();
         let mut outside = finding("high", true, 99);
         outside.title = "Old token leak".into();
         v.findings = vec![inside, outside, finding("medium", true, 4)];
-        for (lang, word) in [
-            ("en", "2 pre-existing issues"),
-            ("zh-CN", "顺带发现的老问题 2 条"),
+        for (lang, word, mark) in [
+            ("en", "2 pre-existing issue(s)", "**[pre-existing]**"),
+            ("zh-CN", "老问题 2 条", "**[老问题]**"),
         ] {
             let r = build_review(lang, &p, &v, "COMMENT", &[], &valid, None);
             let comments = r["comments"].as_array().unwrap();
@@ -834,13 +838,9 @@ Suggestion"
                 "{body}"
             );
             assert!(
-                body.contains(
-                    "`a.py:3` Old retry loop
-
-  What happens
-
-  Suggestion"
-                ) && body.contains("`a.py:99` Old token leak"),
+                body.contains(&format!(
+                    "{mark} `a.py:3` Old retry loop\n\n  What happens\n\n  Suggestion"
+                )) && body.contains(&format!("{mark} `a.py:99` Old token leak")),
                 "{body}"
             );
             // not in the list of this PR's findings, nor as an outside-the-diff block

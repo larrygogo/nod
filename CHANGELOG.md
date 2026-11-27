@@ -9,8 +9,13 @@ project uses [Semantic Versioning](https://semver.org/).
 
 - Pre-existing issues no longer read as the author's: an issue the engine noticed in code this PR did not change gets
   no comment on a line and is not in the PR's list of findings. All of them go into one folded block at the end of the
-  review ("N pre-existing issues noticed on the way"), and they no longer hold the approval, even a high one. An issue
-  on a line outside the diff counts as pre-existing whatever the engine said.
+  review ("N pre-existing issue(s): not introduced by this PR, they do not hold the approval"), each marked
+  **[pre-existing]**, and they no longer hold the approval, even a high one. An issue on a line outside the diff counts
+  as pre-existing whatever the engine said.
+- Pre-existing issues are marked the same way everywhere. On the Feishu / Lark card they come after the PR's own
+  issues with a *Pre-existing* tag, and the header counts only the PR's own ("1 finding · Pre-existing 2", or "No
+  issues introduced by this PR"). In the app they are a group of their own under the PR's findings, each tagged, and
+  the review list counts them apart ("1 pre-existing" instead of "1 high").
 - The engine reports a pre-existing issue only when this PR's feature hits it or it is high, not every problem it
   happened to see while reading files; issues raised in earlier comments are carried over only when they relate to
   the change.

@@ -382,9 +382,12 @@ pub fn render(
     if let Some(v) = v
         .filter(|v| !v.findings.is_empty() && !["queued", "reviewing"].contains(&e.status.as_str()))
     {
+        // The PR's own issues are counted and listed first; pre-existing ones get a count and a tag of their own, so
+        // "2 high" never means two old issues the author did not cause.
+        let (new, old): (Vec<_>, Vec<_>) = v.findings.iter().partition(|f| f.introduced_by_pr);
         let mut tags = vec![];
         for sev in ["high", "medium", "low", "nit"] {
-            let n = v.findings.iter().filter(|f| f.severity == sev).count();
+            let n = new.iter().filter(|f| f.severity == sev).count();
             if n > 0 {
                 tags.push(tag(
                     &format!("{} {n}", t(lang, &format!("sev.{sev}"))),
@@ -392,19 +395,25 @@ pub fn render(
                 ));
             }
         }
-        let mut rows: Vec<Value> = v
-            .findings
+        if !old.is_empty() {
+            tags.push(tag(
+                &tf(lang, "card.old_n", &[("n", &old.len().to_string())]),
+                "neutral",
+            ));
+        }
+        let mut rows: Vec<Value> = new
             .iter()
+            .chain(old.iter())
             .take(10)
             .map(|f| {
                 let old = if f.introduced_by_pr {
                     String::new()
                 } else {
-                    grey(&t(lang, "review.old_issue"))
+                    format!(" {}", tag(&t(lang, "card.old_tag"), "neutral"))
                 };
                 md(
                     &format!(
-                        "{} {}{old}\n{}",
+                        "{}{old} {}\n{}",
                         tag(
                             &t(lang, &format!("sev.{}", f.severity)),
                             sev_color(&f.severity)
@@ -426,12 +435,16 @@ pub fn render(
                 "normal",
             ));
         }
-        let serious = v
-            .findings
+        let serious = new
             .iter()
             .any(|f| f.severity == "high" || f.severity == "medium");
+        let count = if new.is_empty() {
+            t(lang, "card.no_new")
+        } else {
+            tf(lang, "card.n_issues", &[("n", &new.len().to_string())])
+        };
         els.push(json!({"tag": "collapsible_panel", "expanded": serious && v.findings.len() <= 4,
-            "header": {"title": md(&format!("{} {}", tf(lang, "card.n_issues", &[("n", &v.findings.len().to_string())]), tags.join(" ")), "normal"),
+            "header": {"title": md(&format!("{count} {}", tags.join(" ")), "normal"),
                        "icon": {"tag": "standard_icon", "token": "down-small-ccm_outlined", "size": "16px 16px"},
                        "icon_position": "right", "icon_expanded_angle": -180},
             "border": {"color": "grey", "corner_radius": "6px"}, "vertical_spacing": "6px",
@@ -739,6 +752,59 @@ mod tests {
         assert_eq!(panels[0]["expanded"], true);
         assert_eq!(c["header"]["template"], "orange");
         assert!(c.to_string().contains("high-severity issue found"));
+    }
+
+    #[test]
+    fn pre_existing_issues_are_counted_and_tagged_apart() {
+        let mut e = entry("posted");
+        e.event = Some("APPROVE".into());
+        let mut v = clean();
+        let mut old = finding("high", false, 9);
+        old.title = "Old leak".into();
+        let mut new = finding("low", true, 1);
+        new.title = "New typo".into();
+        v.findings = vec![old, new];
+        e.verdict = Some(v);
+        let c = render("zh-CN", "o/r#1", &e, Some(&st()), "me", false);
+        let panel = c["body"]["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["tag"] == "collapsible_panel")
+            .unwrap();
+        let title = panel["header"]["title"]["content"].as_str().unwrap();
+        // the old high is not counted as this PR's
+        assert!(
+            title.starts_with("**1 个问题**")
+                && title.contains("老问题 1")
+                && !title.contains("高 1"),
+            "{title}"
+        );
+        assert_eq!(panel["expanded"], false);
+        let rows: Vec<&str> = panel["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["content"].as_str().unwrap())
+            .collect();
+        // the PR's own first, the old one after it with its tag
+        assert!(
+            rows[0].contains("New typo") && !rows[0].contains("老问题"),
+            "{rows:?}"
+        );
+        assert!(
+            rows[1].contains("<text_tag color='neutral'>老问题</text_tag> Old leak"),
+            "{rows:?}"
+        );
+        // only old ones: say so instead of "0 issues"
+        let mut v = clean();
+        v.findings = vec![finding("medium", false, 9)];
+        e.verdict = Some(v);
+        let c = render("en", "o/r#1", &e, Some(&st()), "me", false);
+        assert!(
+            c.to_string().contains("No issues introduced by this PR"),
+            "{c}"
+        );
     }
 
     #[test]

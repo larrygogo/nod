@@ -64,6 +64,6 @@ export function week(rows: Row[], now = Date.now() / 1000) {
     prs: prs.size,
     rounds: rounds.length,
     approved: inWeek.filter(isApproved).length,
-    held: inWeek.filter((r) => !isApproved(r) && r.findings.some((f) => f.severity === "high")).length,
+    held: inWeek.filter((r) => !isApproved(r) && r.findings.some((f) => f.severity === "high" && f.introduced_by_pr)).length,
   };
 }
