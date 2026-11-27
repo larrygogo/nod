@@ -227,7 +227,11 @@ pub fn decide(
     if !v.unable_reason.is_empty() {
         r.push(format!("unable:{}", v.unable_reason));
     }
-    if v.findings.iter().any(|f| f.severity == "high") {
+    // A pre-existing issue is not this PR's to fix: it never holds the approval, whatever its severity.
+    if v.findings
+        .iter()
+        .any(|f| f.severity == "high" && f.introduced_by_pr)
+    {
         r.push("high".into());
     }
     if v.findings
@@ -285,6 +289,9 @@ pub fn build_review(
     valid: &DiffLines,
     footer: Option<&str>,
 ) -> Value {
+    let mut v = v.clone();
+    scope(&mut v, valid);
+    let v = &v;
     let mut findings = v.findings.clone();
     findings.sort_by_key(|f| {
         SEVERITIES
@@ -299,19 +306,20 @@ pub fn build_review(
     let (again, findings): (Vec<_>, Vec<_>) = findings
         .into_iter()
         .partition(|f| raised_before(&f.title).is_some() && !blocks_approval(f));
+    // A pre-existing issue the engine noticed on the way is not the author's doing: no comment on a line, no place in
+    // the list of this PR's findings, only one folded block at the end. Line comments on old code made authors think
+    // they had broken it.
+    let (old, findings): (Vec<_>, Vec<_>) = findings
+        .into_iter()
+        .partition(|f| !f.introduced_by_pr && raised_before(&f.title).is_none());
     let mut comments = vec![];
     let mut outside = vec![];
     for f in findings
         .iter()
         .filter(|f| raised_before(&f.title).is_none())
     {
-        let old = if f.introduced_by_pr {
-            String::new()
-        } else {
-            t(lang, "review.old_issue")
-        };
         let head = format!(
-            "{}{old}: {}",
+            "{}: {}",
             t(lang, &format!("sev_icon.{}", f.severity)),
             f.title
         );
@@ -395,6 +403,32 @@ pub fn build_review(
         lines.push(String::new());
         lines.push(o);
     }
+    if !old.is_empty() {
+        lines.push(String::new());
+        lines.push(format!(
+            "<details><summary>{}</summary>",
+            tf(
+                lang,
+                "review.pre_existing",
+                &[("n", &old.len().to_string())]
+            )
+        ));
+        for f in &old {
+            lines.push(String::new());
+            lines.push(item(f, &f.title));
+            lines.push(String::new());
+            // indented under its item, so a multi-line body stays inside the list entry
+            lines.extend(f.body.lines().map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("  {l}")
+                }
+            }));
+        }
+        lines.push(String::new());
+        lines.push("</details>".into());
+    }
     if let Some(f) = footer.filter(|f| !f.trim().is_empty()) {
         lines.push(String::new());
         lines.push(f.to_string());
@@ -441,9 +475,23 @@ pub fn raised_before(title: &str) -> Option<&str> {
     .then(|| t[..open].trim_end())
 }
 
-/// Holds the approval by itself (review::decide): a high issue, or a medium one this PR introduced.
+/// Holds the approval by itself (review::decide): a high or medium issue this PR introduced.
 pub fn blocks_approval(f: &Finding) -> bool {
-    f.severity == "high" || (f.severity == "medium" && f.introduced_by_pr)
+    f.introduced_by_pr && (f.severity == "high" || f.severity == "medium")
+}
+
+/// The engine says itself whether the PR introduced an issue, and it gets that wrong: an issue on a line outside the
+/// diff is in code this PR did not touch, so it is pre-existing whatever the engine said. With no diff to go by (it
+/// could not be fetched) the engine's word stands.
+pub fn scope(v: &mut Verdict, diff: &DiffLines) {
+    if diff.is_empty() {
+        return;
+    }
+    for f in &mut v.findings {
+        if !diff.get(&f.path).is_some_and(|s| s.contains(&f.line)) {
+            f.introduced_by_pr = false;
+        }
+    }
 }
 
 /// The engine's name as people know it, for the review's signature.
@@ -581,6 +629,9 @@ pub mod tests {
             finding("low", true, 1),
             finding("nit", true, 1),
         ];
+        assert_eq!(reasons(&v, "success", "me", &c, &p).0, "APPROVE");
+        // a pre-existing high issue is not this PR's to fix
+        v.findings = vec![finding("high", false, 1)];
         assert_eq!(reasons(&v, "success", "me", &c, &p).0, "APPROVE");
         let mut v = clean();
         v.approve_recommended = false;
@@ -736,6 +787,70 @@ pub mod tests {
             body.contains("Leaks the token · raised before") && !body.contains("<details>"),
             "{body}"
         );
+    }
+
+    #[test]
+    fn pre_existing_issues_get_no_line_comment_and_do_not_block() {
+        let valid = DiffLines::from([("a.py".to_string(), HashSet::from([3, 4]))]);
+        // the engine calls it the PR's own, but line 99 is outside the diff: pre-existing
+        let mut v = clean();
+        v.findings = vec![finding("high", true, 99), finding("medium", true, 4)];
+        scope(&mut v, &valid);
+        assert!(!v.findings[0].introduced_by_pr && v.findings[1].introduced_by_pr);
+        let p = pr("alice");
+        let c = Config::default();
+        assert_eq!(
+            decide(&c, &p, &v, "success", "me").1,
+            vec!["introduced_medium"]
+        );
+        // no diff to go by: the engine's word stands
+        let mut w = clean();
+        w.findings = vec![finding("high", true, 99)];
+        scope(&mut w, &DiffLines::new());
+        assert!(w.findings[0].introduced_by_pr);
+
+        // inside the diff but pre-existing by the engine's word, and outside the diff by the line
+        let mut v = clean();
+        let mut inside = finding("low", false, 3);
+        inside.title = "Old retry loop".into();
+        inside.body = "What happens
+
+Suggestion"
+            .into();
+        let mut outside = finding("high", true, 99);
+        outside.title = "Old token leak".into();
+        v.findings = vec![inside, outside, finding("medium", true, 4)];
+        for (lang, word) in [
+            ("en", "2 pre-existing issues"),
+            ("zh-CN", "顺带发现的老问题 2 条"),
+        ] {
+            let r = build_review(lang, &p, &v, "COMMENT", &[], &valid, None);
+            let comments = r["comments"].as_array().unwrap();
+            assert_eq!(comments.len(), 1, "{comments:?}");
+            assert_eq!(comments[0]["line"], 4);
+            let body = r["body"].as_str().unwrap();
+            assert!(
+                body.contains(&format!("<details><summary>{word}")),
+                "{body}"
+            );
+            assert!(
+                body.contains(
+                    "`a.py:3` Old retry loop
+
+  What happens
+
+  Suggestion"
+                ) && body.contains("`a.py:99` Old token leak"),
+                "{body}"
+            );
+            // not in the list of this PR's findings, nor as an outside-the-diff block
+            let (head, _) = body.split_once("<details>").unwrap();
+            assert!(!head.contains("Old "), "{body}");
+            assert!(
+                !body.contains("outside the diff") && !body.contains("不在 diff 内"),
+                "{body}"
+            );
+        }
     }
 
     #[test]

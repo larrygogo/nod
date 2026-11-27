@@ -3,6 +3,18 @@
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Reviews
+
+- Pre-existing issues no longer read as the author's: an issue the engine noticed in code this PR did not change gets
+  no comment on a line and is not in the PR's list of findings. All of them go into one folded block at the end of the
+  review ("N pre-existing issues noticed on the way"), and they no longer hold the approval, even a high one. An issue
+  on a line outside the diff counts as pre-existing whatever the engine said.
+- The engine reports a pre-existing issue only when this PR's feature hits it or it is high, not every problem it
+  happened to see while reading files; issues raised in earlier comments are carried over only when they relate to
+  the change.
+
 ## [0.1.2] - 2026-11-26
 
 ### Notifications
