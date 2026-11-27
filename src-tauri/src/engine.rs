@@ -632,7 +632,12 @@ impl Engine {
                 anyhow::bail!("aborted");
             }
             let disc = self.forge.discussion(pr).unwrap_or_default();
-            let v = self.reviewer.ask(&self.cfg, pr, &w, &ctx, &disc)?;
+            let mut v = self.reviewer.ask(&self.cfg, pr, &w, &ctx, &disc)?;
+            // What the engine called this PR's own but sits outside the diff is pre-existing: corrected before it is
+            // stored, so the approval rules, the review, the app and the notifications all see the same thing.
+            if let Ok(d) = self.forge.diff_lines(pr) {
+                review::scope(&mut v, &d);
+            }
             if aborted() {
                 anyhow::bail!("aborted");
             }
@@ -888,11 +893,12 @@ impl Engine {
             } else {
                 e.reviewed_at + self.cfg.review.ci_wait_max_min * 60.0
             };
-            // Only new issues are worth a review of their own now: ones raised before go with the approval.
+            // Only new issues of this PR are worth a review of their own now: ones raised before and pre-existing ones
+            // go with the approval.
             let anything_new = verdict
                 .findings
                 .iter()
-                .any(|f| review::raised_before(&f.title).is_none());
+                .any(|f| f.introduced_by_pr && review::raised_before(&f.title).is_none());
             if !commented && !self.cfg.dry_run && anything_new {
                 let body = review::build_review(
                     self.lang(),

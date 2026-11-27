@@ -1303,7 +1303,8 @@ mod tests {
         let (_d, wt, ctx) = setup(&diff);
         // a long description leaves no room for the diffs in the first message; each diff is one page
         let mut p = pr("alice");
-        p.body = "x".repeat(4000);
+        // padding tuned so the rest of the window holds one diff: shrink it when the review prompt grows
+        p.body = "x".repeat(3600);
         let v = Api
             .ask(&config(&f.url, 20), &p, &wt, &ctx, "", "GitHub")
             .unwrap();
@@ -1349,7 +1350,8 @@ mod tests {
         ]);
         let (_d, wt, ctx) = setup(&diff);
         let mut p = pr("alice");
-        p.body = "x".repeat(4000);
+        // padding tuned so the rest of the window holds one diff: shrink it when the review prompt grows
+        p.body = "x".repeat(3600);
         let v = Api
             .ask(&config(&f.url, 20), &p, &wt, &ctx, "", "GitHub")
             .unwrap();
